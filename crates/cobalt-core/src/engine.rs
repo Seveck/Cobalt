@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::enums::{
     DownloadPhase, EmbeddingProvider, EngineKind, EngineState, EngineSwapPhase, HardwareTier,
-    Quantization,
+    Pooling, Quantization,
 };
 use crate::ids::{Id, Timestamp};
 
@@ -22,6 +22,8 @@ pub struct EmbeddingModelSpec {
     pub quantization: Quantization,
     pub recommended_tier: HardwareTier,
     pub multilingual: bool,
+    /// Pooling applied to `last_hidden_state` (e5 = mean, bge = cls); output is L2-normalized.
+    pub pooling: Pooling,
     /// Hugging Face repository of the ONNX weights (e.g. `intfloat/multilingual-e5-small`).
     pub hf_repo: Option<String>,
     /// Prepended to search queries before embedding (`"query: "` for the e5 family).

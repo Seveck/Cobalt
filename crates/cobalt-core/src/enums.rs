@@ -177,6 +177,11 @@ string_enum! {
 }
 
 string_enum! {
+    /// Sentence-embedding pooling over the ONNX `last_hidden_state`.
+    pub enum Pooling { Mean => "mean", Cls => "cls" }
+}
+
+string_enum! {
     /// BPE encoding used by `tiktoken-rs`.
     pub enum TokenEncoding { Cl100kBase => "cl100k_base", O200kBase => "o200k_base" }
 }

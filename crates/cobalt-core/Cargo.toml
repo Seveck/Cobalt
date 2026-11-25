@@ -15,6 +15,35 @@ uuid.workspace = true
 chrono.workspace = true
 async-trait.workspace = true
 base64.workspace = true
+regex = "1"
+sha2 = "0.11"
+hex = { version = "0.4", optional = true }
+aes-gcm = "0.11"
+argon2 = "0.6"
+rand = "0.10"
+zeroize = "1"
+ignore = "0.4"
+tracing.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "process", "fs", "io-util", "macros", "net"] }
+# feature "hardware"
+sysinfo = { version = "0.40", optional = true }
+wgpu = { version = "30", optional = true, default-features = false, features = ["std", "parking_lot", "vulkan", "metal", "dx12", "gles"] }
+# feature "engines"
+reqwest = { version = "0.13", optional = true, default-features = false, features = ["rustls", "stream", "json", "http2", "system-proxy"] }
+futures-util = { version = "0.3", optional = true }
+flate2 = { version = "1", optional = true }
+tar = { version = "0.4", optional = true }
+zip = { version = "9", optional = true, default-features = false, features = ["deflate-flate2"] }
 
 [lints]
 workspace = true
+
+[features]
+default = []
+# Hardware profiler (sysinfo + wgpu). Enabled by src-tauri only.
+hardware = ["dep:sysinfo", "dep:wgpu"]
+# EngineManager: verified downloads + Qdrant sidecar. Enabled by src-tauri only.
+engines = ["dep:hex", "dep:reqwest", "dep:futures-util", "dep:flate2", "dep:tar", "dep:zip"]
+
+[dev-dependencies]
+tempfile = "3.27.0"

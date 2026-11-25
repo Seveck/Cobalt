@@ -1,0 +1,367 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "spec": {
+        "id": "multilingual-e5-small",
+        "provider": "fastembed",
+        "display_name": "Multilingual E5 Small (INT8)",
+        "dimensions": 384,
+        "size_bytes": 135392183,
+        "quantization": "int8",
+        "recommended_tier": "eco",
+        "multilingual": true,
+        "pooling": "mean",
+        "hf_repo": "Xenova/multilingual-e5-small",
+        "query_prefix": "query: ",
+        "document_prefix": "passage: "
+      },
+      "revision": "761b726dd34fb83930e26aab4e9ac3899aa1fa78",
+      "files": [
+        {
+          "id": "multilingual-e5-small/model.onnx",
+          "url": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78/onnx/model_quantized.onnx",
+          "sha256": "f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193",
+          "size_bytes": 118308185,
+          "relative_dest": "models/multilingual-e5-small/model.onnx",
+          "archive": null
+        },
+        {
+          "id": "multilingual-e5-small/tokenizer.json",
+          "url": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78/tokenizer.json",
+          "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+          "size_bytes": 17082730,
+          "relative_dest": "models/multilingual-e5-small/tokenizer.json",
+          "archive": null
+        },
+        {
+          "id": "multilingual-e5-small/config.json",
+          "url": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78/config.json",
+          "sha256": "cb99455288675345e1a4f411438d5d0adbba5fbd3a67ea4fb03c015433b996c1",
+          "size_bytes": 658,
+          "relative_dest": "models/multilingual-e5-small/config.json",
+          "archive": null
+        },
+        {
+          "id": "multilingual-e5-small/special_tokens_map.json",
+          "url": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78/special_tokens_map.json",
+          "sha256": "d05497f1da52c5e09554c0cd874037a083e1dc1b9cfd48034d1c717f1afc07a7",
+          "size_bytes": 167,
+          "relative_dest": "models/multilingual-e5-small/special_tokens_map.json",
+          "archive": null
+        },
+        {
+          "id": "multilingual-e5-small/tokenizer_config.json",
+          "url": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78/tokenizer_config.json",
+          "sha256": "a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b",
+          "size_bytes": 443,
+          "relative_dest": "models/multilingual-e5-small/tokenizer_config.json",
+          "archive": null
+        }
+      ]
+    },
+    {
+      "spec": {
+        "id": "multilingual-e5-base",
+        "provider": "fastembed",
+        "display_name": "Multilingual E5 Base (INT8)",
+        "dimensions": 768,
+        "size_bytes": 295731706,
+        "quantization": "int8",
+        "recommended_tier": "balanced",
+        "multilingual": true,
+        "pooling": "mean",
+        "hf_repo": "Xenova/multilingual-e5-base",
+        "query_prefix": "query: ",
+        "document_prefix": "passage: "
+      },
+      "revision": "1ec9243030a27d1a115d5c340572074c125b58b2",
+      "files": [
+        {
+          "id": "multilingual-e5-base/model.onnx",
+          "url": "https://huggingface.co/Xenova/multilingual-e5-base/resolve/1ec9243030a27d1a115d5c340572074c125b58b2/onnx/model_quantized.onnx",
+          "sha256": "df7a9a29309e3ad491e1783adf8baee710262cc06079c7cbab63c630277fac94",
+          "size_bytes": 278647662,
+          "relative_dest": "models/multilingual-e5-base/model.onnx",
+          "archive": null
+        },
+        {
+          "id": "multilingual-e5-base/tokenizer.json",
+          "url": "https://huggingface.co/Xenova/multilingual-e5-base/resolve/1ec9243030a27d1a115d5c340572074c125b58b2/tokenizer.json",
+          "sha256": "62c24cdc13d4c9952d63718d6c9fa4c287974249e16b7ade6d5a85e7bbb75626",
+          "size_bytes": 17082660,
+          "relative_dest": "models/multilingual-e5-base/tokenizer.json",
+          "archive": null
+        },
+        {
+          "id": "multilingual-e5-base/config.json",
+          "url": "https://huggingface.co/Xenova/multilingual-e5-base/resolve/1ec9243030a27d1a115d5c340572074c125b58b2/config.json",
+          "sha256": "4c27930e59106027abab56f7531c1fa6b14bbf31e8229ec36d68affa4e869bcd",
+          "size_bytes": 686,
+          "relative_dest": "models/multilingual-e5-base/config.json",
+          "archive": null
+        },
+        {
+          "id": "multilingual-e5-base/special_tokens_map.json",
+          "url": "https://huggingface.co/Xenova/multilingual-e5-base/resolve/1ec9243030a27d1a115d5c340572074c125b58b2/special_tokens_map.json",
+          "sha256": "06e405a36dfe4b9604f484f6a1e619af1a7f7d09e34a8555eb0b77b66318067f",
+          "size_bytes": 280,
+          "relative_dest": "models/multilingual-e5-base/special_tokens_map.json",
+          "archive": null
+        },
+        {
+          "id": "multilingual-e5-base/tokenizer_config.json",
+          "url": "https://huggingface.co/Xenova/multilingual-e5-base/resolve/1ec9243030a27d1a115d5c340572074c125b58b2/tokenizer_config.json",
+          "sha256": "efb5c0d09722e5fe59a462cd2a9976ee216d55b037597d997cd3fe833216da15",
+          "size_bytes": 418,
+          "relative_dest": "models/multilingual-e5-base/tokenizer_config.json",
+          "archive": null
+        }
+      ]
+    },
+    {
+      "spec": {
+        "id": "bge-m3",
+        "provider": "fastembed",
+        "display_name": "BGE-M3 (FP32)",
+        "dimensions": 1024,
+        "size_bytes": 2284513634,
+        "quantization": "fp32",
+        "recommended_tier": "ultra",
+        "multilingual": true,
+        "pooling": "cls",
+        "hf_repo": "Xenova/bge-m3",
+        "query_prefix": null,
+        "document_prefix": null
+      },
+      "revision": "4de13258303883538bd53b696b452bf8099f0858",
+      "files": [
+        {
+          "id": "bge-m3/model.onnx",
+          "url": "https://huggingface.co/Xenova/bge-m3/resolve/4de13258303883538bd53b696b452bf8099f0858/onnx/model.onnx",
+          "sha256": "5d89a0010dd39aa2cfa8b22bb49f06904c5bbf5877135f877da419480f40cde3",
+          "size_bytes": 607298,
+          "relative_dest": "models/bge-m3/model.onnx",
+          "archive": null
+        },
+        {
+          "id": "bge-m3/model.onnx_data",
+          "url": "https://huggingface.co/Xenova/bge-m3/resolve/4de13258303883538bd53b696b452bf8099f0858/onnx/model.onnx_data",
+          "sha256": "1eebfb28493f67bba03ce0ef64bfdc7fc5a3bd9d7493f818bb1d78cd798416b4",
+          "size_bytes": 2266820608,
+          "relative_dest": "models/bge-m3/model.onnx_data",
+          "archive": null
+        },
+        {
+          "id": "bge-m3/tokenizer.json",
+          "url": "https://huggingface.co/Xenova/bge-m3/resolve/4de13258303883538bd53b696b452bf8099f0858/tokenizer.json",
+          "sha256": "6710678b12670bc442b99edc952c4d996ae309a7020c1fa0096dd245c2faf790",
+          "size_bytes": 17082821,
+          "relative_dest": "models/bge-m3/tokenizer.json",
+          "archive": null
+        },
+        {
+          "id": "bge-m3/config.json",
+          "url": "https://huggingface.co/Xenova/bge-m3/resolve/4de13258303883538bd53b696b452bf8099f0858/config.json",
+          "sha256": "734a79bf12d388c1467a4e3ab625f45de7f6906cffcfb93a1eca1787504bed95",
+          "size_bytes": 770,
+          "relative_dest": "models/bge-m3/config.json",
+          "archive": null
+        },
+        {
+          "id": "bge-m3/special_tokens_map.json",
+          "url": "https://huggingface.co/Xenova/bge-m3/resolve/4de13258303883538bd53b696b452bf8099f0858/special_tokens_map.json",
+          "sha256": "8c785abebea9ae3257b61681b4e6fd8365ceafde980c21970d001e834cf10835",
+          "size_bytes": 964,
+          "relative_dest": "models/bge-m3/special_tokens_map.json",
+          "archive": null
+        },
+        {
+          "id": "bge-m3/tokenizer_config.json",
+          "url": "https://huggingface.co/Xenova/bge-m3/resolve/4de13258303883538bd53b696b452bf8099f0858/tokenizer_config.json",
+          "sha256": "7e4c1cc848840aeccdd763458c18dd525eb0f795c992e00ebe9c28554e7db2d4",
+          "size_bytes": 1173,
+          "relative_dest": "models/bge-m3/tokenizer_config.json",
+          "archive": null
+        }
+      ]
+    },
+    {
+      "spec": {
+        "id": "all-minilm-l6-v2",
+        "provider": "fastembed",
+        "display_name": "all-MiniLM-L6-v2 (INT8, English)",
+        "dimensions": 384,
+        "size_bytes": 23685172,
+        "quantization": "int8",
+        "recommended_tier": "eco",
+        "multilingual": false,
+        "pooling": "mean",
+        "hf_repo": "Xenova/all-MiniLM-L6-v2",
+        "query_prefix": null,
+        "document_prefix": null
+      },
+      "revision": "751bff37182d3f1213fa05d7196b954e230abad9",
+      "files": [
+        {
+          "id": "all-minilm-l6-v2/model.onnx",
+          "url": "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/751bff37182d3f1213fa05d7196b954e230abad9/onnx/model_quantized.onnx",
+          "sha256": "afdb6f1a0e45b715d0bb9b11772f032c399babd23bfc31fed1c170afc848bdb1",
+          "size_bytes": 22972370,
+          "relative_dest": "models/all-minilm-l6-v2/model.onnx",
+          "archive": null
+        },
+        {
+          "id": "all-minilm-l6-v2/tokenizer.json",
+          "url": "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/751bff37182d3f1213fa05d7196b954e230abad9/tokenizer.json",
+          "sha256": "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0",
+          "size_bytes": 711661,
+          "relative_dest": "models/all-minilm-l6-v2/tokenizer.json",
+          "archive": null
+        },
+        {
+          "id": "all-minilm-l6-v2/config.json",
+          "url": "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/751bff37182d3f1213fa05d7196b954e230abad9/config.json",
+          "sha256": "7135149f7cffa1a573466c6e4d8423ed73b62fd2332c575bf738a0d033f70df7",
+          "size_bytes": 650,
+          "relative_dest": "models/all-minilm-l6-v2/config.json",
+          "archive": null
+        },
+        {
+          "id": "all-minilm-l6-v2/special_tokens_map.json",
+          "url": "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/751bff37182d3f1213fa05d7196b954e230abad9/special_tokens_map.json",
+          "sha256": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+          "size_bytes": 125,
+          "relative_dest": "models/all-minilm-l6-v2/special_tokens_map.json",
+          "archive": null
+        },
+        {
+          "id": "all-minilm-l6-v2/tokenizer_config.json",
+          "url": "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/751bff37182d3f1213fa05d7196b954e230abad9/tokenizer_config.json",
+          "sha256": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3",
+          "size_bytes": 366,
+          "relative_dest": "models/all-minilm-l6-v2/tokenizer_config.json",
+          "archive": null
+        }
+      ]
+    },
+    {
+      "spec": {
+        "id": "bge-small-en-v1.5",
+        "provider": "fastembed",
+        "display_name": "BGE Small EN v1.5 (INT8, English)",
+        "dimensions": 384,
+        "size_bytes": 34726996,
+        "quantization": "int8",
+        "recommended_tier": "balanced",
+        "multilingual": false,
+        "pooling": "cls",
+        "hf_repo": "Xenova/bge-small-en-v1.5",
+        "query_prefix": null,
+        "document_prefix": null
+      },
+      "revision": "ea104dacec62c0de699686887e3f920caeb4f3e3",
+      "files": [
+        {
+          "id": "bge-small-en-v1.5/model.onnx",
+          "url": "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/ea104dacec62c0de699686887e3f920caeb4f3e3/onnx/model_quantized.onnx",
+          "sha256": "6c9c6101a956d62dfb5e7190c538226c0c5bb9cb27b651234b6df063ee7dbfe4",
+          "size_bytes": 34014426,
+          "relative_dest": "models/bge-small-en-v1.5/model.onnx",
+          "archive": null
+        },
+        {
+          "id": "bge-small-en-v1.5/tokenizer.json",
+          "url": "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/ea104dacec62c0de699686887e3f920caeb4f3e3/tokenizer.json",
+          "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+          "size_bytes": 711396,
+          "relative_dest": "models/bge-small-en-v1.5/tokenizer.json",
+          "archive": null
+        },
+        {
+          "id": "bge-small-en-v1.5/config.json",
+          "url": "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/ea104dacec62c0de699686887e3f920caeb4f3e3/config.json",
+          "sha256": "fa73f90bf92c8cace1fbcb709626306f2bdbc9ea3e5b5f94b440df9b6aa56350",
+          "size_bytes": 683,
+          "relative_dest": "models/bge-small-en-v1.5/config.json",
+          "archive": null
+        },
+        {
+          "id": "bge-small-en-v1.5/special_tokens_map.json",
+          "url": "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/ea104dacec62c0de699686887e3f920caeb4f3e3/special_tokens_map.json",
+          "sha256": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+          "size_bytes": 125,
+          "relative_dest": "models/bge-small-en-v1.5/special_tokens_map.json",
+          "archive": null
+        },
+        {
+          "id": "bge-small-en-v1.5/tokenizer_config.json",
+          "url": "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/ea104dacec62c0de699686887e3f920caeb4f3e3/tokenizer_config.json",
+          "sha256": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3",
+          "size_bytes": 366,
+          "relative_dest": "models/bge-small-en-v1.5/tokenizer_config.json",
+          "archive": null
+        }
+      ]
+    },
+    {
+      "spec": {
+        "id": "bge-large-en-v1.5",
+        "provider": "fastembed",
+        "display_name": "BGE Large EN v1.5 (FP32, English)",
+        "dimensions": 1024,
+        "size_bytes": 1337566887,
+        "quantization": "fp32",
+        "recommended_tier": "ultra",
+        "multilingual": false,
+        "pooling": "cls",
+        "hf_repo": "Xenova/bge-large-en-v1.5",
+        "query_prefix": null,
+        "document_prefix": null
+      },
+      "revision": "dfeef6070b90658e1b391a6940efdb0925c1de6f",
+      "files": [
+        {
+          "id": "bge-large-en-v1.5/model.onnx",
+          "url": "https://huggingface.co/Xenova/bge-large-en-v1.5/resolve/dfeef6070b90658e1b391a6940efdb0925c1de6f/onnx/model.onnx",
+          "sha256": "69ed3f810d3b6d13f70dff9ca89966f39c0a0e877fb88211be7bcc070df2a2ce",
+          "size_bytes": 1336854281,
+          "relative_dest": "models/bge-large-en-v1.5/model.onnx",
+          "archive": null
+        },
+        {
+          "id": "bge-large-en-v1.5/tokenizer.json",
+          "url": "https://huggingface.co/Xenova/bge-large-en-v1.5/resolve/dfeef6070b90658e1b391a6940efdb0925c1de6f/tokenizer.json",
+          "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+          "size_bytes": 711396,
+          "relative_dest": "models/bge-large-en-v1.5/tokenizer.json",
+          "archive": null
+        },
+        {
+          "id": "bge-large-en-v1.5/config.json",
+          "url": "https://huggingface.co/Xenova/bge-large-en-v1.5/resolve/dfeef6070b90658e1b391a6940efdb0925c1de6f/config.json",
+          "sha256": "7bd757258c7418221da95ff1853bae50ef5d1bee3e8c01a96611243a52aa7299",
+          "size_bytes": 719,
+          "relative_dest": "models/bge-large-en-v1.5/config.json",
+          "archive": null
+        },
+        {
+          "id": "bge-large-en-v1.5/special_tokens_map.json",
+          "url": "https://huggingface.co/Xenova/bge-large-en-v1.5/resolve/dfeef6070b90658e1b391a6940efdb0925c1de6f/special_tokens_map.json",
+          "sha256": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+          "size_bytes": 125,
+          "relative_dest": "models/bge-large-en-v1.5/special_tokens_map.json",
+          "archive": null
+        },
+        {
+          "id": "bge-large-en-v1.5/tokenizer_config.json",
+          "url": "https://huggingface.co/Xenova/bge-large-en-v1.5/resolve/dfeef6070b90658e1b391a6940efdb0925c1de6f/tokenizer_config.json",
+          "sha256": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3",
+          "size_bytes": 366,
+          "relative_dest": "models/bge-large-en-v1.5/tokenizer_config.json",
+          "archive": null
+        }
+      ]
+    }
+  ]
+}

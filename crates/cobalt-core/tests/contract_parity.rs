@@ -186,3 +186,11 @@ fn default_models_match_typescript() {
         );
     }
 }
+
+#[test]
+fn contract_versions_match() {
+    assert!(TS.contains(&format!(
+        "export const CONTRACT_VERSION = \"{}\";",
+        cobalt_core::CONTRACT_VERSION
+    )));
+}

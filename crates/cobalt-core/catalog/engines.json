@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "engines": [
+    {
+      "engine": "qdrant_sidecar",
+      "version": "v1.20.2",
+      "binaries": [
+        {
+          "target": "aarch64-apple-darwin",
+          "executable": "qdrant",
+          "artifact": {
+            "id": "qdrant-v1.20.2-aarch64-apple-darwin",
+            "url": "https://github.com/qdrant/qdrant/releases/download/v1.20.2/qdrant-aarch64-apple-darwin.tar.gz",
+            "sha256": "385b244e6283968b2be926358541b5bc19b9ada7ea9586e900684388bc912d5f",
+            "size_bytes": 29867039,
+            "relative_dest": "engines/qdrant/v1.20.2/qdrant-aarch64-apple-darwin.tar.gz",
+            "archive": "tar.gz"
+          }
+        },
+        {
+          "target": "x86_64-apple-darwin",
+          "executable": "qdrant",
+          "artifact": {
+            "id": "qdrant-v1.20.2-x86_64-apple-darwin",
+            "url": "https://github.com/qdrant/qdrant/releases/download/v1.20.2/qdrant-x86_64-apple-darwin.tar.gz",
+            "sha256": "73a6538ccccb892ec2c6fa3431faf1e73fba7eb2179079adbd0c65ae4c55bf6a",
+            "size_bytes": 33543107,
+            "relative_dest": "engines/qdrant/v1.20.2/qdrant-x86_64-apple-darwin.tar.gz",
+            "archive": "tar.gz"
+          }
+        },
+        {
+          "target": "x86_64-pc-windows-msvc",
+          "executable": "qdrant.exe",
+          "artifact": {
+            "id": "qdrant-v1.20.2-x86_64-pc-windows-msvc",
+            "url": "https://github.com/qdrant/qdrant/releases/download/v1.20.2/qdrant-x86_64-pc-windows-msvc.zip",
+            "sha256": "7a5290b9ef1b204b250a1626ddafec580647ba3cc62ba1630b3a8efdc2718b32",
+            "size_bytes": 32545356,
+            "relative_dest": "engines/qdrant/v1.20.2/qdrant-x86_64-pc-windows-msvc.zip",
+            "archive": "zip"
+          }
+        },
+        {
+          "target": "x86_64-unknown-linux-gnu",
+          "executable": "qdrant",
+          "artifact": {
+            "id": "qdrant-v1.20.2-x86_64-unknown-linux-gnu",
+            "url": "https://github.com/qdrant/qdrant/releases/download/v1.20.2/qdrant-x86_64-unknown-linux-gnu.tar.gz",
+            "sha256": "c5c2a4b32ab75b4f8725d068e5b352acabf4bc3ea965b18857504c9a2c1422ee",
+            "size_bytes": 35425601,
+            "relative_dest": "engines/qdrant/v1.20.2/qdrant-x86_64-unknown-linux-gnu.tar.gz",
+            "archive": "tar.gz"
+          }
+        }
+      ]
+    }
+  ]
+}

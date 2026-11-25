@@ -1,4 +1,7 @@
-# Cobalt — Frozen Contracts (v1.0.0)
+# Cobalt — Frozen Contracts (v1.1.0)
+
+> v1.1.0 (Phase 1, additive): `Pooling` enum and `EmbeddingModelSpec.pooling`; built-in pinned
+> catalog (`cobalt_core::catalog`) and model file layout `~/.cobalt/models/<model_id>/`.
 
 Owner: **[CLAUDE]**. Source of truth: `crates/cobalt-core/src/*` (Rust) and its exact mirror
 `src/types/contracts.ts` (TypeScript). This document explains them and freezes the SQL schema.
@@ -125,7 +128,9 @@ CREATE VIRTUAL TABLE memories_fts USING fts5(
 );
 -- Triggers memories_ai / memories_ad / memories_au keep it in sync (standard external-content
 -- pattern: INSERT; INSERT ... VALUES('delete', ...); delete+insert on UPDATE).
--- Encrypted rows have content = '' and therefore index nothing.
+-- Encrypted rows are never indexed: the triggers carry `WHEN is_encrypted = 0` and, after any
+-- 'rebuild', the same transaction must remove the entries of encrypted rows (rebuild would
+-- otherwise re-index their source_type/category). Search joins must also filter is_encrypted = 0.
 -- RULE: never run plain VACUUM without `INSERT INTO memories_fts(memories_fts) VALUES('rebuild')`
 -- right after (VACUUM may renumber implicit rowids). Snapshots use the online backup API.
 
@@ -285,6 +290,13 @@ selectable only in Pro mode (`PRO_ENGLISH_MODELS`). Defaults come from
 | Ultra | `bge-m3` | `BAAI/bge-m3` | 1024 | FP32 (GPU optional) | `qdrant_sidecar` | none |
 | Pro only | `all-minilm-l6-v2`, `bge-small-en-v1.5`, `bge-large-en-v1.5` | — | 384 / 384 / 1024 | INT8 / FP32 | any | none |
 
+- **Pooling**: e5 family = `mean` (attention-mask weighted), bge family = `cls`; always
+  L2-normalize. Declared in `EmbeddingModelSpec.pooling`.
+- **Model files** (downloaded and SHA-256-verified by the `EngineManager`, revision-pinned in
+  `crates/cobalt-core/catalog/models.json`): `~/.cobalt/models/<model_id>/model.onnx`
+  (+ `model.onnx_data` for bge-m3), `tokenizer.json`, `config.json`, `special_tokens_map.json`,
+  `tokenizer_config.json`. `cobalt-embeddings` loads them as a user-defined ONNX model and must
+  not download anything itself; use `catalog::Catalog::builtin().model(id)` for specs.
 - **Prefix rule (mandatory, inside the ONNX provider of `cobalt-embeddings`)**: for the e5
   family, `embed_query` prepends `"query: "` and `embed_documents` prepends `"passage: "`
   (`prefixes_for_model`, also exposed as `EmbeddingModelSpec.query_prefix/document_prefix`).

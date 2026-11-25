@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.0.0";
+export const CONTRACT_VERSION = "1.1.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -53,6 +53,7 @@ export type EngineKind = (typeof ENGINE_KINDS)[number];
 
 export type EmbeddingProvider = "fastembed" | "ollama";
 export type Quantization = "int8" | "fp16" | "fp32";
+export type Pooling = "mean" | "cls";
 export type TokenEncoding = "cl100k_base" | "o200k_base";
 
 export const LANGUAGES = ["es", "en"] as const;
@@ -604,6 +605,8 @@ export interface EmbeddingModelSpec {
   quantization: Quantization;
   recommended_tier: HardwareTier;
   multilingual: boolean;
+  /** Pooling over `last_hidden_state` (e5 = mean, bge = cls); output is L2-normalized. */
+  pooling: Pooling;
   hf_repo: string | null;
   /** `"query: "` for the e5 family. */
   query_prefix: string | null;
