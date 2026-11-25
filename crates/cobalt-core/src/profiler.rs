@@ -6,6 +6,9 @@
 //! - **Eco**: nominal RAM < 8 GiB, or fewer than 4 logical cores.
 //! - **Ultra**: nominal RAM > 16 GiB **and** a discrete GPU.
 //! - **Balanced**: everything else.
+//!
+//! Reason keys (i18n): `onboarding.reason.{low_ram, few_cores, balanced_ram, high_ram_gpu,
+//! no_discrete_gpu}`.
 
 use crate::catalog::Catalog;
 use crate::engine::{default_engine_for_tier, default_model_for_tier};
@@ -35,11 +38,11 @@ pub fn recommend_tier(
     } else if logical_cores < 4 {
         (HardwareTier::Eco, "onboarding.reason.few_cores")
     } else if ram > 16 && discrete {
-        (HardwareTier::Ultra, "onboarding.reason.ultra")
+        (HardwareTier::Ultra, "onboarding.reason.high_ram_gpu")
     } else if ram > 16 {
         (HardwareTier::Balanced, "onboarding.reason.no_discrete_gpu")
     } else {
-        (HardwareTier::Balanced, "onboarding.reason.balanced")
+        (HardwareTier::Balanced, "onboarding.reason.balanced_ram")
     }
 }
 

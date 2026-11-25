@@ -89,7 +89,9 @@
       "low_ram": "Prioritizing low memory footprint and instant startup on this machine.",
       "balanced_ram": "Your memory and CPU cores support richer multilingual embeddings smoothly.",
       "high_ram_gpu": "Your machine has ample headroom for the highest-precision multilingual model and dedicated engine.",
-      "default": "Profile automatically selected from your detected hardware."
+      "default": "Profile automatically selected from your detected hardware.",
+      "few_cores": "With fewer than 4 cores we prioritize the lightest profile to keep your machine responsive.",
+      "no_discrete_gpu": "You have plenty of RAM but no dedicated GPU, so Balanced gives the smoothest experience."
     },
     "download": {
       "queued": "Queued…",

@@ -89,7 +89,9 @@
       "low_ram": "Priorizamos bajo uso de memoria y arranque instantáneo en este equipo.",
       "balanced_ram": "Tu memoria y núcleos permiten embeddings multilingües más ricos sin sacrificar fluidez.",
       "high_ram_gpu": "Tu equipo tiene capacidad de sobra para el modelo multilingüe más preciso y motor dedicado.",
-      "default": "Perfil seleccionado automáticamente según tu hardware detectado."
+      "default": "Perfil seleccionado automáticamente según tu hardware detectado.",
+      "few_cores": "Con menos de 4 núcleos priorizamos el perfil más ligero para no frenar tu equipo.",
+      "no_discrete_gpu": "Tienes mucha RAM pero ninguna GPU dedicada, así que Balanceado da la mejor fluidez."
     },
     "download": {
       "queued": "En cola…",

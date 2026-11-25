@@ -53,6 +53,11 @@ pub fn default_model_spec(tier: HardwareTier) -> EmbeddingModelSpec {
         quantization,
         recommended_tier: tier,
         multilingual: true,
+        pooling: if tier == HardwareTier::Ultra {
+            cobalt_core::enums::Pooling::Cls
+        } else {
+            cobalt_core::enums::Pooling::Mean
+        },
         hf_repo: Some(repo.into()),
         query_prefix: query.map(str::to_owned),
         document_prefix: document.map(str::to_owned),
