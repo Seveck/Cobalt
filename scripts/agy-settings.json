@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "command(pnpm)",
+      "command(node)",
+      "command(git status)",
+      "command(git diff)",
+      "command(git log)",
+      "command(git show)",
+      "command(git add)",
+      "command(git commit)",
+      "command(git rev-parse)",
+      "command(ls)",
+      "command(cat)",
+      "command(head)",
+      "command(tail)",
+      "command(wc)",
+      "command(grep)",
+      "command(find)",
+      "command(mkdir)",
+      "command(mv)",
+      "command(pwd)"
+    ]
+  }
+}

@@ -6,7 +6,7 @@ React/TS/R3F. Targets Linux, Windows, macOS equally. Contracts: `docs/CONTRACTS.
 ## Ownership (exclusive — never read/modify outside your area unless listed)
 | Agent | Branch / worktree | Owns |
 |---|---|---|
-| [CLAUDE] orchestrator | `main` / `./` | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `TASKS.md`, `docs/`, `Cargo.toml` (root), `crates/cobalt-core`, `crates/cobalt-mcp`, `src-tauri/`, `src/types/contracts.ts` |
+| [CLAUDE] orchestrator | `main` / `./` | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `TASKS.md`, `docs/`, `scripts/`, `Cargo.toml` (root), `crates/cobalt-core`, `crates/cobalt-mcp`, `src-tauri/`, `src/types/contracts.ts` |
 | [CODEX] data/algorithms | `agent/codex` / `../cobalt-codex` | `crates/cobalt-store`, `crates/cobalt-embeddings`, `crates/cobalt-ingest` (+ their tests/benches) |
 | [GEMINI] frontend 3D | `agent/gemini` / `../cobalt-gemini` | `src/**` except `src/types/contracts.ts`; `index.html`, `quicknote.html`, `public/` |
 
@@ -27,6 +27,8 @@ React/TS/R3F. Targets Linux, Windows, macOS equally. Contracts: `docs/CONTRACTS.
 - TS: `strict`, no `any`, IPC only through `src/lib/ipc.ts` (`call`, `on`).
 - Commits: Conventional Commits (`feat(store): ...`), small and focused, on your branch only.
   Never push, never rebase/merge other branches, never touch `main`.
+- [CODEX] cannot commit (its sandbox makes `.git` read-only): leave changes uncommitted and end
+  with a summary + proposed commit message; [CLAUDE] verifies and commits on `agent/codex`.
 
 ## Verification (must pass before committing)
 - [CODEX]: `cargo fmt --all -- --check && cargo clippy -p cobalt-store -p cobalt-embeddings -p cobalt-ingest --all-targets -- -D warnings && cargo test -p cobalt-store -p cobalt-embeddings -p cobalt-ingest`
@@ -38,15 +40,14 @@ React/TS/R3F. Targets Linux, Windows, macOS equally. Contracts: `docs/CONTRACTS.
   `pnpm` 10.34.9, `git` 2.55.0, TypeScript 7.0, Vite 8, Tauri 2.x.
 - Low RAM: build with `CARGO_BUILD_JOBS=2` when running alongside other agents.
 
-## Headless agent commands (run by [CLAUDE] from `./`)
+## Headless agent commands (run by [CLAUDE] from `./`, always with stdin closed)
 ```bash
-# [CODEX] — codex-cli 0.169.0
-codex exec -C ../cobalt-codex -s workspace-write \
-  -c sandbox_workspace_write.network_access=true \
-  --add-dir "$HOME/.cargo" --add-dir "$PWD/.git" \
-  -o .agent-logs/phase-<N>-codex.last.md "<micro-prompt>" \
-  > .agent-logs/phase-<N>-codex.log 2>&1 &
-# [GEMINI] — Antigravity CLI `agy` (the installed Gemini agent; no `gemini` binary)
-(cd ../cobalt-gemini && agy -p "<micro-prompt>" --mode auto --output-format text) \
-  > .agent-logs/phase-<N>-gemini.log 2>&1 &
+# [CODEX] — codex-cli 0.169.0 (sandbox: worktree + ~/.cargo writable, network on, .git read-only)
+codex exec -C ../cobalt-codex -s workspace-write -c sandbox_workspace_write.network_access=true \
+  --add-dir "$HOME/.cargo" -o .agent-logs/phase-<N>-codex.last.md "<micro-prompt>" \
+  < /dev/null > .agent-logs/phase-<N>-codex.log 2>&1 &
+# [GEMINI] — Antigravity CLI `agy` (Gemini 4; no `gemini` binary; `--mode auto` unavailable on
+# this account, so shell commands are allow-listed per session in scripts/agy-settings.json)
+(cd ../cobalt-gemini && agy -p "<micro-prompt>" --settings "$PWD/scripts/agy-settings.json" \
+  --output-format text < /dev/null) > .agent-logs/phase-<N>-gemini.log 2>&1 &
 ```
