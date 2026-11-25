@@ -148,7 +148,19 @@ compatibility badge computed against the detected profile (`ThemeCompatibility`)
 - On theme or layout change, dispose every geometry, material, texture and render target
   created for the previous theme (no WebGL leaks).
 
+## 6.1 Node rendering & scalability (decision, Phase 2)
+
+Nodes are **flat, camera-facing sprites inside a 3D space** (billboards), not volumetric meshes:
+- Default `node_geometry.shape = "point"`: one `THREE.Points` (or one instanced quad) draw call with
+  a small fragment shader for the round disc, halo (Nuclear Laws) and pulse glow. No lighting.
+- Volumetric shapes (`sphere`, `icosahedron`, ...) are opt-in for themes on `balanced`/`ultra`
+  and must automatically fall back to points above 5,000 visible nodes.
+- Must stay fluid as the DB grows: GPU buffers updated in place (positions/colors/sizes as
+  attributes, filters = size 0), no per-node React components, labels only for hovered/selected
+  nodes, edges only on hover/selection in Eco, picking via a spatial index (not per-node raycasts).
+- Target: 50,000 nodes at 30 FPS in Eco on integrated GPUs.
+
 ## 7. Built-in theme
 
 `cobalt-minimal` (`src/themes/minimal/manifest.json`): `eco` tier, `galaxy` layout, default
-palette, sphere nodes, no custom shaders, no meshes. It cannot be uninstalled.
+palette, point-sprite nodes, no custom shaders, no meshes. It cannot be uninstalled.

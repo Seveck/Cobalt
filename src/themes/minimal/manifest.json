@@ -3,7 +3,7 @@
   "name": "Cobalt Minimal",
   "author": "Cobalt",
   "version": "1.0.0",
-  "description": "Built-in lightweight theme: instanced spheres on a deep-space background.",
+  "description": "Built-in lightweight theme: camera-facing point sprites on a deep-space background.",
   "hardware_tier": "eco",
   "layout_type": "galaxy",
   "layout_params": {
@@ -33,10 +33,23 @@
       "ocr": "#F97316"
     }
   },
-  "node_geometry": { "shape": "sphere", "base_size": 0.6, "scale_by_hits": true, "detail": 1 },
+  "node_geometry": {
+    "shape": "point",
+    "base_size": 0.6,
+    "scale_by_hits": true,
+    "detail": 1
+  },
   "camera": {
-    "position": [0, 40, 160],
-    "target": [0, 0, 0],
+    "position": [
+      0,
+      40,
+      160
+    ],
+    "target": [
+      0,
+      0,
+      0
+    ],
     "fov": 55,
     "auto_rotate": false,
     "auto_rotate_speed": 0.3

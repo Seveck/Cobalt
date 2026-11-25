@@ -44,6 +44,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 ## Fase 2 — Daemon, MCP, gobernanza y 3D polimórfico [PARALELO]
 - [ ] [CLAUDE] Single-Daemon + `--mcp-stdio`, MCP stdio/HTTP (7 herramientas), REST/WS + OpenAPI, Solo Lectura, Tray, `cobalt://mcp-activity`
 - [ ] [CODEX] Check-Before-Write, Leyes Nucleares, proyectos/reutilizables, Decay, Branches, Snapshots, duplicados, telemetría deduplicada, swap atómico
+- [ ] [GEMINI] Nodos como sprites planos orientados a cámara (`THREE.Points`, decisión de rendimiento, ver THEME_SPEC §6.1; objetivo 50k nodos a 30 FPS en Eco)
 - [ ] [GEMINI] 5 layouts + lerp, Dock de filtros, Modo Sináptico + HUD, Inspector, Depurador RAG, Time-Travel
 
 ## Fase 3 — Integración completa [PARALELO]
