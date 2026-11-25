@@ -128,10 +128,18 @@ mod detect {
     }
 
     async fn detect_gpus() -> Vec<GpuInfo> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let mut adapters = instance.enumerate_adapters(wgpu::Backends::PRIMARY).await;
+        // Only create the backends we query: a default instance also spins up EGL/GL, which is
+        // noisy and slow on some Linux drivers. GL is a last-resort fallback.
+        let instance_for = |backends: wgpu::Backends| {
+            let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+            desc.backends = backends;
+            wgpu::Instance::new(desc)
+        };
+        let primary = wgpu::Backends::PRIMARY;
+        let mut adapters = instance_for(primary).enumerate_adapters(primary).await;
         if adapters.is_empty() {
-            adapters = instance.enumerate_adapters(wgpu::Backends::GL).await;
+            let gl = wgpu::Backends::GL;
+            adapters = instance_for(gl).enumerate_adapters(gl).await;
         }
         let mut gpus: Vec<GpuInfo> = Vec::new();
         for adapter in adapters {
