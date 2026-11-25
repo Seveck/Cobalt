@@ -17,22 +17,24 @@ export function ConnectorsView() {
   }, []);
 
   return (
-    <div className="h-full overflow-y-auto p-6 lg:p-8">
+    <div className="h-full overflow-y-auto bg-void p-6 lg:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-semibold text-slate-100">{t("connectors.title")}</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+                {t("connectors.title")}
+              </h1>
               {isMocked && <MockBadge />}
             </div>
-            <p className="mt-1 text-sm text-slate-400">{t("connectors.subtitle")}</p>
+            <p className="mt-1.5 text-sm text-bone-muted">{t("connectors.subtitle")}</p>
           </div>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-400">
+          <span className="rounded-[2px] border border-rule bg-surface px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
             {t("shell.phasePreviewBadge")}
           </span>
-        </div>
+        </header>
 
-        <p className="rounded-xl border border-cobalt-500/20 bg-cobalt-900/25 px-4 py-3 text-xs text-slate-300">
+        <p className="rounded-[2px] border border-rule border-l-2 border-l-cobalt bg-surface px-4 py-3 text-xs text-bone-muted">
           {t("connectors.comingSoon")}
         </p>
 
@@ -40,24 +42,24 @@ export function ConnectorsView() {
           {connectors.map((connector) => (
             <div
               key={connector.client}
-              className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-cobalt-900/20 p-4"
+              className="flex items-center justify-between gap-3 rounded-[2px] border border-rule bg-surface p-4"
             >
               <div className="min-w-0">
-                <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
-                  <Plug size={14} className="text-cobalt-300" aria-hidden />
-                  <span className="font-mono">{connector.client}</span>
+                <div className="flex items-center gap-2 text-sm font-medium text-bone">
+                  <Plug size={14} className="shrink-0 text-cobalt-ink" aria-hidden />
+                  <span className="truncate font-mono">{connector.client}</span>
                 </div>
-                <div className="mt-1 truncate font-mono text-[11px] text-slate-400">
+                <div className="mt-1 truncate font-mono text-[11px] text-bone-subtle">
                   {connector.config_path ?? t("connectors.notDetected")}
                 </div>
               </div>
               <span
-                className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                className={`shrink-0 rounded-[2px] border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] ${
                   connector.connected
-                    ? "bg-emerald-500/15 text-emerald-300"
+                    ? "border-verdigris-rule bg-verdigris-wash text-verdigris"
                     : connector.detected
-                      ? "bg-white/10 text-slate-300"
-                      : "bg-white/5 text-slate-500"
+                      ? "border-rule-strong bg-surface-2 text-bone-muted"
+                      : "border-rule bg-void text-bone-subtle"
                 }`}
               >
                 {connector.connected

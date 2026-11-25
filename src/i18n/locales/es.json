@@ -3,6 +3,12 @@
     "name": "Cobalt",
     "tagline": "Tu segundo cerebro local, compartido por todas tus IAs"
   },
+  "languages": {
+    "es": "Español (ES)",
+    "en": "English (EN)",
+    "esShort": "ES",
+    "enShort": "EN"
+  },
   "nav": {
     "brain": "Cerebro 3D",
     "library": "Biblioteca",

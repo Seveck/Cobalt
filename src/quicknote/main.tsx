@@ -1,8 +1,9 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import QuickNote from "./QuickNote";
-import "../i18n";
+import "../styles/fonts";
 import "../index.css";
+import "../i18n";
+import QuickNote from "./QuickNote";
 
 const root = document.getElementById("root");
 if (!root) {

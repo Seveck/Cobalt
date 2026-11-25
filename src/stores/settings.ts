@@ -4,12 +4,12 @@ import { backendCall } from "@/lib/backend";
 import { createDefaultSettings } from "@/lib/format";
 import type { AppSettings, Language } from "@/types/contracts";
 
-function applyLanguageToDom(language: Language): void {
-  if (i18n.resolvedLanguage !== language) {
-    void i18n.changeLanguage(language);
-  }
+async function applyLanguageToDom(language: Language): Promise<void> {
   if (typeof document !== "undefined") {
     document.documentElement.lang = language;
+  }
+  if (i18n.resolvedLanguage !== language) {
+    await i18n.changeLanguage(language);
   }
 }
 
@@ -33,7 +33,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   loadSettings: async () => {
     try {
       const settings = await backendCall("get_settings");
-      applyLanguageToDom(settings.language);
+      await applyLanguageToDom(settings.language);
       set({ settings, loaded: true, error: null });
       return settings;
     } catch (err: unknown) {
@@ -47,7 +47,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ saving: true, error: null });
     try {
       const saved = await backendCall("update_settings", next);
-      applyLanguageToDom(saved.language);
+      await applyLanguageToDom(saved.language);
       set({ settings: saved, saving: false });
       return saved;
     } catch (err: unknown) {
@@ -63,7 +63,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   setLanguage: async (language) => {
-    applyLanguageToDom(language);
+    await applyLanguageToDom(language);
     const current = get().settings;
     if (current.language === language && get().loaded) return;
     await get().updateSettings({ ...current, language });

@@ -18,27 +18,29 @@ export function LibraryView() {
   }, [assets.length, loading, loadLibrary]);
 
   return (
-    <div className="h-full overflow-y-auto p-6 lg:p-8">
+    <div className="h-full overflow-y-auto bg-void p-6 lg:p-8">
       <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-semibold text-slate-100">{t("library.title")}</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+                {t("library.title")}
+              </h1>
               {isMockData && <MockBadge />}
             </div>
-            <p className="mt-1 text-sm text-slate-400">{t("library.subtitle")}</p>
+            <p className="mt-1.5 text-sm text-bone-muted">{t("library.subtitle")}</p>
           </div>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-400">
+          <span className="rounded-[2px] border border-rule bg-surface px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
             {t("shell.phasePreviewBadge")}
           </span>
-        </div>
+        </header>
 
-        <p className="rounded-xl border border-cobalt-500/20 bg-cobalt-900/25 px-4 py-3 text-xs text-slate-300">
+        <p className="rounded-[2px] border border-rule border-l-2 border-l-cobalt bg-surface px-4 py-3 text-xs text-bone-muted">
           {t("library.comingSoon")}
         </p>
 
         {assets.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-8 text-center text-sm text-slate-400">
+          <div className="rounded-[2px] border border-rule bg-surface p-8 text-center text-sm text-bone-muted">
             {t("library.empty")}
           </div>
         ) : (
@@ -46,27 +48,29 @@ export function LibraryView() {
             {assets.slice(0, 12).map((asset) => (
               <article
                 key={asset.memory_id}
-                className="rounded-xl border border-white/10 bg-cobalt-900/20 p-4"
+                className="rounded-[2px] border border-rule bg-surface p-4 transition-colors hover:border-rule-strong"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <div className="flex items-center gap-2 font-mono text-[11px] text-bone-muted">
                     <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: asset.origin_project_color ?? "#94A3B8" }}
+                      className="h-2 w-2 rounded-[1px]"
+                      style={{ backgroundColor: asset.origin_project_color ?? "#A4A096" }}
                     />
                     <span>{asset.origin_project_name ?? t("brain.globalScope")}</span>
                   </div>
-                  <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-slate-300">
+                  <span className="rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] uppercase text-bone-muted">
                     {asset.source_type}
                   </span>
                 </div>
-                <p className="mt-2 line-clamp-2 text-sm text-slate-100">{asset.summary}</p>
-                <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                  <span className="inline-flex items-center gap-1 text-violet-300">
+                <p className="mt-2.5 line-clamp-2 text-sm leading-relaxed text-bone">
+                  {asset.summary}
+                </p>
+                <div className="mt-3 flex items-center justify-between border-t border-rule pt-2.5 font-mono text-[11px] tabular-nums">
+                  <span className="inline-flex items-center gap-1 text-pulse-reuse">
                     <Repeat size={12} aria-hidden />
                     {t("library.reuses", { count: asset.reuse_count })}
                   </span>
-                  <span className="font-mono text-emerald-300">
+                  <span className="text-verdigris">
                     {t("library.tokensSaved", { count: asset.output_tokens_saved })}
                   </span>
                 </div>

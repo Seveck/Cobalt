@@ -1,6 +1,8 @@
+import { useId, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Cpu, Database, HardDrive, Sparkles } from "lucide-react";
+import { Check, Cpu, Database, HardDrive, Layers } from "lucide-react";
 import { estimateDownloadBytes, formatBytes } from "@/lib/format";
+import { Select, Toggle, type SelectOption } from "@/components/ui";
 import {
   DEFAULT_ENGINE_BY_TIER,
   DEFAULT_MODEL_BY_TIER,
@@ -43,10 +45,21 @@ export function HardwareConfigForm({
   onProModeChange,
 }: HardwareConfigFormProps) {
   const { t } = useTranslation();
+  const engineLabelId = useId();
+  const proModeLabelId = useId();
 
   const availableEngines: readonly EngineKind[] = proMode
     ? [...STANDARD_ENGINES, ...PRO_ENGINES]
     : STANDARD_ENGINES;
+
+  const engineOptions = useMemo<SelectOption<EngineKind>[]>(
+    () =>
+      availableEngines.map((eng) => ({
+        value: eng,
+        label: t(`engines.${eng}`),
+      })),
+    [availableEngines, t],
+  );
 
   const proEnglishSet = new Set<string>(PRO_ENGLISH_MODELS);
   const availableModels = models.filter((model) => {
@@ -76,11 +89,11 @@ export function HardwareConfigForm({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Tier selector */}
       <div>
-        <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-400">
-          <Cpu size={14} aria-hidden />
+        <div className="mb-2.5 flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+          <Cpu size={13} className="text-cobalt-ink" aria-hidden />
           {t("onboarding.tier")}
         </div>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
@@ -92,27 +105,28 @@ export function HardwareConfigForm({
                 key={option}
                 type="button"
                 disabled={disabled}
+                aria-pressed={active}
                 onClick={() => handleSelectTier(option)}
-                className={`flex flex-col items-start rounded-xl border p-3.5 text-left transition ${
+                className={`relative flex flex-col items-start rounded-[2px] border p-3.5 text-left transition-colors focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45 ${
                   active
-                    ? "border-cobalt-500 bg-cobalt-600/20 shadow-[0_0_0_1px_rgba(47,107,255,0.35)]"
-                    : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"
-                } disabled:cursor-not-allowed disabled:opacity-50`}
+                    ? "border-cobalt-rule border-t-2 border-t-cobalt bg-cobalt-wash text-bone"
+                    : "border-rule bg-void text-bone hover:border-rule-strong hover:bg-surface-2"
+                }`}
               >
                 <div className="flex w-full items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-slate-100">
+                  <span className="text-sm font-semibold text-bone">
                     {t(`tiers.${option}`)}
                   </span>
                   {isRecommended && (
-                    <span className="rounded-full bg-cobalt-500/25 px-2 py-0.5 text-[10px] font-medium text-cobalt-300">
+                    <span className="rounded-[2px] border border-ochre-rule bg-ochre-wash px-1.5 py-0.5 font-mono text-[9px] font-medium uppercase tracking-[0.1em] text-ochre">
                       {t("onboarding.recommendedBadge")}
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                <p className="mt-1.5 text-xs leading-relaxed text-bone-muted">
                   {t(`tiers.${option}Desc`)}
                 </p>
-                <div className="mt-2 font-mono text-[11px] text-slate-500">
+                <div className="mt-2.5 border-t border-rule/80 pt-2 font-mono text-[10px] text-bone-subtle">
                   {DEFAULT_ENGINE_BY_TIER[option]} · {DEFAULT_MODEL_BY_TIER[option]}
                 </div>
               </button>
@@ -121,61 +135,59 @@ export function HardwareConfigForm({
         </div>
       </div>
 
-      {/* Vector engine & Embedding model */}
+      {/* Vector engine & Download size */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <label className="flex flex-col gap-1.5">
-          <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-slate-400">
-            <Database size={14} aria-hidden />
+        <div className="flex flex-col gap-1.5">
+          <span
+            id={engineLabelId}
+            className="flex items-center gap-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-bone-subtle"
+          >
+            <Database size={13} className="text-cobalt-ink" aria-hidden />
             {t("onboarding.engine")}
           </span>
-          <select
-            disabled={disabled}
+          <Select<EngineKind>
             value={engine}
-            onChange={(e) => onEngineChange(e.target.value as EngineKind)}
-            className="rounded-lg border border-white/10 bg-void px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-cobalt-500 disabled:opacity-50"
-          >
-            {availableEngines.map((eng) => (
-              <option key={eng} value={eng}>
-                {t(`engines.${eng}`)}
-              </option>
-            ))}
-          </select>
-        </label>
+            options={engineOptions}
+            disabled={disabled}
+            ariaLabelledBy={engineLabelId}
+            className="w-full"
+            onChange={(nextEngine) => onEngineChange(nextEngine)}
+          />
+        </div>
 
         <div className="flex flex-col gap-1.5">
-          <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-slate-400">
-            <HardDrive size={14} aria-hidden />
+          <span className="flex items-center gap-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+            <HardDrive size={13} className="text-cobalt-ink" aria-hidden />
             {t("onboarding.downloadSize")}
           </span>
-          <div className="flex h-[42px] items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3">
-            <span className="font-mono text-sm font-semibold text-cobalt-300">
+          <div className="flex h-10 items-center justify-between gap-2 rounded-[2px] border border-rule bg-void px-3">
+            <span className="font-mono text-sm font-semibold tabular-nums text-verdigris">
               {formatBytes(downloadBytes)}
             </span>
-            <span className="text-xs text-slate-500">{modelId}</span>
+            <span className="truncate font-mono text-[11px] text-bone-subtle">{modelId}</span>
           </div>
         </div>
       </div>
 
-      {/* Model list */}
+      {/* Embedding model catalog */}
       <div>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-slate-400">
-            <Sparkles size={14} aria-hidden />
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <span className="flex items-center gap-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+            <Layers size={13} className="text-cobalt-ink" aria-hidden />
             {t("onboarding.model")}
           </span>
-          <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-slate-300">
-            <input
-              type="checkbox"
-              disabled={disabled}
+          <div className="inline-flex items-center gap-2.5 text-xs text-bone-muted">
+            <span id={proModeLabelId}>{t("onboarding.proModeLabel")}</span>
+            <Toggle
               checked={proMode}
-              onChange={(e) => handleToggleProMode(e.target.checked)}
-              className="h-3.5 w-3.5 accent-cobalt-500"
+              disabled={disabled}
+              ariaLabelledBy={proModeLabelId}
+              onChange={handleToggleProMode}
             />
-            {t("onboarding.proModeLabel")}
-          </label>
+          </div>
         </div>
 
-        <p className="mb-2.5 text-xs text-slate-500">{t("onboarding.proModeHint")}</p>
+        <p className="mb-3 text-xs text-bone-subtle">{t("onboarding.proModeHint")}</p>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {availableModels.map((model) => {
@@ -185,31 +197,30 @@ export function HardwareConfigForm({
                 key={model.id}
                 type="button"
                 disabled={disabled}
+                aria-pressed={selected}
                 onClick={() => onModelChange(model.id)}
-                className={`flex items-start justify-between gap-3 rounded-xl border p-3 text-left transition ${
+                className={`flex items-start justify-between gap-3 rounded-[2px] border p-3 text-left transition-colors focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45 ${
                   selected
-                    ? "border-cobalt-500 bg-cobalt-600/20"
-                    : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"
-                } disabled:cursor-not-allowed disabled:opacity-50`}
+                    ? "border-cobalt-rule border-l-2 border-l-cobalt bg-cobalt-wash text-bone"
+                    : "border-rule bg-void text-bone hover:border-rule-strong hover:bg-surface-2"
+                }`}
               >
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-medium text-slate-100">
-                      {model.display_name}
-                    </span>
+                  <div className="truncate text-sm font-medium text-bone">
+                    {model.display_name}
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
-                    <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+                    <span className="rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 text-bone-muted">
                       {t("onboarding.dims", { dims: model.dimensions })}
                     </span>
-                    <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono uppercase">
+                    <span className="rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 uppercase text-bone-muted">
                       {model.quantization}
                     </span>
                     <span
-                      className={`rounded px-1.5 py-0.5 font-medium ${
+                      className={`rounded-[2px] border px-1.5 py-0.5 font-medium ${
                         model.multilingual
-                          ? "bg-emerald-500/15 text-emerald-300"
-                          : "bg-amber-500/15 text-amber-300"
+                          ? "border-verdigris-rule bg-verdigris-wash text-verdigris"
+                          : "border-ochre-rule bg-ochre-wash text-ochre"
                       }`}
                     >
                       {model.multilingual
@@ -219,10 +230,10 @@ export function HardwareConfigForm({
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
-                  <span className="font-mono text-xs text-slate-300">
+                  <span className="font-mono text-xs tabular-nums text-bone-muted">
                     {formatBytes(model.size_bytes)}
                   </span>
-                  {selected && <Check size={14} className="text-cobalt-300" aria-hidden />}
+                  {selected && <Check size={14} className="text-cobalt-ink" aria-hidden />}
                 </div>
               </button>
             );

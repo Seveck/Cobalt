@@ -1,3 +1,4 @@
+import { detectOsLanguage } from "@/i18n";
 import {
   BUILTIN_THEME_ID,
   DEFAULT_ENGINE_BY_TIER,
@@ -78,7 +79,7 @@ export function createDefaultSettings(): AppSettings {
     vector_engine: DEFAULT_ENGINE_BY_TIER.eco,
     embedding_model_id: DEFAULT_MODEL_BY_TIER.eco,
     token_encoding: "cl100k_base",
-    language: "es",
+    language: detectOsLanguage(),
     active_theme_id: BUILTIN_THEME_ID,
     read_only: false,
     pro_mode: false,

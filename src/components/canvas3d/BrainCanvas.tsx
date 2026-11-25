@@ -123,8 +123,8 @@ export function BrainCanvas() {
 
   const fallbackView = (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-6 text-center">
-      <h2 className="text-base font-semibold text-slate-200">{t("brain.webglFallbackTitle")}</h2>
-      <p className="max-w-sm text-xs text-slate-400">{t("brain.webglFallbackDesc")}</p>
+      <h2 className="font-display text-lg font-medium text-bone">{t("brain.webglFallbackTitle")}</h2>
+      <p className="max-w-sm text-xs text-bone-muted">{t("brain.webglFallbackDesc")}</p>
     </div>
   );
 
@@ -136,24 +136,24 @@ export function BrainCanvas() {
       className="relative h-full w-full overflow-hidden select-none"
       style={{ backgroundColor: manifest.palette.background }}
     >
-      {/* Top-left HUD */}
-      <div className="pointer-events-none absolute top-4 left-4 z-10 flex flex-wrap items-center gap-2">
+      {/* Top-left technical HUD strip */}
+      <div className="pointer-events-none absolute top-4 left-4 z-10 flex flex-wrap items-center gap-1.5">
         {graph && (
-          <>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-void/80 px-3 py-1 text-xs font-medium text-slate-200 backdrop-blur">
-              <GitBranch size={12} className="text-cobalt-300" aria-hidden />
+          <div className="inline-flex items-center divide-x divide-rule rounded-[2px] border border-rule-strong bg-surface/95 font-mono text-[11px]">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-bone">
+              <GitBranch size={12} className="text-cobalt-ink" aria-hidden />
               {graph.branch.name}
             </span>
-            <span className="rounded-full border border-white/10 bg-void/80 px-3 py-1 font-mono text-xs text-slate-300 backdrop-blur">
+            <span className="px-2.5 py-1 tabular-nums text-bone-muted">
               {t("brain.nodesCount", { count: graph.nodes.length })}
             </span>
-            <span className="rounded-full border border-white/10 bg-void/80 px-3 py-1 font-mono text-xs text-slate-400 backdrop-blur">
+            <span className="px-2.5 py-1 tabular-nums text-bone-subtle">
               {t("brain.projectsCount", { count: graph.projects.length })}
             </span>
-          </>
+          </div>
         )}
 
-        <span className="rounded-full border border-cobalt-500/30 bg-cobalt-900/70 px-3 py-1 text-xs font-medium text-cobalt-300 backdrop-blur">
+        <span className="rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-2.5 py-1 font-mono text-[11px] font-medium text-cobalt-ink">
           {t(fpsBadgeKey)}
         </span>
 
@@ -165,9 +165,9 @@ export function BrainCanvas() {
         <button
           type="button"
           onClick={() => setResetSignal((n) => n + 1)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-void/80 px-3 py-1.5 text-xs font-medium text-slate-200 backdrop-blur transition hover:border-white/25 hover:bg-white/10"
+          className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-1.5 font-mono text-[11px] font-medium text-bone transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
         >
-          <RotateCcw size={13} aria-hidden />
+          <RotateCcw size={12} aria-hidden />
           {t("brain.resetCamera")}
         </button>
       </div>
@@ -221,25 +221,26 @@ export function BrainCanvas() {
       )}
 
       {/* Bottom-left minimal palette legend */}
-      <div className="pointer-events-none absolute bottom-4 left-4 z-10 hidden items-center gap-3 rounded-xl border border-white/10 bg-void/75 px-3 py-2 text-[11px] text-slate-300 backdrop-blur sm:flex">
-        <span className="font-medium text-slate-400">{manifest.name}</span>
+      <div className="pointer-events-none absolute bottom-4 left-4 z-10 hidden items-center gap-3 rounded-[2px] border border-rule bg-surface/95 px-3 py-1.5 font-mono text-[10px] text-bone-muted sm:flex">
+        <span className="uppercase tracking-[0.12em] text-bone-subtle">{manifest.name}</span>
+        <span className="h-3 w-px bg-rule" aria-hidden />
         <span className="inline-flex items-center gap-1.5">
           <span
-            className="h-2 w-2 rounded-full"
+            className="h-2 w-2 rounded-[1px]"
             style={{ backgroundColor: manifest.palette.core_pin }}
           />
           {t("brain.corePin")}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span
-            className="h-2 w-2 rounded-full"
+            className="h-2 w-2 rounded-[1px]"
             style={{ backgroundColor: manifest.palette.reusable }}
           />
           {t("brain.reusable")}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span
-            className="h-2 w-2 rounded-full"
+            className="h-2 w-2 rounded-[1px]"
             style={{ backgroundColor: manifest.palette.node }}
           />
           {t("categories.decision")}
@@ -247,7 +248,7 @@ export function BrainCanvas() {
       </div>
 
       {/* Bottom-right hint */}
-      <div className="pointer-events-none absolute right-4 bottom-4 z-10 rounded-lg border border-white/10 bg-void/70 px-3 py-1.5 text-[11px] text-slate-400 backdrop-blur">
+      <div className="pointer-events-none absolute right-4 bottom-4 z-10 rounded-[2px] border border-rule bg-surface/95 px-3 py-1.5 font-mono text-[10px] text-bone-subtle">
         {t("brain.hoverHint")}
       </div>
     </div>

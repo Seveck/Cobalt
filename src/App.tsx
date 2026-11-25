@@ -14,6 +14,7 @@ import { ConnectorsView } from "@/components/connectors/ConnectorsView";
 import { LibraryView } from "@/components/library/LibraryView";
 import { OnboardingScreen } from "@/components/onboarding";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { CobaltMark } from "@/components/shell/CobaltMark";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { ThemeStoreView } from "@/components/store/ThemeStoreView";
 import { TelemetryView } from "@/components/telemetry/TelemetryView";
@@ -71,9 +72,12 @@ export default function App() {
 
   if (!settingsLoaded) {
     return (
-      <div className="flex h-full w-full items-center justify-center gap-2 bg-void text-sm text-slate-400">
-        <Loader2 size={16} className="animate-spin text-cobalt-300" aria-hidden />
-        <span>{t("shell.loading")}</span>
+      <div className="cobalt-grid-bg flex h-full w-full flex-col items-center justify-center gap-3 text-xs text-bone-muted">
+        <CobaltMark size={26} />
+        <div className="flex items-center gap-2 font-mono uppercase tracking-[0.14em]">
+          <Loader2 size={13} className="animate-spin text-cobalt-ink" aria-hidden />
+          <span>{t("shell.loading")}</span>
+        </div>
       </div>
     );
   }
@@ -83,9 +87,9 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-void text-slate-100">
+    <div className="flex h-full w-full overflow-hidden bg-void text-bone">
       <Sidebar />
-      <main className="relative flex-1 overflow-hidden">
+      <main className="relative flex-1 overflow-hidden bg-void">
         {activeNav === "brain" && <BrainCanvas />}
         {activeNav === "library" && <LibraryView />}
         {activeNav === "telemetry" && <TelemetryView />}
