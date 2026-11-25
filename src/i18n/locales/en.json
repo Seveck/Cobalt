@@ -3,6 +3,12 @@
     "name": "Cobalt",
     "tagline": "Your local second brain, shared by all your AIs"
   },
+  "languages": {
+    "es": "Español (ES)",
+    "en": "English (EN)",
+    "esShort": "ES",
+    "enShort": "EN"
+  },
   "nav": {
     "brain": "3D Brain",
     "library": "Library",

@@ -1,37 +1,119 @@
 @import "tailwindcss";
 
 @theme {
-  --color-cobalt-50: #eef4ff;
-  --color-cobalt-100: #dbe7ff;
-  --color-cobalt-300: #8fb3ff;
-  --color-cobalt-500: #2f6bff;
-  --color-cobalt-600: #0047ab;
-  --color-cobalt-700: #00388a;
-  --color-cobalt-900: #0a1633;
-  --color-void: #05070d;
+  /* Obsidian canvas & stepped architectural surfaces */
+  --color-void: #0b0c0e;
+  --color-surface: #111317;
+  --color-surface-2: #171a21;
+  --color-surface-3: #1f232c;
+
+  /* Warm off-white ("bone") archival ink scale */
+  --color-bone: #ece9e1;
+  --color-bone-muted: #a4a096;
+  --color-bone-subtle: #6f6c65;
+
+  /* Structural hairline rules */
+  --color-rule: #23262f;
+  --color-rule-strong: #363c4a;
+
+  /* Mineral Cobalt pigment + dark-canvas legibility tokens */
+  --color-cobalt: #0047ab;
+  --color-cobalt-bright: #1c5ed6;
+  --color-cobalt-ink: #79a8ff;
+  --color-cobalt-wash: #0f1c35;
+  --color-cobalt-rule: #254d99;
+
+  /* Single restrained accent: warm ochre / brass */
+  --color-ochre: #d4a359;
+  --color-ochre-wash: #231c10;
+  --color-ochre-rule: #664c22;
+
+  /* Semantic status colors */
+  --color-verdigris: #34b37e;
+  --color-verdigris-wash: #0e221a;
+  --color-verdigris-rule: #1f5c42;
+  --color-cinnabar: #e05252;
+  --color-cinnabar-wash: #261214;
+  --color-cinnabar-rule: #6e2729;
+
+  /* Contract pulse colors */
   --color-pulse-read: #0047ab;
-  --color-pulse-reuse: #8b5cf6;
-  --color-pulse-write: #10b981;
-  --color-pulse-update: #f59e0b;
-  --color-pulse-blocked: #ef4444;
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --color-pulse-reuse: #9b87f5;
+  --color-pulse-write: #34b37e;
+  --color-pulse-update: #d4a359;
+  --color-pulse-blocked: #e05252;
+
+  /* Typography pairing (bundled locally via @fontsource) */
+  --font-display: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
-html,
-body,
-#root {
-  height: 100%;
+:root {
+  color-scheme: dark;
 }
 
-body {
-  margin: 0;
-  background: var(--color-void);
-  color: #e2e8f0;
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  html {
+    color-scheme: dark;
+    background-color: var(--color-void);
+    color: var(--color-bone);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-void);
+    color: var(--color-bone);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body.quicknote {
+    background-color: transparent;
+  }
+
+  /* Prevent WebKitGTK / GTK light-theme widget chrome from bleeding onto controls */
+  button,
+  input,
+  textarea,
+  select {
+    font-family: inherit;
+    color: inherit;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  button {
+    background-color: transparent;
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-rule-strong) var(--color-void);
+  }
+
+  ::selection {
+    background-color: var(--color-cobalt);
+    color: var(--color-bone);
+  }
 }
 
-body.quicknote {
-  background: transparent;
+.cobalt-grid-bg {
+  background-color: var(--color-void);
+  background-image:
+    linear-gradient(to right, rgba(236, 233, 225, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(236, 233, 225, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
 }

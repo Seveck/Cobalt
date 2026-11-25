@@ -17,56 +17,58 @@ export function ThemeStoreView() {
   ];
 
   return (
-    <div className="h-full overflow-y-auto p-6 lg:p-8">
+    <div className="h-full overflow-y-auto bg-void p-6 lg:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-semibold text-slate-100">{t("store.title")}</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+                {t("store.title")}
+              </h1>
               {isMockData && <MockBadge />}
             </div>
-            <p className="mt-1 text-sm text-slate-400">{t("store.subtitle")}</p>
+            <p className="mt-1.5 text-sm text-bone-muted">{t("store.subtitle")}</p>
           </div>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-400">
+          <span className="rounded-[2px] border border-rule bg-surface px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
             {t("shell.phasePreviewBadge")}
           </span>
-        </div>
+        </header>
 
-        <p className="rounded-xl border border-cobalt-500/20 bg-cobalt-900/25 px-4 py-3 text-xs text-slate-300">
+        <p className="rounded-[2px] border border-rule border-l-2 border-l-cobalt bg-surface px-4 py-3 text-xs text-bone-muted">
           {t("store.comingSoon")}
         </p>
 
-        <div className="rounded-2xl border border-cobalt-500/40 bg-cobalt-900/30 p-5">
+        <div className="rounded-[2px] border border-cobalt-rule border-t-2 border-t-cobalt bg-surface p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
-                <Palette size={16} className="text-cobalt-300" aria-hidden />
-                <h2 className="text-base font-semibold text-slate-100">{manifest.name}</h2>
-                <span className="rounded bg-white/10 px-2 py-0.5 font-mono text-[11px] text-slate-300">
+                <Palette size={15} className="text-cobalt-ink" aria-hidden />
+                <h2 className="font-display text-lg font-medium text-bone">{manifest.name}</h2>
+                <span className="rounded-[2px] border border-rule bg-void px-2 py-0.5 font-mono text-[10px] text-bone-muted">
                   v{manifest.version}
                 </span>
               </div>
               {manifest.description && (
-                <p className="mt-1.5 text-xs text-slate-400">{manifest.description}</p>
+                <p className="mt-1.5 text-xs text-bone-muted">{manifest.description}</p>
               )}
-              <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3.5 flex items-center gap-1.5">
                 {swatches.map((hex, index) => (
                   <span
                     key={`${hex}-${index}`}
                     title={hex}
-                    className="h-5 w-5 rounded-full border border-white/20"
+                    className="h-5 w-5 rounded-[2px] border border-rule-strong"
                     style={{ backgroundColor: hex }}
                   />
                 ))}
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-slate-300">
+            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em]">
+              <span className="rounded-[2px] border border-rule bg-void px-2.5 py-1 text-bone-muted">
                 {t("store.builtin")}
               </span>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-medium text-emerald-300">
-                <Check size={12} aria-hidden />
+              <span className="inline-flex items-center gap-1 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2.5 py-1 font-medium text-verdigris">
+                <Check size={11} aria-hidden />
                 {t("store.active")}
               </span>
             </div>

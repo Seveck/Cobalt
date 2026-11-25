@@ -41,47 +41,47 @@ export function NodeTooltip({
   return (
     <div
       style={{ transform: `translate3d(${left}px, ${top}px, 0)` }}
-      className="pointer-events-none absolute top-0 left-0 z-20 w-72 rounded-xl border border-white/15 bg-void/95 p-3 shadow-2xl backdrop-blur-md"
+      className="pointer-events-none absolute top-0 left-0 z-20 w-72 rounded-[2px] border border-rule-strong border-t-2 border-t-cobalt bg-surface p-3 shadow-[0_12px_32px_rgba(0,0,0,0.72)]"
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{ backgroundColor: project?.color_hex ?? "#94A3B8" }}
+            className="h-2 w-2 shrink-0 rounded-[1px]"
+            style={{ backgroundColor: project?.color_hex ?? "#A4A096" }}
           />
-          <span className="truncate text-xs font-medium text-slate-300">
+          <span className="truncate font-mono text-[11px] font-medium text-bone-muted">
             {project ? project.name : t("brain.globalScope")}
           </span>
         </div>
 
-        <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-slate-300">
+        <span className="shrink-0 rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] uppercase text-bone-muted">
           {node.source_type}
         </span>
       </div>
 
-      <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-100">{node.preview}</p>
+      <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-bone">{node.preview}</p>
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[10px]">
-        <span className="rounded bg-cobalt-600/30 px-1.5 py-0.5 font-medium text-cobalt-300">
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+        <span className="rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-1.5 py-0.5 font-medium text-cobalt-ink">
           {t(`categories.${node.category}`)}
         </span>
 
         {node.is_core_pin && (
-          <span className="inline-flex items-center gap-1 rounded bg-amber-400/20 px-1.5 py-0.5 font-medium text-amber-300">
+          <span className="inline-flex items-center gap-1 rounded-[2px] border border-ochre-rule bg-ochre-wash px-1.5 py-0.5 font-medium text-ochre">
             <Pin size={10} aria-hidden />
             {t("brain.corePin")}
           </span>
         )}
 
         {node.is_reusable && (
-          <span className="inline-flex items-center gap-1 rounded bg-violet-500/20 px-1.5 py-0.5 font-medium text-violet-300">
+          <span className="inline-flex items-center gap-1 rounded-[2px] border border-pulse-reuse/40 bg-pulse-reuse/15 px-1.5 py-0.5 font-medium text-pulse-reuse">
             <Repeat size={10} aria-hidden />
             {t("brain.reusable")}
           </span>
         )}
       </div>
 
-      <div className="mt-2 flex items-center justify-between border-t border-white/10 pt-2 font-mono text-[10px] text-slate-400">
+      <div className="mt-2.5 flex items-center justify-between border-t border-rule pt-2 font-mono text-[10px] tabular-nums text-bone-subtle">
         <span>{t("brain.hits", { count: node.hit_count })}</span>
         <span>{t("brain.tokens", { count: node.chunk_tokens })}</span>
         <span>{t("brain.confidence", { value: Math.round(node.confidence * 100) })}</span>

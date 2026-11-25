@@ -10,7 +10,7 @@ export function MockBadge({ className = "" }: MockBadgeProps) {
   return (
     <span
       title={t("shell.mockTooltip")}
-      className={`inline-flex items-center rounded border border-amber-400/40 bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-amber-300 ${className}`}
+      className={`inline-flex items-center rounded-[2px] border border-ochre-rule bg-ochre-wash px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ochre ${className}`}
     >
       {t("shell.mockBadge")}
     </span>
