@@ -1,6 +1,7 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  ArrowLeft,
   Check,
   Cpu,
   Download,
@@ -11,7 +12,12 @@ import {
 } from "lucide-react";
 import { SUPPORTED_LANGUAGES } from "@/i18n";
 import { isCommandMocked } from "@/lib/backend";
-import { estimateDownloadBytes, formatBytes, formatRamGb } from "@/lib/format";
+import {
+  estimateDownloadBytes,
+  formatBytes,
+  formatRamGb,
+  isEngineModelInstalled,
+} from "@/lib/format";
 import { useHardwareStore, useSettingsStore, useUiStore } from "@/stores";
 import { CobaltMark } from "@/components/shell/CobaltMark";
 import { MockBadge } from "@/components/shell/MockBadge";
@@ -31,31 +37,83 @@ export function OnboardingScreen() {
   const langLabelId = useId();
   const profile = useHardwareStore((s) => s.profile);
   const models = useHardwareStore((s) => s.models);
+  const engineStatus = useHardwareStore((s) => s.engineStatus);
   const downloadProgress = useHardwareStore((s) => s.downloadProgress);
   const isInstalling = useHardwareStore((s) => s.isInstalling);
   const isCancelling = useHardwareStore((s) => s.isCancelling);
   const error = useHardwareStore((s) => s.error);
+  const loadProfile = useHardwareStore((s) => s.loadProfile);
+  const loadEngineStatus = useHardwareStore((s) => s.loadEngineStatus);
   const installEngine = useHardwareStore((s) => s.installEngine);
   const cancelDownload = useHardwareStore((s) => s.cancelDownload);
+  const setDownloadProgress = useHardwareStore((s) => s.setDownloadProgress);
   const clearError = useHardwareStore((s) => s.clearError);
 
   const settings = useSettingsStore((s) => s.settings);
+  const saving = useSettingsStore((s) => s.saving);
   const patchSettings = useSettingsStore((s) => s.patchSettings);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
+
+  const showOnboardingOverride = useUiStore((s) => s.showOnboardingOverride);
+  const setActiveNav = useUiStore((s) => s.setActiveNav);
   const setShowOnboardingOverride = useUiStore((s) => s.setShowOnboardingOverride);
 
+  const canGoBack = settings.onboarding_completed && showOnboardingOverride;
+
   const [customizing, setCustomizing] = useState(false);
-  const [selectedTier, setSelectedTier] = useState<HardwareTier>("eco");
-  const [selectedEngine, setSelectedEngine] = useState<EngineKind>(DEFAULT_ENGINE_BY_TIER.eco);
-  const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_MODEL_BY_TIER.eco);
+  const [selectedTier, setSelectedTier] = useState<HardwareTier>(
+    () => profile?.recommendation.tier ?? settings.hardware_tier,
+  );
+  const [selectedEngine, setSelectedEngine] = useState<EngineKind>(
+    () => profile?.recommendation.engine ?? settings.vector_engine,
+  );
+  const [selectedModelId, setSelectedModelId] = useState<string>(
+    () => profile?.recommendation.model_id ?? settings.embedding_model_id,
+  );
   const [proMode, setProMode] = useState(settings.pro_mode);
+  const selectionSyncedRef = useRef(profile !== null);
 
   useEffect(() => {
-    if (!profile) return;
+    if (!profile || selectionSyncedRef.current) return;
+    selectionSyncedRef.current = true;
     setSelectedTier(profile.recommendation.tier);
     setSelectedEngine(profile.recommendation.engine);
     setSelectedModelId(profile.recommendation.model_id);
   }, [profile]);
+
+  useEffect(() => {
+    if (!canGoBack) return;
+    const hwState = useHardwareStore.getState();
+    if (hwState.isInstalling) return;
+    clearError();
+    if (
+      hwState.downloadProgress?.phase === "completed" ||
+      hwState.downloadProgress?.phase === "cancelled"
+    ) {
+      setDownloadProgress(null);
+    }
+    void loadEngineStatus();
+    void loadProfile();
+  }, [canGoBack, clearError, loadEngineStatus, loadProfile, setDownloadProgress]);
+
+  const handleBack = useCallback(() => {
+    if (!canGoBack || isInstalling || saving) return;
+    clearError();
+    setActiveNav("settings");
+    setShowOnboardingOverride(false);
+  }, [canGoBack, clearError, isInstalling, saving, setActiveNav, setShowOnboardingOverride]);
+
+  useEffect(() => {
+    if (!canGoBack) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (isInstalling || saving) return;
+      event.preventDefault();
+      handleBack();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canGoBack, handleBack, isInstalling, saving]);
 
   const languageOptions = useMemo<SelectOption<Language>[]>(
     () =>
@@ -78,29 +136,53 @@ export function OnboardingScreen() {
   const activeTier = customizing ? selectedTier : recommendedTier;
   const activeEngine = customizing ? selectedEngine : recommendedEngine;
   const activeModel = customizing ? selectedModelId : recommendedModel;
-  const exactDownloadBytes = estimateDownloadBytes(activeEngine, activeModel, models, profile);
+  const isAlreadyInstalled = isEngineModelInstalled(
+    activeEngine,
+    activeModel,
+    engineStatus,
+    profile,
+  );
+  const exactDownloadBytes = estimateDownloadBytes(
+    activeEngine,
+    activeModel,
+    models,
+    profile,
+    engineStatus,
+  );
 
   const reasonKey = profile?.recommendation.reason_key ?? "onboarding.reason.default";
   const translatedReason = t(reasonKey, {
     defaultValue: t("onboarding.reason.default"),
   });
 
-  const handleInstall = async (
-    tierToInstall: HardwareTier,
-    engineToInstall: EngineKind,
-    modelToInstall: string,
+  const handlePrimaryAction = async (
+    tierToApply: HardwareTier,
+    engineToApply: EngineKind,
+    modelToApply: string,
   ) => {
     clearError();
+    if (isAlreadyInstalled) {
+      await patchSettings({
+        onboarding_completed: true,
+        hardware_tier: tierToApply,
+        vector_engine: engineToApply,
+        embedding_model_id: modelToApply,
+        pro_mode: proMode,
+      });
+      setShowOnboardingOverride(false);
+      return;
+    }
+
     const result = await installEngine({
-      engine: engineToInstall,
-      model_id: modelToInstall,
+      engine: engineToApply,
+      model_id: modelToApply,
     });
     if (result) {
       await patchSettings({
         onboarding_completed: true,
-        hardware_tier: tierToInstall,
-        vector_engine: engineToInstall,
-        embedding_model_id: modelToInstall,
+        hardware_tier: tierToApply,
+        vector_engine: engineToApply,
+        embedding_model_id: modelToApply,
         pro_mode: proMode,
       });
       setShowOnboardingOverride(false);
@@ -118,6 +200,23 @@ export function OnboardingScreen() {
         {/* Masthead */}
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-rule px-6 py-4">
           <div className="flex items-center gap-3">
+            {canGoBack && (
+              <>
+                <button
+                  type="button"
+                  disabled={isInstalling || saving}
+                  onClick={handleBack}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-bone transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
+                >
+                  <ArrowLeft size={13} aria-hidden />
+                  <span>{t("onboarding.back")}</span>
+                  <kbd className="hidden rounded-[2px] border border-rule bg-void px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-bone-subtle sm:inline">
+                    Esc
+                  </kbd>
+                </button>
+                <span className="h-4 w-px bg-rule" aria-hidden />
+              </>
+            )}
             <CobaltMark size={22} />
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-display text-base font-semibold tracking-tight text-bone">
@@ -265,8 +364,15 @@ export function OnboardingScreen() {
                   <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
                     {t("onboarding.downloadSize")}
                   </div>
-                  <div className="mt-1.5 font-mono text-sm font-semibold tabular-nums text-verdigris">
-                    {formatBytes(exactDownloadBytes)}
+                  <div className="mt-1.5 flex items-center gap-1.5 font-mono text-sm font-semibold tabular-nums text-verdigris">
+                    {isAlreadyInstalled ? (
+                      <>
+                        <Check size={14} className="shrink-0" aria-hidden />
+                        <span>{t("onboarding.alreadyInstalled")}</span>
+                      </>
+                    ) : (
+                      formatBytes(exactDownloadBytes)
+                    )}
                   </div>
                 </div>
               </div>
@@ -279,7 +385,8 @@ export function OnboardingScreen() {
               proMode={proMode}
               models={models}
               profile={profile}
-              disabled={isInstalling}
+              engineStatus={engineStatus}
+              disabled={isInstalling || saving}
               onTierChange={setSelectedTier}
               onEngineChange={setSelectedEngine}
               onModelChange={setSelectedModelId}
@@ -305,7 +412,7 @@ export function OnboardingScreen() {
         <footer className="flex flex-wrap items-center justify-between gap-3 bg-surface-2 px-6 py-4">
           <button
             type="button"
-            disabled={isInstalling}
+            disabled={isInstalling || saving}
             onClick={() => setCustomizing((v) => !v)}
             className="inline-flex items-center gap-2 rounded-[2px] border border-rule-strong bg-surface px-4 py-2 text-xs font-medium text-bone transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
           >
@@ -315,14 +422,19 @@ export function OnboardingScreen() {
 
           <button
             type="button"
-            disabled={isInstalling || !profile}
-            onClick={() => void handleInstall(activeTier, activeEngine, activeModel)}
+            disabled={isInstalling || saving || !profile}
+            onClick={() => void handlePrimaryAction(activeTier, activeEngine, activeModel)}
             className="inline-flex items-center gap-2 rounded-[2px] border border-cobalt-rule bg-cobalt px-5 py-2 text-xs font-semibold tracking-wide text-bone transition-colors hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
           >
             {isInstalling ? (
               <>
                 <Download size={14} aria-hidden />
                 {t("onboarding.installing")}
+              </>
+            ) : isAlreadyInstalled ? (
+              <>
+                <Check size={14} aria-hidden />
+                <span>{t("onboarding.apply")}</span>
               </>
             ) : error ? (
               <>
