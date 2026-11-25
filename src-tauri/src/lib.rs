@@ -23,7 +23,8 @@ pub const QUICKNOTE_WINDOW: &str = "quicknote";
 pub fn run() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info,wgpu_hal=off,wgpu_core=warn,naga=warn")),
         )
         .try_init();
 
