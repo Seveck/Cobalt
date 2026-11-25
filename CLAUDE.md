@@ -11,7 +11,7 @@ Read `AGENTS.md` first (shared rules, ownership, verification, headless agent co
   the agent's owned paths. After merging: `cargo test --workspace && pnpm typecheck && pnpm build`,
   update `TASKS.md`, then `git -C ../cobalt-<agent> rebase main`.
 - [CODEX] work arrives uncommitted: run its verification command in `../cobalt-codex`, then commit
-  there on `agent/codex` with its proposed message (+ Co-Authored-By trailer).
+  there on `agent/codex` with its proposed message (no AI trailers).
 - On agent failure: relaunch with a corrective micro-prompt containing only the exact error lines.
 - Reports to the user in Spanish, then STOP and wait for explicit confirmation of the next phase.
 - `PATH="$HOME/.cargo/bin:$PATH"` is required for cargo/rustc in this environment.

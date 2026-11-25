@@ -27,6 +27,8 @@ React/TS/R3F. Targets Linux, Windows, macOS equally. Contracts: `docs/CONTRACTS.
 - TS: `strict`, no `any`, IPC only through `src/lib/ipc.ts` (`call`, `on`).
 - Commits: Conventional Commits (`feat(store): ...`), small and focused, on your branch only.
   Never push, never rebase/merge other branches, never touch `main`.
+- Authorship: commits belong to the repo owner (Seveck). NEVER add AI attribution
+  (`Co-Authored-By`, `Generated with`, agent names) to commits, PRs or code headers.
 - [CODEX] cannot commit (its sandbox makes `.git` read-only): leave changes uncommitted and end
   with a summary + proposed commit message; [CLAUDE] verifies and commits on `agent/codex`.
 
