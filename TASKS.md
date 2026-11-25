@@ -54,6 +54,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 ## Fase 4 — Auditoría, pulido y empaquetado [PARALELO]
 - [ ] [CODEX] Benchmarks, RAM Eco, OCR/re-vectorización, precisión de ahorro, cobertura
 - [ ] [GEMINI] Auditoría visual, FPS/fugas WebGL, traducciones 100 %
+- [ ] [CLAUDE] **Limpieza total de datos de ejemplo (obligatorio antes de v1.0):** eliminar `src/lib/backendMock.ts`, el grafo simulado (~300 nodos), proyectos/telemetría/temas ficticios y el badge MOCK; verificar que una instalación nueva arranca con el cerebro vacío (0 memorias, 0 proyectos) y sin datos precargados
 - [ ] [CLAUDE] E2E completo, empaquetado `.AppImage/.deb/.rpm`, `.msi/.exe`, `.dmg`, `README.md`, reporte v1.0
 
 ## Mocks activos
