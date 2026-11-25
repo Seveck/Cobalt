@@ -1,0 +1,24 @@
+{
+  "app": {
+    "name": "Cobalt",
+    "tagline": "Your local second brain, shared by all your AIs"
+  },
+  "nav": {
+    "brain": "3D Brain",
+    "library": "Library",
+    "telemetry": "Telemetry",
+    "connectors": "Connectors",
+    "store": "Theme Store",
+    "settings": "Settings"
+  },
+  "shell": {
+    "language": "Language",
+    "version": "Version {{version}}",
+    "contract": "Contracts v{{version}}",
+    "browserPreview": "Browser preview: native features require the desktop app."
+  },
+  "quicknote": {
+    "placeholder": "Type an idea or rule and press Enter…",
+    "hint": "Enter to save · Esc to close"
+  }
+}

@@ -1,0 +1,53 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/cobalt-core",
+    "crates/cobalt-store",
+    "crates/cobalt-embeddings",
+    "crates/cobalt-mcp",
+    "crates/cobalt-ingest",
+    "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+publish = false
+
+# Shared dependency versions. Agents may add crate-specific dependencies directly
+# in the Cargo.toml of the crates they own; shared ones live here (owned by [CLAUDE]).
+[workspace.dependencies]
+cobalt-core = { path = "crates/cobalt-core" }
+# Add the other internal crates here when a consumer needs them (cargo warns on unused ones).
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+base64 = "0.22"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+unwrap_used = "warn"
+
+[profile.dev]
+# Keeps debug builds light on 8 GB machines.
+debug = "line-tables-only"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+opt-level = 3

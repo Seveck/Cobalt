@@ -1,0 +1,20 @@
+[package]
+name = "cobalt-core"
+description = "Cobalt frozen contracts: traits, DTOs, events, IPC names, and core services (Phase 1)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+
+[lints]
+workspace = true

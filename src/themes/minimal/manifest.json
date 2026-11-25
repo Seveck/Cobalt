@@ -1,0 +1,52 @@
+{
+  "id": "cobalt-minimal",
+  "name": "Cobalt Minimal",
+  "author": "Cobalt",
+  "version": "1.0.0",
+  "description": "Built-in lightweight theme: instanced spheres on a deep-space background.",
+  "hardware_tier": "eco",
+  "layout_type": "galaxy",
+  "layout_params": {
+    "level_spacing": 18,
+    "radial_spread": 40,
+    "show_virtual_anchors": true,
+    "semantic_edges_mode": "hover_only"
+  },
+  "palette": {
+    "background": "#05070D",
+    "node": "#3B82F6",
+    "core_pin": "#FACC15",
+    "reusable": "#A78BFA",
+    "edge": "#1E3A8A",
+    "text": "#E2E8F0",
+    "pulse_read": "#0047AB",
+    "pulse_reuse": "#8B5CF6",
+    "pulse_write": "#10B981",
+    "pulse_update": "#F59E0B",
+    "pulse_blocked": "#EF4444",
+    "category_colors": {
+      "preference": "#F472B6",
+      "decision": "#60A5FA",
+      "code": "#34D399",
+      "doc": "#FBBF24",
+      "note": "#94A3B8",
+      "ocr": "#F97316"
+    }
+  },
+  "node_geometry": { "shape": "sphere", "base_size": 0.6, "scale_by_hits": true, "detail": 1 },
+  "camera": {
+    "position": [0, 40, 160],
+    "target": [0, 0, 0],
+    "fov": 55,
+    "auto_rotate": false,
+    "auto_rotate_speed": 0.3
+  },
+  "shaders": {
+    "node_vertex": null,
+    "node_fragment": null,
+    "edge_vertex": null,
+    "edge_fragment": null,
+    "background_fragment": null
+  },
+  "mesh_path": null
+}

@@ -1,0 +1,24 @@
+{
+  "app": {
+    "name": "Cobalt",
+    "tagline": "Tu segundo cerebro local, compartido por todas tus IAs"
+  },
+  "nav": {
+    "brain": "Cerebro 3D",
+    "library": "Biblioteca",
+    "telemetry": "Telemetría",
+    "connectors": "Conectores",
+    "store": "Tienda de temas",
+    "settings": "Ajustes"
+  },
+  "shell": {
+    "language": "Idioma",
+    "version": "Versión {{version}}",
+    "contract": "Contratos v{{version}}",
+    "browserPreview": "Vista previa en navegador: las funciones nativas requieren la app de escritorio."
+  },
+  "quicknote": {
+    "placeholder": "Escribe una idea o regla y pulsa Enter…",
+    "hint": "Enter para guardar · Esc para cerrar"
+  }
+}
