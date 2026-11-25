@@ -22,6 +22,60 @@ pub struct EmbeddingModelSpec {
     pub quantization: Quantization,
     pub recommended_tier: HardwareTier,
     pub multilingual: bool,
+    /// Hugging Face repository of the ONNX weights (e.g. `intfloat/multilingual-e5-small`).
+    pub hf_repo: Option<String>,
+    /// Prepended to search queries before embedding (`"query: "` for the e5 family).
+    pub query_prefix: Option<String>,
+    /// Prepended to indexed documents before embedding (`"passage: "` for the e5 family).
+    pub document_prefix: Option<String>,
+}
+
+// ---------------------------------------------------------------------------------------
+// Default model catalog ids. Multilingual models are the default on every tier (Spanish +
+// English memories); English-only models stay selectable in Pro mode.
+// ---------------------------------------------------------------------------------------
+
+/// Eco default: `intfloat/multilingual-e5-small`, 384 dims, INT8.
+pub const MODEL_MULTILINGUAL_E5_SMALL: &str = "multilingual-e5-small";
+/// Balanced default: `intfloat/multilingual-e5-base`, 768 dims.
+pub const MODEL_MULTILINGUAL_E5_BASE: &str = "multilingual-e5-base";
+/// Ultra default: `BAAI/bge-m3`, 1024 dims (no prefixes).
+pub const MODEL_BGE_M3: &str = "bge-m3";
+/// English-only models, Pro mode only.
+pub const PRO_ENGLISH_MODELS: &[&str] =
+    &["all-minilm-l6-v2", "bge-small-en-v1.5", "bge-large-en-v1.5"];
+
+pub const E5_QUERY_PREFIX: &str = "query: ";
+pub const E5_PASSAGE_PREFIX: &str = "passage: ";
+
+/// Default embedding model for a hardware tier.
+pub const fn default_model_for_tier(tier: HardwareTier) -> &'static str {
+    match tier {
+        HardwareTier::Eco => MODEL_MULTILINGUAL_E5_SMALL,
+        HardwareTier::Balanced => MODEL_MULTILINGUAL_E5_BASE,
+        HardwareTier::Ultra => MODEL_BGE_M3,
+    }
+}
+
+/// Default vector engine for a hardware tier.
+pub const fn default_engine_for_tier(tier: HardwareTier) -> EngineKind {
+    match tier {
+        HardwareTier::Eco => EngineKind::SqliteVec,
+        HardwareTier::Balanced => EngineKind::Usearch,
+        HardwareTier::Ultra => EngineKind::QdrantSidecar,
+    }
+}
+
+/// `(query_prefix, document_prefix)` required by a model id. The e5 family
+/// (`multilingual-e5-*`, `e5-*`) needs `"query: "` / `"passage: "`; others need none.
+pub fn prefixes_for_model(model_id: &str) -> (Option<&'static str>, Option<&'static str>) {
+    let id = model_id.to_ascii_lowercase();
+    let is_e5 = id.starts_with("e5-") || id.contains("multilingual-e5") || id.contains("/e5-");
+    if is_e5 {
+        (Some(E5_QUERY_PREFIX), Some(E5_PASSAGE_PREFIX))
+    } else {
+        (None, None)
+    }
 }
 
 /// A downloadable, SHA-256-verified artifact (model file or engine binary).
@@ -103,4 +157,40 @@ pub struct EngineSwapReport {
     pub finished_at: Timestamp,
     /// Disk that can be freed by removing the previous engine/model.
     pub reclaimable_bytes: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn multilingual_defaults_per_tier() {
+        assert_eq!(
+            default_model_for_tier(HardwareTier::Eco),
+            "multilingual-e5-small"
+        );
+        assert_eq!(
+            default_model_for_tier(HardwareTier::Balanced),
+            "multilingual-e5-base"
+        );
+        assert_eq!(default_model_for_tier(HardwareTier::Ultra), "bge-m3");
+        assert_eq!(
+            default_engine_for_tier(HardwareTier::Balanced),
+            EngineKind::Usearch
+        );
+    }
+
+    #[test]
+    fn e5_models_get_prefixes_others_do_not() {
+        assert_eq!(
+            prefixes_for_model("multilingual-e5-small"),
+            (Some("query: "), Some("passage: "))
+        );
+        assert_eq!(
+            prefixes_for_model("intfloat/multilingual-e5-base"),
+            (Some("query: "), Some("passage: "))
+        );
+        assert_eq!(prefixes_for_model("bge-m3"), (None, None));
+        assert_eq!(prefixes_for_model("all-minilm-l6-v2"), (None, None));
+    }
 }

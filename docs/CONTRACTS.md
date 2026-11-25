@@ -271,9 +271,36 @@ a typed mock adapter clearly labelled as such, removed in Phase 3).
 
 ---
 
-## 6. Process model & local endpoints (`cobalt_core::paths`)
+## 6. Embedding models (`cobalt_core::engine`)
 
-- Data home: `~/.cobalt/` (`$COBALT_HOME` override): `cobalt.db`, `models/`, `engines/`,
+Multilingual (ES/EN) models are the default on **every** tier. English-only models are
+selectable only in Pro mode (`PRO_ENGLISH_MODELS`). Defaults come from
+`default_model_for_tier` / `default_engine_for_tier` (mirrored as `DEFAULT_MODEL_BY_TIER` /
+`DEFAULT_ENGINE_BY_TIER` in TS).
+
+| Tier | Model id | Source (HF) | Dims | Precision | Vector engine | Prefixes |
+|---|---|---|---|---|---|---|
+| Eco (default) | `multilingual-e5-small` | `intfloat/multilingual-e5-small` | 384 | INT8 | `sqlite_vec` | `query: ` / `passage: ` |
+| Balanced | `multilingual-e5-base` | `intfloat/multilingual-e5-base` | 768 | FP32 (INT8 if available) | `usearch` | `query: ` / `passage: ` |
+| Ultra | `bge-m3` | `BAAI/bge-m3` | 1024 | FP32 (GPU optional) | `qdrant_sidecar` | none |
+| Pro only | `all-minilm-l6-v2`, `bge-small-en-v1.5`, `bge-large-en-v1.5` | — | 384 / 384 / 1024 | INT8 / FP32 | any | none |
+
+- **Prefix rule (mandatory, inside the ONNX provider of `cobalt-embeddings`)**: for the e5
+  family, `embed_query` prepends `"query: "` and `embed_documents` prepends `"passage: "`
+  (`prefixes_for_model`, also exposed as `EmbeddingModelSpec.query_prefix/document_prefix`).
+  Callers never add prefixes themselves. Ollama models use the prefixes declared in their spec.
+- If `fastembed-rs` has no built-in variant for a model/precision (e.g. INT8 e5-small or
+  bge-m3), load it as a user-defined ONNX model downloaded by the `EngineManager`
+  (SHA-256 verified) — the model id and dims above stay the same.
+- Token counting for chunking/telemetry is always `tiktoken-rs` (`TokenEncoding`), independent
+  of the embedding tokenizer.
+
+## 7. Process model & local endpoints (`cobalt_core::paths`)
+
+- Data home: `~/.cobalt/` on **Linux, macOS and Windows** (`%USERPROFILE%\.cobalt`), never the
+  OS app-data dir, so MCP connectors and the `--mcp-stdio` bridge always find the DB and socket
+  at a predictable path. The bundle identifier `app.cobalt.brain` is used only for OS
+  integration (installers, WebView data, notifications). `$COBALT_HOME` overrides it (tests): `cobalt.db`, `models/`, `engines/`,
   `index/`, `themes/`, `snapshots/`, `backups/`, `logs/`, `daemon.token`, `daemon.sock`.
 - Single daemon hosted by the Tauri process. `cobalt --mcp-stdio` = thin stdio⇄daemon bridge over
   a Unix domain socket (`~/.cobalt/daemon.sock`) or Windows named pipe (`\\.\pipe\cobalt-daemon`),
@@ -282,7 +309,7 @@ a typed mock adapter clearly labelled as such, removed in Phase 3).
 - HTTP (127.0.0.1 only, default port `7437`): MCP streamable HTTP at `/mcp` (+ legacy SSE),
   REST at `/api/v1`, WebSocket at `/api/v1/ws`, OpenAPI at `/api/v1/openapi.json` + Swagger UI.
 
-## 7. 3D layout contract (frontend-only)
+## 8. 3D layout contract (frontend-only)
 
 `LayoutType = galaxy | brain | neural_net | knowledge_tree | project_clusters | custom_mesh`.
 A layout is a pure `LayoutFn` returning `LayoutResult { nodePositions, virtualAnchors?,

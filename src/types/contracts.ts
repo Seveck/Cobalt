@@ -604,7 +604,25 @@ export interface EmbeddingModelSpec {
   quantization: Quantization;
   recommended_tier: HardwareTier;
   multilingual: boolean;
+  hf_repo: string | null;
+  /** `"query: "` for the e5 family. */
+  query_prefix: string | null;
+  /** `"passage: "` for the e5 family. */
+  document_prefix: string | null;
 }
+
+/** Default embedding models (multilingual on every tier; English-only ones are Pro-only). */
+export const DEFAULT_MODEL_BY_TIER: Record<HardwareTier, string> = {
+  eco: "multilingual-e5-small",
+  balanced: "multilingual-e5-base",
+  ultra: "bge-m3",
+};
+export const DEFAULT_ENGINE_BY_TIER: Record<HardwareTier, EngineKind> = {
+  eco: "sqlite_vec",
+  balanced: "usearch",
+  ultra: "qdrant_sidecar",
+};
+export const PRO_ENGLISH_MODELS = ["all-minilm-l6-v2", "bge-small-en-v1.5", "bge-large-en-v1.5"] as const;
 
 export interface DownloadProgress {
   artifact_id: string;

@@ -161,3 +161,28 @@ fn builtin_theme_manifest_parses() {
     assert_eq!(manifest.layout_type, LayoutType::Galaxy);
     assert!(manifest.mesh_path.is_none());
 }
+
+#[test]
+fn default_models_match_typescript() {
+    use cobalt_core::engine::{
+        PRO_ENGLISH_MODELS, default_engine_for_tier, default_model_for_tier,
+    };
+    for tier in HardwareTier::ALL {
+        let model = default_model_for_tier(*tier);
+        let engine = default_engine_for_tier(*tier);
+        assert!(
+            TS.contains(&format!("  {}: \"{model}\",", tier.as_str())),
+            "default model for {tier} differs in contracts.ts"
+        );
+        assert!(
+            TS.contains(&format!("  {}: \"{}\",", tier.as_str(), engine.as_str())),
+            "default engine for {tier} differs in contracts.ts"
+        );
+    }
+    for m in PRO_ENGLISH_MODELS {
+        assert!(
+            TS.contains(&format!("\"{m}\"")),
+            "Pro model {m} missing in contracts.ts"
+        );
+    }
+}

@@ -243,8 +243,8 @@ pub struct AppSettings {
 /// Id of the only theme bundled with the base app.
 pub const BUILTIN_THEME_ID: &str = "cobalt-minimal";
 
-/// Default embedding model (Eco profile).
-pub const DEFAULT_EMBEDDING_MODEL_ID: &str = "all-minilm-l6-v2-int8";
+/// Default embedding model (Eco profile, multilingual ES/EN).
+pub const DEFAULT_EMBEDDING_MODEL_ID: &str = crate::engine::MODEL_MULTILINGUAL_E5_SMALL;
 
 impl Default for AppSettings {
     fn default() -> Self {

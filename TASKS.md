@@ -11,6 +11,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] `cobalt-core`: enums, entidades, DTOs, traits (`VectorStore`, `Embedder`, `TokenCounter`, `CobaltStore`, `IngestService`), eventos, comandos IPC, settings, paths
 - [x] Espejo `src/types/contracts.ts` + test de paridad Rust↔TS (`crates/cobalt-core/tests/contract_parity.rs`)
 - [x] Tema base `cobalt-minimal` (`src/themes/minimal/manifest.json`)
+- [x] Decisiones confirmadas: embeddings multilingües por defecto (inglés solo en Modo Pro), bundle id `app.cobalt.brain` con `~/.cobalt/` en los 3 SO, licencia MIT, push de `main` al cerrar cada fase
 - [x] Validación: `cargo check --workspace`, `cargo test -p cobalt-core`, `pnpm typecheck && pnpm build`
 - [x] Commit inicial + worktrees `../cobalt-codex` (`agent/codex`) y `../cobalt-gemini` (`agent/gemini`)
 
@@ -24,7 +25,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 ### [CODEX] `cobalt-store`, `cobalt-embeddings`
 - [ ] Migraciones exactas de `docs/CONTRACTS.md` (12 tablas, FTS5 + triggers, `vec_memories`)
 - [ ] Búsqueda híbrida RRF, adaptadores `sqlite-vec` y `USearch` (mmap), coordenadas 3D cacheadas
-- [ ] `fastembed-rs` bajo demanda, adaptador Ollama, `tiktoken-rs` + tests
+- [ ] `fastembed-rs` bajo demanda con modelos multilingües por defecto (e5-small INT8 / e5-base / bge-m3) y prefijos e5 automáticos (`query: ` / `passage: `), adaptador Ollama, `tiktoken-rs` + tests
 ### [GEMINI] `src/`
 - [ ] Shell principal (navegación con Biblioteca), stores Zustand, i18n completo ES/EN
 - [ ] Onboarding de hardware (progreso de descarga, Aceptar/Personalizar)
