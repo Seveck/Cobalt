@@ -24,7 +24,12 @@ impl ConfigManager {
     /// Loads settings; invalid persisted values are replaced by defaults field by field and
     /// the repaired settings are saved back.
     pub async fn load(repo: Arc<dyn ConfigRepository>) -> Result<Self> {
-        let loaded = repo.load_settings().await?;
+        let mut loaded = repo.load_settings().await?;
+        // First run: follow the OS language (Spanish for es-*, English otherwise).
+        if repo.get_raw("language").await?.is_none() {
+            loaded.language = crate::enums::Language::detect_system();
+            repo.save_settings(&loaded).await?;
+        }
         let settings = match validate_settings(&loaded) {
             Ok(()) => loaded,
             Err(err) => {
@@ -273,8 +278,15 @@ mod tests {
             *self.saved.lock().unwrap() = Some(settings.clone());
             Ok(())
         }
-        async fn get_raw(&self, _key: &str) -> Result<Option<serde_json::Value>> {
-            Ok(None)
+        async fn get_raw(&self, key: &str) -> Result<Option<serde_json::Value>> {
+            let saved = self.saved.lock().unwrap().clone();
+            Ok(saved.and_then(|s| {
+                s.to_entries()
+                    .ok()?
+                    .into_iter()
+                    .find(|(k, _)| k == key)
+                    .map(|(_, v)| v)
+            }))
         }
         async fn set_raw(&self, _key: &str, _value: serde_json::Value) -> Result<()> {
             Ok(())

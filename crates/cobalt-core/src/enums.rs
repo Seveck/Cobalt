@@ -191,6 +191,23 @@ string_enum! {
     pub enum Language { Es => "es", En => "en" }
 }
 
+impl Language {
+    /// Maps a BCP-47 / POSIX locale (`es-CO`, `es_ES.UTF-8`, `en-US`, `fr`) to a supported
+    /// language: Spanish for any `es*`, English otherwise.
+    pub fn from_locale(locale: &str) -> Self {
+        if locale.trim().to_ascii_lowercase().starts_with("es") {
+            Self::Es
+        } else {
+            Self::En
+        }
+    }
+
+    /// Language of the operating system (English when unknown or unsupported).
+    pub fn detect_system() -> Self {
+        sys_locale::get_locale().map_or(Self::En, |l| Self::from_locale(&l))
+    }
+}
+
 string_enum! {
     /// On-disk state of a reusable asset's source file.
     pub enum FileAvailability {
@@ -354,6 +371,21 @@ mod tests {
             assert_eq!(TelemetryOperation::from_str(v.as_str()).unwrap(), *v);
         }
         assert!(MemoryStatus::from_str("nope").is_err());
+    }
+
+    #[test]
+    fn maps_locales_to_supported_languages() {
+        for (loc, lang) in [
+            ("es-CO", Language::Es),
+            ("es_ES.UTF-8", Language::Es),
+            ("ES", Language::Es),
+            ("en-US", Language::En),
+            ("fr-FR", Language::En),
+            ("pt_BR", Language::En),
+            ("", Language::En),
+        ] {
+            assert_eq!(Language::from_locale(loc), lang, "{loc}");
+        }
     }
 
     #[test]
