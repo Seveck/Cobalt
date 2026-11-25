@@ -494,7 +494,18 @@ function buildMockHardwareProfile(): HardwareProfile {
   const engine = DEFAULT_ENGINE_BY_TIER[tier];
   const modelId = DEFAULT_MODEL_BY_TIER[tier];
   const modelSpec = MOCK_EMBEDDING_MODELS.find((m) => m.id === modelId);
-  const downloadBytes = (modelSpec?.size_bytes ?? 124_151_398) + ENGINE_SIDECAR_BYTES[engine];
+  const recommendedAlreadyInstalled =
+    mockEngineStatus.engine === engine &&
+    mockEngineStatus.model_id === modelId &&
+    (mockEngineStatus.engine_state === "installed" ||
+      mockEngineStatus.engine_state === "running" ||
+      mockEngineStatus.engine_state === "stopped") &&
+    (mockEngineStatus.model_state === "installed" ||
+      mockEngineStatus.model_state === "running" ||
+      mockEngineStatus.model_state === "stopped");
+  const downloadBytes = recommendedAlreadyInstalled
+    ? 0
+    : (modelSpec?.size_bytes ?? 124_151_398) + ENGINE_SIDECAR_BYTES[engine];
 
   return {
     os: "linux",

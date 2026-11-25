@@ -1,7 +1,7 @@
 import { useId, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Cpu, Database, HardDrive, Layers } from "lucide-react";
-import { estimateDownloadBytes, formatBytes } from "@/lib/format";
+import { estimateDownloadBytes, formatBytes, isEngineModelInstalled } from "@/lib/format";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
 import {
   DEFAULT_ENGINE_BY_TIER,
@@ -10,6 +10,7 @@ import {
   PRO_ENGLISH_MODELS,
   type EmbeddingModelSpec,
   type EngineKind,
+  type EngineStatus,
   type HardwareProfile,
   type HardwareTier,
 } from "@/types/contracts";
@@ -24,6 +25,7 @@ interface HardwareConfigFormProps {
   proMode: boolean;
   models: readonly EmbeddingModelSpec[];
   profile: HardwareProfile | null;
+  engineStatus?: EngineStatus | null;
   disabled?: boolean;
   onTierChange: (tier: HardwareTier) => void;
   onEngineChange: (engine: EngineKind) => void;
@@ -38,6 +40,7 @@ export function HardwareConfigForm({
   proMode,
   models,
   profile,
+  engineStatus = null,
   disabled = false,
   onTierChange,
   onEngineChange,
@@ -67,7 +70,8 @@ export function HardwareConfigForm({
     return model.multilingual && !proEnglishSet.has(model.id);
   });
 
-  const downloadBytes = estimateDownloadBytes(engine, modelId, models, profile);
+  const alreadyInstalled = isEngineModelInstalled(engine, modelId, engineStatus, profile);
+  const downloadBytes = estimateDownloadBytes(engine, modelId, models, profile, engineStatus);
   const recommendedTier = profile?.recommendation.tier ?? null;
 
   const handleSelectTier = (nextTier: HardwareTier) => {
@@ -161,8 +165,15 @@ export function HardwareConfigForm({
             {t("onboarding.downloadSize")}
           </span>
           <div className="flex h-10 items-center justify-between gap-2 rounded-[2px] border border-rule bg-void px-3">
-            <span className="font-mono text-sm font-semibold tabular-nums text-verdigris">
-              {formatBytes(downloadBytes)}
+            <span className="inline-flex items-center gap-1.5 font-mono text-sm font-semibold tabular-nums text-verdigris">
+              {alreadyInstalled ? (
+                <>
+                  <Check size={14} className="shrink-0" aria-hidden />
+                  <span>{t("onboarding.alreadyInstalled")}</span>
+                </>
+              ) : (
+                formatBytes(downloadBytes)
+              )}
             </span>
             <span className="truncate font-mono text-[11px] text-bone-subtle">{modelId}</span>
           </div>

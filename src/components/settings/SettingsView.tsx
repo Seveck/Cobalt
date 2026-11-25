@@ -3,7 +3,12 @@ import { useTranslation } from "react-i18next";
 import { Check, Cpu, Download, RotateCcw, Save, Shield } from "lucide-react";
 import { SUPPORTED_LANGUAGES } from "@/i18n";
 import { isCommandMocked } from "@/lib/backend";
-import { estimateDownloadBytes, formatBytes, formatRamGb } from "@/lib/format";
+import {
+  estimateDownloadBytes,
+  formatBytes,
+  formatRamGb,
+  isEngineModelInstalled,
+} from "@/lib/format";
 import { useHardwareStore, useSettingsStore, useUiStore } from "@/stores";
 import { DownloadProgressBar, HardwareConfigForm } from "@/components/onboarding";
 import { MockBadge } from "@/components/shell/MockBadge";
@@ -75,8 +80,23 @@ export function SettingsView() {
     showSavedFlash();
   };
 
+  const isMocked = isCommandMocked("get_settings") || isCommandMocked("install_engine");
+  const isAlreadyInstalled = isEngineModelInstalled(engine, modelId, engineStatus, profile);
+  const downloadBytes = estimateDownloadBytes(engine, modelId, models, profile, engineStatus);
+
   const handleApplyAndInstall = async () => {
     clearError();
+    if (isAlreadyInstalled) {
+      await patchSettings({
+        hardware_tier: tier,
+        vector_engine: engine,
+        embedding_model_id: modelId,
+        pro_mode: proMode,
+        onboarding_completed: true,
+      });
+      showSavedFlash();
+      return;
+    }
     const status = await installEngine({ engine, model_id: modelId });
     if (status) {
       await patchSettings({
@@ -89,9 +109,6 @@ export function SettingsView() {
       showSavedFlash();
     }
   };
-
-  const isMocked = isCommandMocked("get_settings") || isCommandMocked("install_engine");
-  const downloadBytes = estimateDownloadBytes(engine, modelId, models, profile);
 
   return (
     <div className="h-full overflow-y-auto bg-void p-6 lg:p-8">
@@ -200,6 +217,7 @@ export function SettingsView() {
               proMode={proMode}
               models={models}
               profile={profile}
+              engineStatus={engineStatus}
               disabled={isInstalling || saving}
               onTierChange={setTier}
               onEngineChange={setEngine}
@@ -232,11 +250,20 @@ export function SettingsView() {
               onClick={() => void handleApplyAndInstall()}
               className="inline-flex items-center gap-2 rounded-[2px] border border-cobalt-rule bg-cobalt px-4 py-2 text-xs font-semibold text-bone transition-colors hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
             >
-              <Download size={13} aria-hidden />
-              <span>{t("settings.applyAndInstall")}</span>
-              <span className="font-mono tabular-nums opacity-85">
-                ({formatBytes(downloadBytes)})
-              </span>
+              {isAlreadyInstalled ? (
+                <>
+                  <Check size={13} aria-hidden />
+                  <span>{t("onboarding.apply")}</span>
+                </>
+              ) : (
+                <>
+                  <Download size={13} aria-hidden />
+                  <span>{t("settings.applyAndInstall")}</span>
+                  <span className="font-mono tabular-nums opacity-85">
+                    ({formatBytes(downloadBytes)})
+                  </span>
+                </>
+              )}
             </button>
           </div>
         </section>

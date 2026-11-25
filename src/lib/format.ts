@@ -5,6 +5,8 @@ import {
   DEFAULT_MODEL_BY_TIER,
   type AppSettings,
   type EngineKind,
+  type EngineState,
+  type EngineStatus,
   type EmbeddingModelSpec,
   type HardwareProfile,
 } from "@/types/contracts";
@@ -48,8 +50,45 @@ export const ENGINE_SIDECAR_BYTES: Record<EngineKind, number> = {
   chroma_db: 0,
 };
 
+/** Returns `true` when an `EngineState` represents a locally installed artifact. */
+export function isEngineStateInstalled(state: EngineState): boolean {
+  return state === "installed" || state === "running" || state === "stopped";
+}
+
+/**
+ * Returns `true` when the selected engine + embedding model pair is already
+ * installed locally (either confirmed by `get_engine_status` or indicated by
+ * a zero-byte backend `recommendation.download_bytes`).
+ */
+export function isEngineModelInstalled(
+  engine: EngineKind,
+  modelId: string,
+  engineStatus: EngineStatus | null,
+  profile: HardwareProfile | null,
+): boolean {
+  if (
+    engineStatus &&
+    engineStatus.engine === engine &&
+    engineStatus.model_id === modelId &&
+    isEngineStateInstalled(engineStatus.engine_state) &&
+    isEngineStateInstalled(engineStatus.model_state)
+  ) {
+    return true;
+  }
+  if (
+    profile &&
+    profile.recommendation.engine === engine &&
+    profile.recommendation.model_id === modelId &&
+    profile.recommendation.download_bytes === 0
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Compute exact download size for a given engine + model choice.
+ * Returns `0` when the engine + model is already installed locally.
  * When the choice matches the backend's `HardwareProfile.recommendation`,
  * prefer the backend's exact `recommendation.download_bytes`.
  */
@@ -58,7 +97,11 @@ export function estimateDownloadBytes(
   modelId: string,
   models: readonly EmbeddingModelSpec[],
   profile: HardwareProfile | null,
+  engineStatus?: EngineStatus | null,
 ): number {
+  if (isEngineModelInstalled(engine, modelId, engineStatus ?? null, profile)) {
+    return 0;
+  }
   if (
     profile &&
     profile.recommendation.engine === engine &&
