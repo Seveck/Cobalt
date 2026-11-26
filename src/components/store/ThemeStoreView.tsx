@@ -1,12 +1,179 @@
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Palette } from "lucide-react";
-import { useThemeStore } from "@/stores";
+import {
+  AlertTriangle,
+  Check,
+  Download,
+  FileArchive,
+  Layers,
+  Loader2,
+  Palette,
+  RefreshCw,
+  Search,
+  Sparkles,
+  Trash2,
+  Upload,
+} from "lucide-react";
+import { backendCall } from "@/lib/backend";
+import { pickSinglePath, useFileDrop } from "@/lib/dialogs";
+import { formatBytes } from "@/lib/format";
+import { useSettingsStore, useThemeStore } from "@/stores";
 import { MockBadge } from "@/components/shell/MockBadge";
+import {
+  BUILTIN_THEME_ID,
+  type ThemeCard,
+  type ThemeCompatibility,
+} from "@/types/contracts";
+
+function compatibilityStyle(compat: ThemeCompatibility): string {
+  switch (compat) {
+    case "compatible":
+      return "border-verdigris-rule bg-verdigris-wash text-verdigris";
+    case "degraded":
+      return "border-ochre-rule bg-ochre-wash text-ochre";
+    default:
+      return "border-cinnabar-rule bg-cinnabar-wash text-cinnabar";
+  }
+}
 
 export function ThemeStoreView() {
   const { t } = useTranslation();
+
+  const activeThemeId = useThemeStore((s) => s.activeThemeId);
   const manifest = useThemeStore((s) => s.manifest);
-  const isMockData = useThemeStore((s) => s.isMockData);
+  const installedThemes = useThemeStore((s) => s.installedThemes);
+  const setActiveTheme = useThemeStore((s) => s.setActiveTheme);
+  const loadInstalledThemes = useThemeStore((s) => s.loadInstalledThemes);
+  const patchSettings = useSettingsStore((s) => s.patchSettings);
+
+  const [query, setQuery] = useState("");
+  const [cards, setCards] = useState<ThemeCard[]>([]);
+  const [searching, setSearching] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [installingFile, setInstallingFile] = useState(false);
+  const [brokenImages, setBrokenImages] = useState<ReadonlySet<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const flashNotice = useCallback((msg: string) => {
+    setNotice(msg);
+    window.setTimeout(() => setNotice(null), 3200);
+  }, []);
+
+  const searchRegistry = useCallback(async (q: string) => {
+    setSearching(true);
+    setError(null);
+    try {
+      const result = await backendCall("search_theme_registry", {
+        query: q.trim() || null,
+      });
+      setCards(result);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSearching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadInstalledThemes();
+    void searchRegistry("");
+  }, [loadInstalledThemes, searchRegistry]);
+
+  const handleApplyTheme = useCallback(
+    async (themeId: string) => {
+      setBusyId(themeId);
+      setError(null);
+      try {
+        const applied = await setActiveTheme(themeId);
+        if (applied) {
+          await patchSettings({ active_theme_id: themeId });
+          flashNotice(t("store.appliedNotice", { id: themeId }));
+        } else {
+          setError(t("store.applyError"));
+        }
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [flashNotice, patchSettings, setActiveTheme, t],
+  );
+
+  const handleInstallFromRegistry = async (themeId: string) => {
+    setBusyId(themeId);
+    setError(null);
+    try {
+      const installed = await backendCall("install_theme", { theme_id: themeId });
+      await Promise.all([loadInstalledThemes(), searchRegistry(query)]);
+      flashNotice(t("store.installedNotice", { name: installed.name }));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleUninstallTheme = async (themeId: string) => {
+    if (themeId === BUILTIN_THEME_ID) return;
+    setBusyId(themeId);
+    setError(null);
+    try {
+      await backendCall("uninstall_theme", { theme_id: themeId });
+      if (activeThemeId === themeId) {
+        await setActiveTheme(BUILTIN_THEME_ID);
+        await patchSettings({ active_theme_id: BUILTIN_THEME_ID });
+      }
+      await Promise.all([loadInstalledThemes(), searchRegistry(query)]);
+      flashNotice(t("store.uninstalledNotice"));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleInstallThemeFilePath = useCallback(
+    async (path: string) => {
+      setInstallingFile(true);
+      setError(null);
+      try {
+        const installed = await backendCall("install_theme_file", { path });
+        await Promise.all([loadInstalledThemes(), searchRegistry(query)]);
+        await handleApplyTheme(installed.id);
+        flashNotice(t("store.installedNotice", { name: installed.name }));
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setInstallingFile(false);
+      }
+    },
+    [flashNotice, handleApplyTheme, loadInstalledThemes, query, searchRegistry, t],
+  );
+
+  const { isDragging } = useFileDrop((paths) => {
+    const themeFile = paths.find((p) => p.toLowerCase().endsWith(".cobalt-theme")) ?? paths[0];
+    if (themeFile) {
+      void handleInstallThemeFilePath(themeFile);
+    }
+  }, !installingFile);
+
+  const handlePickThemeFile = async () => {
+    const path = await pickSinglePath({
+      title: t("store.installFileDialogTitle"),
+      filters: [{ name: "Cobalt Theme", extensions: ["cobalt-theme"] }],
+      fallbackPlaceholder: "/downloads/custom-theme.cobalt-theme",
+    });
+    if (path) {
+      await handleInstallThemeFilePath(path);
+    }
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void searchRegistry(query);
+  };
 
   const swatches = [
     manifest.palette.background,
@@ -17,41 +184,88 @@ export function ThemeStoreView() {
   ];
 
   return (
-    <div className="h-full overflow-y-auto bg-void p-6 lg:p-8">
-      <div className="mx-auto max-w-4xl space-y-6">
+    <div className="relative h-full overflow-y-auto bg-void p-6 lg:p-8">
+      {isDragging && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-void/80 backdrop-blur-xs">
+          <div className="flex flex-col items-center gap-3 rounded-[2px] border-2 border-dashed border-cobalt bg-cobalt-wash/90 px-10 py-8 text-center">
+            <FileArchive size={28} className="text-cobalt-ink" aria-hidden />
+            <div className="font-display text-lg font-medium text-bone">
+              {t("store.dropOverlayTitle")}
+            </div>
+            <p className="text-xs text-bone-muted">{t("store.dropOverlayHint")}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="mx-auto max-w-6xl space-y-6">
+        {/* Header */}
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
                 {t("store.title")}
               </h1>
-              {isMockData && <MockBadge />}
+              <MockBadge />
             </div>
             <p className="mt-1.5 text-sm text-bone-muted">{t("store.subtitle")}</p>
           </div>
-          <span className="rounded-[2px] border border-rule bg-surface px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-            {t("shell.phasePreviewBadge")}
-          </span>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={installingFile}
+              onClick={() => void handlePickThemeFile()}
+              className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-xs font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
+            >
+              {installingFile ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden />
+              ) : (
+                <Upload size={12} aria-hidden />
+              )}
+              {t("store.installLocalButton")}
+            </button>
+            <button
+              type="button"
+              disabled={searching}
+              onClick={() => void searchRegistry(query)}
+              className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface px-3 py-1.5 font-mono text-xs text-bone-muted hover:text-bone disabled:opacity-45"
+            >
+              <RefreshCw size={12} className={searching ? "animate-spin" : ""} aria-hidden />
+              {t("common.refresh")}
+            </button>
+          </div>
         </header>
 
-        <p className="rounded-[2px] border border-rule border-l-2 border-l-cobalt bg-surface px-4 py-3 text-xs text-bone-muted">
-          {t("store.comingSoon")}
-        </p>
+        {error && (
+          <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
+            {error}
+          </div>
+        )}
+        {notice && (
+          <div className="flex items-center gap-2 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-4 py-2.5 font-mono text-xs text-verdigris">
+            <Check size={13} aria-hidden />
+            <span>{notice}</span>
+          </div>
+        )}
 
-        <div className="rounded-[2px] border border-cobalt-rule border-t-2 border-t-cobalt bg-surface p-5">
+        {/* Active theme banner */}
+        <section className="rounded-[2px] border border-cobalt-rule border-t-2 border-t-cobalt bg-surface p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Palette size={15} className="text-cobalt-ink" aria-hidden />
                 <h2 className="font-display text-lg font-medium text-bone">{manifest.name}</h2>
                 <span className="rounded-[2px] border border-rule bg-void px-2 py-0.5 font-mono text-[10px] text-bone-muted">
                   v{manifest.version}
                 </span>
+                <span className="rounded-[2px] border border-rule bg-void px-2 py-0.5 font-mono text-[10px] text-bone-muted">
+                  {t(`brain.layouts.${manifest.layout_type}`)}
+                </span>
               </div>
               {manifest.description && (
                 <p className="mt-1.5 text-xs text-bone-muted">{manifest.description}</p>
               )}
-              <div className="mt-3.5 flex items-center gap-1.5">
+              <div className="mt-3 flex items-center gap-1.5">
                 {swatches.map((hex, index) => (
                   <span
                     key={`${hex}-${index}`}
@@ -64,16 +278,296 @@ export function ThemeStoreView() {
             </div>
 
             <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em]">
-              <span className="rounded-[2px] border border-rule bg-void px-2.5 py-1 text-bone-muted">
-                {t("store.builtin")}
-              </span>
+              {activeThemeId === BUILTIN_THEME_ID && (
+                <span className="rounded-[2px] border border-rule bg-void px-2.5 py-1 text-bone-muted">
+                  {t("store.builtin")}
+                </span>
+              )}
               <span className="inline-flex items-center gap-1 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2.5 py-1 font-medium text-verdigris">
                 <Check size={11} aria-hidden />
                 {t("store.active")}
               </span>
             </div>
           </div>
-        </div>
+        </section>
+
+        {/* Installed themes */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+              01 — {t("store.installedSection")}
+            </h2>
+            <span className="font-mono text-[10px] text-bone-subtle">
+              {t("store.dropHintInline")}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {installedThemes.map((theme) => {
+              const isActive = activeThemeId === theme.id;
+              const isBuiltin = theme.id === BUILTIN_THEME_ID;
+              const isBusy = busyId === theme.id;
+              return (
+                <div
+                  key={theme.id}
+                  className={`flex flex-col justify-between gap-3 rounded-[2px] border p-4 ${
+                    isActive
+                      ? "border-cobalt-rule bg-cobalt-wash/40"
+                      : "border-rule bg-surface"
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-bone">{theme.name}</span>
+                      <span className="font-mono text-[10px] text-bone-subtle">
+                        v{theme.version}
+                      </span>
+                    </div>
+                    <div className="mt-1 font-mono text-[10px] text-bone-muted">
+                      {theme.author} · {t(`tiers.${theme.hardware_tier}`)} ·{" "}
+                      {formatBytes(theme.size_bytes)}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 border-t border-rule pt-2.5">
+                    {isActive ? (
+                      <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold uppercase text-verdigris">
+                        <Check size={11} aria-hidden />
+                        {t("store.active")}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => void handleApplyTheme(theme.id)}
+                        className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[10px] font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
+                      >
+                        {isBusy ? (
+                          <Loader2 size={10} className="animate-spin" aria-hidden />
+                        ) : (
+                          <Sparkles size={10} aria-hidden />
+                        )}
+                        {t("store.applyButton")}
+                      </button>
+                    )}
+
+                    {isBuiltin ? (
+                      <span className="font-mono text-[10px] uppercase text-bone-subtle">
+                        {t("store.builtin")}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => void handleUninstallTheme(theme.id)}
+                        className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2 py-1 font-mono text-[10px] text-cinnabar hover:bg-cinnabar hover:text-bone disabled:opacity-45"
+                      >
+                        <Trash2 size={10} aria-hidden />
+                        {t("store.uninstallButton")}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Registry search & catalog */}
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+                02 — {t("store.registrySection")}
+              </h2>
+              <p className="mt-0.5 text-xs text-bone-muted">{t("store.zeroHiddenDownloads")}</p>
+            </div>
+
+            <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
+              <div className="relative">
+                <Search
+                  size={13}
+                  className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-bone-subtle"
+                  aria-hidden
+                />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={t("store.searchPlaceholder")}
+                  className="h-8 w-56 rounded-[2px] border border-rule-strong bg-surface pr-2.5 pl-8 text-xs text-bone placeholder:text-bone-subtle focus:border-cobalt-ink focus:outline-none"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={searching}
+                className="h-8 rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-3 font-mono text-xs font-medium text-cobalt-ink hover:bg-cobalt hover:text-bone disabled:opacity-45"
+              >
+                {t("rag.run")}
+              </button>
+            </form>
+          </div>
+
+          {searching && cards.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 rounded-[2px] border border-rule bg-surface py-12 font-mono text-xs text-bone-muted">
+              <Loader2 size={14} className="animate-spin text-cobalt-ink" aria-hidden />
+              <span>{t("store.searching")}</span>
+            </div>
+          ) : cards.length === 0 ? (
+            <div className="rounded-[2px] border border-rule bg-surface p-8 text-center text-xs text-bone-muted">
+              {t("store.noResults")}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {cards.map((card) => {
+                const { entry } = card;
+                const isActive = activeThemeId === entry.id;
+                const isBusy = busyId === entry.id;
+                const showPreview =
+                  Boolean(entry.preview_url) && !brokenImages.has(entry.id);
+
+                return (
+                  <article
+                    key={entry.id}
+                    className="flex flex-col overflow-hidden rounded-[2px] border border-rule bg-surface transition-colors hover:border-rule-strong"
+                  >
+                    {/* Preview */}
+                    <div className="relative h-36 w-full border-b border-rule bg-void">
+                      {showPreview ? (
+                        <img
+                          src={entry.preview_url}
+                          alt={entry.name}
+                          loading="lazy"
+                          onError={() =>
+                            setBrokenImages((prev) => new Set(prev).add(entry.id))
+                          }
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="cobalt-grid-bg flex h-full w-full flex-col items-center justify-center gap-1.5 text-bone-subtle">
+                          <Layers size={22} className="text-cobalt-ink/80" aria-hidden />
+                          <span className="font-mono text-[10px] uppercase tracking-[0.12em]">
+                            {t(`brain.layouts.${entry.layout_type}`)}
+                          </span>
+                        </div>
+                      )}
+
+                      <span
+                        className={`absolute top-2.5 right-2.5 rounded-[2px] border px-2 py-0.5 font-mono text-[10px] font-medium uppercase ${compatibilityStyle(
+                          card.compatibility,
+                        )}`}
+                      >
+                        {t(`store.compatibility.${card.compatibility}`)}
+                      </span>
+                    </div>
+
+                    {/* Body */}
+                    <div className="flex flex-1 flex-col justify-between p-4">
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h3 className="font-display text-base font-medium text-bone">
+                              {entry.name}
+                            </h3>
+                            <p className="font-mono text-[10px] text-bone-subtle">
+                              {entry.author} · v{entry.version}
+                            </p>
+                          </div>
+                          <span className="rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] uppercase text-bone-muted">
+                            {t(`tiers.${entry.hardware_tier}`)}
+                          </span>
+                        </div>
+
+                        {entry.description && (
+                          <p className="text-xs leading-relaxed text-bone-muted">
+                            {entry.description}
+                          </p>
+                        )}
+
+                        {card.compatibility === "degraded" && (
+                          <div className="flex items-center gap-1.5 rounded-[2px] border border-ochre-rule/60 bg-ochre-wash/60 px-2 py-1 text-[10px] text-ochre">
+                            <AlertTriangle size={11} className="shrink-0" aria-hidden />
+                            <span>{t("store.degradedHint")}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Exact size transparency + Actions */}
+                      <div className="mt-4 space-y-2.5 border-t border-rule pt-3">
+                        <div className="flex items-center justify-between font-mono text-[10px] tabular-nums text-bone-subtle">
+                          <span>
+                            {t("store.downloadSize")}:{" "}
+                            <strong className="text-bone">
+                              {formatBytes(entry.size_bytes)}
+                            </strong>
+                          </span>
+                          <span>
+                            {t("store.unpackedSize")}: {formatBytes(entry.unpacked_size_bytes)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          {card.installed ? (
+                            <>
+                              {isActive ? (
+                                <span className="inline-flex items-center gap-1 font-mono text-[11px] font-semibold text-verdigris">
+                                  <Check size={12} aria-hidden />
+                                  {t("store.active")}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => void handleApplyTheme(entry.id)}
+                                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-[11px] font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
+                                >
+                                  {isBusy ? (
+                                    <Loader2 size={11} className="animate-spin" aria-hidden />
+                                  ) : (
+                                    <Sparkles size={11} aria-hidden />
+                                  )}
+                                  {t("store.applyButton")}
+                                </button>
+                              )}
+
+                              {entry.id !== BUILTIN_THEME_ID && (
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => void handleUninstallTheme(entry.id)}
+                                  className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2.5 py-1.5 font-mono text-[11px] text-cinnabar hover:bg-cinnabar hover:text-bone disabled:opacity-45"
+                                >
+                                  <Trash2 size={11} aria-hidden />
+                                  {t("store.uninstallButton")}
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isBusy || card.compatibility === "incompatible"}
+                              onClick={() => void handleInstallFromRegistry(entry.id)}
+                              className="inline-flex w-full items-center justify-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-[11px] font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
+                            >
+                              {isBusy ? (
+                                <Loader2 size={11} className="animate-spin" aria-hidden />
+                              ) : (
+                                <Download size={11} aria-hidden />
+                              )}
+                              {t("store.installButton", {
+                                size: formatBytes(entry.size_bytes),
+                              })}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
