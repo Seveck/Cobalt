@@ -1,11 +1,14 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
+import { backendOn } from "@/lib/backend";
 import {
   useBranchesStore,
   useHardwareStore,
   useMemoryStore,
   useSettingsStore,
+  useSynapticStore,
+  useTelemetryStore,
   useThemeStore,
   useUiStore,
 } from "@/stores";
@@ -29,6 +32,11 @@ export default function App() {
   const settings = useSettingsStore((s) => s.settings);
   const settingsLoaded = useSettingsStore((s) => s.loaded);
   const loadSettings = useSettingsStore((s) => s.loadSettings);
+  const syncReadOnly = useSettingsStore((s) => s.syncReadOnly);
+  const loadDaemonStatus = useSettingsStore((s) => s.loadDaemonStatus);
+  const setDaemonStatus = useSettingsStore((s) => s.setDaemonStatus);
+  const loadVaultStatus = useSettingsStore((s) => s.loadVaultStatus);
+  const setVaultStatus = useSettingsStore((s) => s.setVaultStatus);
 
   const loadHardwareAll = useHardwareStore((s) => s.loadAll);
   const subscribeDownloadProgress = useHardwareStore((s) => s.subscribeDownloadProgress);
@@ -36,6 +44,9 @@ export default function App() {
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const loadBranches = useBranchesStore((s) => s.loadBranches);
   const loadInstalledThemes = useThemeStore((s) => s.loadInstalledThemes);
+  const pushActivity = useTelemetryStore((s) => s.pushActivity);
+  const ingestActivity = useSynapticStore((s) => s.ingestActivity);
+  const pulseMemoryChange = useSynapticStore((s) => s.pulseMemoryChange);
 
   useEffect(() => {
     void loadAppInfo();
@@ -43,31 +54,95 @@ export default function App() {
     void loadHardwareAll();
     void loadBranches();
     void loadInstalledThemes();
+    void loadDaemonStatus();
+    void loadVaultStatus();
     void loadGraph();
 
     let active = true;
-    let unlisten: (() => void) | null = null;
+    let refreshTimer: number | null = null;
+    const unlisteners: Array<() => void> = [];
 
-    void subscribeDownloadProgress().then((fn) => {
-      if (active) {
-        unlisten = fn;
-      } else {
-        fn();
-      }
-    });
+    const register = (promise: Promise<() => void>) => {
+      void promise.then((fn) => {
+        if (active) {
+          unlisteners.push(fn);
+        } else {
+          fn();
+        }
+      });
+    };
+
+    register(subscribeDownloadProgress());
+
+    register(
+      backendOn("cobalt://mcp-activity", (payload) => {
+        pushActivity(payload);
+        ingestActivity(payload);
+      }),
+    );
+
+    register(
+      backendOn("cobalt://memory-changed", (payload) => {
+        pulseMemoryChange(payload.kind, payload.memory_ids);
+        if (payload.kind === "deleted") {
+          const selected = useMemoryStore.getState().selectedNodeId;
+          if (selected && payload.memory_ids.includes(selected)) {
+            useMemoryStore.getState().setSelectedNodeId(null);
+          }
+        }
+        if (refreshTimer !== null) {
+          window.clearTimeout(refreshTimer);
+        }
+        refreshTimer = window.setTimeout(() => {
+          refreshTimer = null;
+          void useMemoryStore.getState().loadGraph();
+        }, 220);
+      }),
+    );
+
+    register(
+      backendOn("cobalt://read-only-changed", (payload) => {
+        syncReadOnly(payload.read_only);
+      }),
+    );
+
+    register(
+      backendOn("cobalt://daemon-status", (payload) => {
+        setDaemonStatus(payload);
+      }),
+    );
+
+    register(
+      backendOn("cobalt://vault-status", (payload) => {
+        setVaultStatus(payload);
+      }),
+    );
 
     return () => {
       active = false;
-      unlisten?.();
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer);
+      }
+      for (const unlisten of unlisteners) {
+        unlisten();
+      }
     };
   }, [
+    ingestActivity,
     loadAppInfo,
-    loadSettings,
-    loadHardwareAll,
     loadBranches,
-    loadInstalledThemes,
+    loadDaemonStatus,
     loadGraph,
+    loadHardwareAll,
+    loadInstalledThemes,
+    loadSettings,
+    loadVaultStatus,
+    pulseMemoryChange,
+    pushActivity,
+    setDaemonStatus,
+    setVaultStatus,
     subscribeDownloadProgress,
+    syncReadOnly,
   ]);
 
   if (!settingsLoaded) {

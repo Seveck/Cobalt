@@ -3,6 +3,12 @@
     "name": "Cobalt",
     "tagline": "Your local second brain, shared by all your AIs"
   },
+  "common": {
+    "close": "Close",
+    "cancel": "Cancel",
+    "apply": "Apply",
+    "refresh": "Refresh"
+  },
   "languages": {
     "es": "Español (ES)",
     "en": "English (EN)",
@@ -23,11 +29,11 @@
     "contract": "Contracts v{{version}}",
     "browserPreview": "Browser preview: using local typed mock adapter.",
     "mockBadge": "MOCK",
-    "mockTooltip": "This view uses simulated data (Phase 1 backendMock).",
+    "mockTooltip": "This view uses simulated data (Phase 3 / browser preview backendMock).",
     "loading": "Loading Cobalt…",
     "branch": "Branch",
     "readOnly": "Read-only",
-    "phasePreviewBadge": "Phase 1 Preview"
+    "phasePreviewBadge": "Phase 3 Preview"
   },
   "tiers": {
     "eco": "Eco",
@@ -60,6 +66,17 @@
     "doc": "Documentation",
     "note": "Note",
     "ocr": "OCR"
+  },
+  "statuses": {
+    "active": "Active",
+    "superseded": "Superseded",
+    "archived": "Archived"
+  },
+  "availability": {
+    "available": "On disk",
+    "modified": "Modified",
+    "snippet_only": "Snippet only",
+    "missing": "Missing on disk"
   },
   "onboarding": {
     "badge": "First-run setup",
@@ -124,7 +141,7 @@
     "balancedFpsCap": "Balanced · 60 FPS cap",
     "fpsUncapped": "Ultra · Uncapped FPS",
     "resetCamera": "Reset camera",
-    "hoverHint": "Drag to orbit · Scroll to zoom · Hover a node for details",
+    "hoverHint": "Drag to orbit · Scroll to zoom · Click a node to inspect",
     "corePin": "Nuclear Law",
     "reusable": "Reusable",
     "globalScope": "Global",
@@ -133,7 +150,178 @@
     "confidence": "{{value}}% confidence",
     "webglFallbackTitle": "WebGL unavailable",
     "webglFallbackDesc": "Could not initialize the 3D canvas in this environment.",
-    "legendTitle": "Legend"
+    "legendTitle": "Legend",
+    "writable": "Writable",
+    "toggleReadOnlyHint": "Toggle global Read-Only lock for MCP & UI writes",
+    "daemonOnline": "Daemon · {{clients}} AI",
+    "daemonOffline": "Daemon offline",
+    "daemonTooltip": "Local Cobalt daemon ({{clients}} connected MCP clients)",
+    "layouts": {
+      "label": "3D Layout",
+      "galaxy": "Galaxy",
+      "brain": "Brain",
+      "neural_net": "Neural Net",
+      "knowledge_tree": "Tree",
+      "project_clusters": "Clusters",
+      "custom_mesh": "Custom"
+    },
+    "clusterMetric": {
+      "label": "Cluster size metric",
+      "vectors": "Vectors",
+      "tokens": "Tokens"
+    }
+  },
+  "filterDock": {
+    "title": "Visual Filter Dock",
+    "visualOnlyBadge": "Visual only · MCP unaffected",
+    "soloHint": "Shift+click or reticle icon for Solo isolation",
+    "filtersButton": "Filters",
+    "searchPlaceholder": "Filter preview…",
+    "clearSearch": "Clear filter query",
+    "onlyReusable": "Reusable only",
+    "projects": "Projects",
+    "categories": "Categories",
+    "status": "Status",
+    "sourceTypes": "Types",
+    "soloAction": "Solo isolate",
+    "soloBadge": "Solo",
+    "chipTooltip": "Click to toggle · Shift+click for Solo",
+    "visibleCount": "{{visible}} / {{total}} visible",
+    "reset": "Reset"
+  },
+  "synaptic": {
+    "simulatePulse": "Test pulse",
+    "simulateHint": "Trigger a simulated MCP synaptic pulse (browser preview)",
+    "toggleFeed": "Toggle recent activity feed",
+    "replay": "Replay",
+    "matchedNodes": "{{count}} nodes lit",
+    "savedTokens": "{{count}} tokens saved",
+    "ops": {
+      "read": "Read",
+      "write": "Write",
+      "update": "Update",
+      "reuse": "Reuse",
+      "handoff": "Handoff",
+      "blocked_firewall": "Blocked"
+    }
+  },
+  "inspector": {
+    "title": "Node Inspector",
+    "loading": "Loading memory…",
+    "notFound": "Memory could not be loaded.",
+    "readOnlyNotice": "Read-only mode active — editing and mutations are disabled.",
+    "saved": "Changes saved",
+    "encrypted": "Encrypted",
+    "tokensLabel": "Tokens",
+    "hitsLabel": "Hits",
+    "reusesLabel": "Reuses",
+    "contentSection": "Content",
+    "editContent": "Edit",
+    "encrypt": "Encrypt",
+    "decrypt": "Decrypt",
+    "encryptedNotice": "Memory encrypted in vault",
+    "decryptedNotice": "Memory decrypted",
+    "encryptedHidden": "Content is encrypted with AES-256-GCM and invisible to MCP.",
+    "revealPlaintext": "Reveal plaintext",
+    "hidePlaintext": "Hide plaintext",
+    "vaultSetupTitle": "Initialize Vault Passphrase",
+    "vaultUnlockTitle": "Unlock Vault",
+    "vaultPasswordPlaceholder": "Enter vault passphrase…",
+    "vaultConfirm": "Unlock",
+    "versionReasonLabel": "Version reason",
+    "versionReasonPlaceholder": "Why was this memory updated?",
+    "defaultReason": "Edited via Node Inspector",
+    "saveNewVersion": "Save version",
+    "writeAction": {
+      "inserted": "Inserted new memory",
+      "updated_existing": "Updated existing memory",
+      "superseded": "Created new version (previous superseded)",
+      "duplicate": "Identical content already exists"
+    },
+    "governanceSection": "Governance",
+    "categoryLabel": "Category",
+    "confidenceLabel": "Confidence",
+    "corePinHint": "Never decays and is always injected first.",
+    "markReusable": "Mark Reusable",
+    "reusableHint": "Indexed in the Reusable Library across projects.",
+    "diskStatus": "Disk status",
+    "reusableSnippetLabel": "Reusable snippet",
+    "reusableSnippetPlaceholder": "Concise portable snippet…",
+    "saveSnippet": "Save snippet",
+    "historySection": "Version History",
+    "noHistory": "No version history available.",
+    "reasonPrefix": "Reason",
+    "archive": "Archive",
+    "restore": "Restore",
+    "delete": "Delete",
+    "confirmDelete": "Confirm delete",
+    "updatedAt": "Updated {{date}}"
+  },
+  "rag": {
+    "title": "RAG Debugger",
+    "shortLabel": "RAG",
+    "subtitle": "Inspect hybrid Vector + BM25 RRF scores and token budget.",
+    "queryPlaceholder": "Enter a test retrieval query…",
+    "run": "Run",
+    "scopeLabel": "Scope",
+    "scopeAll": "All projects + Global",
+    "scopeProjectOnly": "Project only",
+    "topKLabel": "Top K",
+    "rrfOverride": "RRF weights override",
+    "vectorWeight": "Vector w",
+    "ftsWeight": "FTS w",
+    "includeArchived": "Include archived",
+    "emptyHint": "Run a query to inspect vector ranks, BM25 scores, RRF fusion and token cost.",
+    "injectedTokens": "Injected tokens",
+    "savedTokens": "Saved tokens",
+    "avoidedTokens": "Avoided full tokens",
+    "latency": "Latency",
+    "coreRulesCount": "Nuclear Laws injected ({{count}})",
+    "hitsCount": "Ranked hits ({{count}})",
+    "noHits": "No memories matched this query.",
+    "finalScore": "score"
+  },
+  "timeTravel": {
+    "title": "Time-Travel Snapshots",
+    "shortLabel": "Snapshots",
+    "labelPlaceholder": "Snapshot label…",
+    "defaultLabel": "Manual checkpoint",
+    "create": "Snapshot",
+    "loading": "Loading snapshots…",
+    "empty": "No snapshots recorded yet. Create one to enable point-in-time rollback.",
+    "sliderAria": "Select snapshot point in time",
+    "memoryCount": "{{count}} memories",
+    "restore": "Restore",
+    "confirmRestore": "Confirm restore",
+    "delete": "Delete snapshot"
+  },
+  "branches": {
+    "title": "Memory Branches",
+    "active": "Active",
+    "newPlaceholder": "New branch name…",
+    "create": "Create",
+    "mergeIntoParent": "Merge into parent branch",
+    "discard": "Discard branch",
+    "confirmDiscard": "Discard?",
+    "mergeReport": "Merged {{merged}} · Superseded {{superseded}} · Skipped {{skipped}}"
+  },
+  "cleanBrain": {
+    "title": "Clean Brain",
+    "shortLabel": "Clean",
+    "subtitle": "Detect and merge near-duplicate or conflicting memories.",
+    "rescan": "Rescan duplicates",
+    "scanning": "Scanning semantic clusters…",
+    "cleanTitle": "Brain is clean",
+    "cleanDesc": "No duplicate or conflicting memory clusters detected.",
+    "mergedNotice": "{{count}} cluster(s) merged.",
+    "similarity": "{{value}}% similarity",
+    "keepBadge": "Keep",
+    "selectKeep": "Set keep",
+    "mergeCluster": "Merge {{count}} into keeper",
+    "kind": {
+      "duplicate": "Duplicate",
+      "conflict": "Conflict"
+    }
   },
   "settings": {
     "title": "Settings",
@@ -175,7 +363,7 @@
     "compressionRatio": "Compression ratio",
     "byClient": "Activity by AI client",
     "topNodes": "Most queried memories",
-    "comingSoon": "Live synaptic streaming and historical Replay arrive in Phases 2 & 3."
+    "comingSoon": "Full historical telemetry charts and Replay controls arrive in Phase 3."
   },
   "connectors": {
     "title": "MCP Connectors",
