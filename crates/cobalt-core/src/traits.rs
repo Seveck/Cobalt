@@ -138,6 +138,16 @@ pub trait MemoryRepository: Send + Sync {
     /// Active `preference` memories for the project (+ global).
     async fn list_preferences(&self, project_id: Option<Id>) -> Result<Vec<Memory>>;
     async fn graph(&self, query: GraphQuery) -> Result<GraphData>;
+    /// Archives one memory recording `version_reason = reason` (`Conflict` for Nuclear Laws).
+    async fn archive_memory(&self, id: Id, reason: &str) -> Result<Memory>;
+    /// Most similar active memory in the scope with its calibrated similarity, if any reaches
+    /// `min_similarity` (backup/capsule import collisions, contradiction checks).
+    async fn find_similar(
+        &self,
+        content: &str,
+        project_id: Option<Id>,
+        min_similarity: f64,
+    ) -> Result<Option<(Memory, f64)>>;
 }
 
 #[async_trait]
@@ -206,6 +216,8 @@ pub trait TelemetryRepository: Send + Sync {
     async fn query_telemetry(&self, query: TelemetryQuery) -> Result<Page<TelemetryLog>>;
     async fn get_telemetry_log(&self, id: Id) -> Result<Option<TelemetryLog>>;
     async fn telemetry_summary(&self, range: TelemetryRange) -> Result<TelemetrySummary>;
+    /// Usage of a memory per client (from `returned_items_json`), most recent first.
+    async fn memory_usage_by_client(&self, memory_id: Id) -> Result<Vec<crate::mcp::ClientUsage>>;
     /// Applies `RetentionSettings` (purges `content_snapshot`/`query_text` only).
     async fn apply_retention(&self) -> Result<u64>;
 }

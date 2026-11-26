@@ -172,7 +172,7 @@ Output: `ResumeHandoffOutput`. Telemetry `operation = 'handoff'`.
 Output: `ListProjectRulesOutput { project, core_laws[], preferences[] }` (compact). Telemetry
 `operation = 'read'`.
 
-### 2.8 `archive_memory` (planned — Phase 3, contract v1.3.0)
+### 2.8 `archive_memory` (Phase 3, contract v1.3.0)
 
 Agents can never hard-delete. This is the only removal tool, and it is reversible.
 

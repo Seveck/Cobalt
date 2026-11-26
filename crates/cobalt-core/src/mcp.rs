@@ -15,9 +15,10 @@ pub const TOOL_UPDATE_MEMORY: &str = "update_memory";
 pub const TOOL_CREATE_HANDOFF: &str = "create_handoff";
 pub const TOOL_RESUME_HANDOFF: &str = "resume_handoff";
 pub const TOOL_LIST_PROJECT_RULES: &str = "list_project_rules";
+pub const TOOL_ARCHIVE_MEMORY: &str = "archive_memory";
 
-/// The 7 tools, in the order they are advertised by `tools/list`.
-pub const ALL_TOOLS: [&str; 7] = [
+/// The 8 tools, in the order they are advertised by `tools/list`.
+pub const ALL_TOOLS: [&str; 8] = [
     TOOL_SEARCH_MEMORY,
     TOOL_SEARCH_REUSABLE_ASSETS,
     TOOL_SAVE_MEMORY,
@@ -25,7 +26,11 @@ pub const ALL_TOOLS: [&str; 7] = [
     TOOL_CREATE_HANDOFF,
     TOOL_RESUME_HANDOFF,
     TOOL_LIST_PROJECT_RULES,
+    TOOL_ARCHIVE_MEMORY,
 ];
+
+/// A dry run must precede `archive_memory(confirm = true)` within this many seconds.
+pub const ARCHIVE_CONFIRM_WINDOW_SECS: u64 = 600;
 
 /// MCP server name advertised in `initialize`.
 pub const SERVER_NAME: &str = "cobalt";
@@ -115,6 +120,15 @@ pub struct ListProjectRulesArgs {
     pub project: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArchiveMemoryArgs {
+    pub memory_id: Id,
+    pub reason: String,
+    /// `false` (default) = dry run returning the impact; `true` = archive (after user consent).
+    #[serde(default)]
+    pub confirm: Option<bool>,
+}
+
 // ----------------------------------------------------------------------- structured output
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -193,4 +207,34 @@ pub struct ListProjectRulesOutput {
     pub core_laws: Vec<CompactMemory>,
     /// Active `preference` memories of the project + global, highest confidence first.
     pub preferences: Vec<CompactMemory>,
+}
+
+/// How one AI client has used a memory (from telemetry `returned_items`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientUsage {
+    pub client_name: String,
+    pub uses: u64,
+    pub last_used_at: Timestamp,
+}
+
+/// Who depends on a memory: shown to the user before an agent archives it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArchiveImpact {
+    pub memory_id: Id,
+    pub preview: String,
+    pub is_core_pin: bool,
+    pub is_reusable: bool,
+    pub hit_count: i64,
+    pub reuse_count: i64,
+    pub last_accessed_at: Option<Timestamp>,
+    /// Clients other than the caller that read or reused this memory.
+    pub other_clients: Vec<ClientUsage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArchiveMemoryOutput {
+    pub memory_id: Id,
+    /// `false` for a dry run.
+    pub archived: bool,
+    pub impact: ArchiveImpact,
 }

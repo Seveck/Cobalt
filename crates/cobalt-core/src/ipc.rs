@@ -55,6 +55,7 @@ pub mod commands {
     pub const GET_DAEMON_STATUS: &str = "get_daemon_status";
     pub const REPLAY_ACTIVITY: &str = "replay_activity";
     pub const GET_SOURCE_DOCUMENT: &str = "get_source_document";
+    pub const GET_ARCHIVE_IMPACT: &str = "get_archive_impact";
     pub const VERIFY_SOURCE_DOCUMENT: &str = "verify_source_document";
 
     // Projects / library / telemetry / connectors / themes / transfer (Phase 3)

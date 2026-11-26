@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.2.0";
+export const CONTRACT_VERSION = "1.3.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -999,6 +999,26 @@ export interface DoctorReport {
   checks: DoctorCheck[];
 }
 
+// ============================================================================ MCP archive (v1.3.0)
+
+export interface ClientUsage {
+  client_name: string;
+  uses: number;
+  last_used_at: IsoDateTime;
+}
+
+/** Who depends on a memory (shown before an agent archives it). */
+export interface ArchiveImpact {
+  memory_id: Uuid;
+  preview: string;
+  is_core_pin: boolean;
+  is_reusable: boolean;
+  hit_count: number;
+  reuse_count: number;
+  last_accessed_at: IsoDateTime | null;
+  other_clients: ClientUsage[];
+}
+
 // ============================================================================ events
 
 export const EVENTS = {
@@ -1127,6 +1147,7 @@ export interface IpcCommandMap {
   get_daemon_status: { args: void; result: DaemonStatus };
   replay_activity: { args: IdArgs; result: McpActivity };
   get_source_document: { args: IdArgs; result: SourceDocument };
+  get_archive_impact: { args: IdArgs; result: ArchiveImpact };
   verify_source_document: { args: IdArgs; result: FileAvailability };
   // Phase 3 — projects, library, telemetry, connectors, themes, transfer
   list_projects: { args: ListProjectsArgs; result: ProjectStats[] };
