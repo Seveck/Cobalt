@@ -366,12 +366,17 @@ impl Daemon {
                         // Ingest chunks are refreshed by the watcher; only memories written by
                         // agents/users are flagged when their file changed afterwards.
                         let authored = m.source_client.as_deref() != Some("cobalt-ingest");
+                        // The watcher refreshes the document when its file changes, so a
+                        // document updated after this memory means the memory may be outdated.
                         let changed = authored
-                            && doc.is_some()
-                            && matches!(
-                                store.verify_source_document(doc_id).await,
-                                Ok(cobalt_core::enums::FileAvailability::Modified)
-                            );
+                            && match &doc {
+                                Some(d) if d.updated_at > m.updated_at => true,
+                                Some(_) => matches!(
+                                    store.verify_source_document(doc_id).await,
+                                    Ok(cobalt_core::enums::FileAvailability::Modified)
+                                ),
+                                None => false,
+                            };
                         e.insert((doc.map(|d| d.file_path), changed));
                     }
                     paths.get(&doc_id).cloned().unwrap_or((None, false))

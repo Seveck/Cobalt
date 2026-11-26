@@ -168,7 +168,13 @@ pub fn run() {
             let sink = Arc::new(TauriSink {
                 app: handle.clone(),
             });
-            let state = tauri::async_runtime::block_on(AppState::init(sink))
+            let progress_app = handle.clone();
+            let ingest_progress: cobalt_core::traits::ProgressSink<
+                cobalt_core::transfer::IngestProgress,
+            > = Arc::new(move |p| {
+                let _ = progress_app.emit(cobalt_core::events::EVENT_INGEST_PROGRESS, &p);
+            });
+            let state = tauri::async_runtime::block_on(AppState::init(sink, ingest_progress))
                 .map_err(|e| format!("failed to initialize Cobalt: {e}"))?;
             let settings = state.config.get();
             if let Err(err) = tauri::async_runtime::block_on(state.start_servers()) {

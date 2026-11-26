@@ -39,6 +39,8 @@ pub struct AppState {
     ingest: std::sync::RwLock<Option<Arc<IngestService>>>,
     hardware: OnceCell<HardwareProfile>,
     servers: Mutex<Servers>,
+    /// Forwards watcher/ingest progress to the UI.
+    ingest_progress: cobalt_core::traits::ProgressSink<cobalt_core::transfer::IngestProgress>,
 }
 
 #[derive(Default)]
@@ -48,11 +50,18 @@ struct Servers {
 }
 
 impl AppState {
-    pub async fn init(sink: Arc<dyn EventSink>) -> Result<Self> {
-        Self::init_at(cobalt_home()?, sink).await
+    pub async fn init(
+        sink: Arc<dyn EventSink>,
+        ingest_progress: cobalt_core::traits::ProgressSink<cobalt_core::transfer::IngestProgress>,
+    ) -> Result<Self> {
+        Self::init_at(cobalt_home()?, sink, ingest_progress).await
     }
 
-    pub async fn init_at(home: PathBuf, sink: Arc<dyn EventSink>) -> Result<Self> {
+    pub async fn init_at(
+        home: PathBuf,
+        sink: Arc<dyn EventSink>,
+        ingest_progress: cobalt_core::traits::ProgressSink<cobalt_core::transfer::IngestProgress>,
+    ) -> Result<Self> {
         tokio::fs::create_dir_all(&home).await?;
         let base_store = SqliteStore::open_at(home.join(DATABASE_FILE)).await?;
         let config = Arc::new(ConfigManager::load(Arc::new(base_store.clone())).await?);
@@ -80,6 +89,7 @@ impl AppState {
             ingest: std::sync::RwLock::new(None),
             hardware: OnceCell::new(),
             servers: Mutex::new(Servers::default()),
+            ingest_progress,
         };
         if let Err(err) = state.activate_engine().await {
             tracing::warn!(%err, "retrieval engine not active yet");
@@ -129,7 +139,13 @@ impl AppState {
         };
         let store = Arc::new(store);
         self.daemon.replace_store(store.clone()).await;
-        let ingest = Arc::new(IngestService::with_sqlite_store(store.clone(), tokens));
+        let daemon = self.daemon.clone();
+        let changed: cobalt_core::traits::ProgressSink<cobalt_core::model::MemoryChanged> =
+            Arc::new(move |c| daemon.emit_memory_changed(c));
+        let ingest = Arc::new(
+            IngestService::with_sqlite_store(store.clone(), tokens)
+                .with_watcher_callbacks(self.ingest_progress.clone(), changed),
+        );
         let previous = self
             .ingest
             .write()
@@ -280,9 +296,13 @@ mod tests {
     #[tokio::test]
     async fn init_persists_settings_and_reports_real_state() {
         let home = tempfile::tempdir().unwrap();
-        let state = AppState::init_at(home.path().to_path_buf(), Arc::new(NullSink))
-            .await
-            .unwrap();
+        let state = AppState::init_at(
+            home.path().to_path_buf(),
+            Arc::new(NullSink),
+            Arc::new(|_| {}),
+        )
+        .await
+        .unwrap();
         assert!(home.path().join(DATABASE_FILE).is_file());
         assert_eq!(state.memory_counts().await.unwrap(), (0, 0));
         assert!(!state.vault.is_initialized());
@@ -298,9 +318,13 @@ mod tests {
             .await
             .unwrap();
         drop(state);
-        let reopened = AppState::init_at(home.path().to_path_buf(), Arc::new(NullSink))
-            .await
-            .unwrap();
+        let reopened = AppState::init_at(
+            home.path().to_path_buf(),
+            Arc::new(NullSink),
+            Arc::new(|_| {}),
+        )
+        .await
+        .unwrap();
         assert_eq!(reopened.config.get().language, Language::En);
     }
 }

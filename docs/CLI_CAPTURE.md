@@ -14,7 +14,8 @@ semantics); [GEMINI] (UI). Every piece is optional, reversible and toggled in Co
     updated; `memory-changed` emitted.
   - **deleted** → its chunks are archived with `version_reason = "file deleted"`.
   - Memories written by AIs/users that link the file (`source_doc_id`) are **never** rewritten;
-    instead MCP results flag them `file_changed = true` (hash differs from disk) and the text
+    instead MCP results flag them `file_changed = true` (their source document was refreshed after
+    the memory was saved, or its hash differs from disk) and the text
     rendering prints "⚠ file changed since saved", so agents re-check before trusting them.
 
 ## 2. Global instructions (`global_instructions`)
