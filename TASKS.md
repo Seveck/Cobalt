@@ -88,8 +88,30 @@ consulta y **actúa** sobre el cerebro. Se construye después de la Fase 3 (sus 
       clic en nodo → "decirle al chat" sobre ese nodo
 - [ ] [GEMINI] Modo Estudio: preguntas con citas, tarjetas + repaso espaciado, cuestionarios,
       resúmenes por tema/periodo
+- [ ] [CLAUDE+GEMINI] **Módulos y perfiles (anti-saturación)**: núcleo fijo (capturar, buscar, cerebro, chat);
+      cada función extra es un módulo activable (Estudio, Desarrollo/MCP, Reuniones, Diario, Investigación,
+      Voz…). El onboarding pregunta "¿para qué usarás Cobalt?" y enciende solo lo necesario; la interfaz
+      sugiere activar un módulo cuando el uso real lo indica (p. ej. tras importar PDFs de clase → Estudio),
+      nunca lo impone. Opciones avanzadas siempre en Modo Pro; la vista 3D puede ser secundaria (lista/tabla)
+- [ ] [CLAUDE+GEMINI] **Modo Voz del asistente**: el usuario habla o escribe; el agente busca todo lo
+      relacionado en Cobalt y **responde en voz alta** (con las citas visibles e iluminadas en el 3D).
+      Voz local por defecto (STT Whisper.cpp + TTS Piper / voz del SO, sin nube) y voces de proveedor
+      opcionales con la clave del usuario; atajo "pulsar para hablar", velocidad/voz configurables, ES/EN
 - [ ] Posicionamiento ampliado: memoria personal y multi-IA para cualquier persona (notas, estudio y
       desarrollo), con ahorro de tokens medible y cero telemetría
+
+## Fase 5 — Expansión por módulos (post-v1, todo opcional y oculto si no se usa)
+Orden sugerido; se prioriza según el uso real de los usuarios.
+- [ ] Categorías y plantillas por perfil (Estudio, Personal, Trabajo); "activos reutilizables" generalizados a plantillas
+- [ ] Extensión de navegador (guardar página/fragmento/resaltado + puente "Copiar contexto" para IAs web)
+- [ ] Notas de voz con transcripción local; captura de pantalla con OCR por atajo
+- [ ] Importadores: Notion, Evernote, Apple Notes, Google Keep, OneNote, Kindle, Zotero, correo (.mbox)
+- [ ] Estudio avanzado: mapa de dominio, ruta de estudio por fecha de examen, modo "explícamelo", material de curso (PDF/diapositivas/YouTube), exportar a Anki
+- [ ] Trabajo: reuniones (transcripción → decisiones/tareas/personas), pendientes derivados, diario + resumen semanal, calendario .ics (solo lectura)
+- [ ] Investigación y escritura: fuentes con citas (BibTeX/Zotero), borradores citando nodos, vista de evolución de una idea
+- [ ] Personal: Personas como mini-CRM; salud/finanzas/recetas solo en Bóveda cifrada
+- [ ] Ahorro en lenguaje simple (tiempo y dinero), más idiomas (PT, FR), accesibilidad (lector de pantalla, alto contraste)
+- [ ] Futuro lejano: app móvil compañera (sync cifrada) y cerebros compartidos familia/equipo con permisos
 
 ## Fase 4 — Auditoría, pulido y empaquetado [PARALELO]
 - [ ] [CODEX] Benchmarks, RAM Eco, OCR/re-vectorización, precisión de ahorro, cobertura
