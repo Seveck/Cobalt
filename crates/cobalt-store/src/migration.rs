@@ -80,13 +80,13 @@ pub(crate) fn edit_transaction<T>(
         && let Index::Usearch(target) = &retrieval.index
     {
         let dir = tempfile::tempdir()?;
-        let staged = target.with_file(dir.path().join("index.usearch"));
-        copy_file(target.file(), staged.file())?;
+        let staged = target.stage_edit(dir.path().join("index.usearch"))?;
         let shadow = Retrieval {
             index: staged.clone().into(),
             ..retrieval.clone()
         };
         let result = edit(&tx, Some(&shadow))?;
+        staged.publish_edit()?;
         return install_index(target, &staged, || {
             tx.commit().map_err(sql_error)?;
             Ok(result)

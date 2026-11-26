@@ -156,6 +156,58 @@ impl SqliteStore {
             .await
     }
 
+    /// Embeds and commits a batch of independent chunks from one document.
+    pub async fn insert_document_chunks(
+        &self,
+        chunks: Vec<NewMemory>,
+        on_batch: impl Fn(usize) -> Result<()> + Send + 'static,
+    ) -> Result<Vec<SaveOutcome>> {
+        let Some(first) = chunks.first() else {
+            return Ok(Vec::new());
+        };
+        let requested_branch = first.branch_id;
+        for chunk in &chunks {
+            validate_content(&chunk.content, chunk.confidence.unwrap_or(1.0))?;
+            if chunk.source_doc_id.is_none()
+                || chunk.source_doc_id != first.source_doc_id
+                || chunk.branch_id != requested_branch
+            {
+                return Err(CobaltError::InvalidInput(
+                    "document batch must share one source and branch".into(),
+                ));
+            }
+        }
+        let gate = self.engine_write().await;
+        on_batch(0)?;
+        let retrieval = self.retrieval()?;
+        let vectors = embed_document_chunks(&retrieval, &chunks).await?;
+        on_batch(chunks.len())?;
+        self.db
+            .write(move |conn| {
+                let _gate = gate;
+                on_batch(0)?;
+                edit_transaction(conn, Some(&retrieval), |tx, retrieval| {
+                    let branch_id = branch(tx, requested_branch)?.id;
+                    let retrieval = configured(retrieval)?;
+                    chunks
+                        .into_iter()
+                        .zip(vectors)
+                        .map(|(chunk, vector)| {
+                            write_memory(
+                                tx,
+                                retrieval,
+                                branch_id,
+                                chunk,
+                                &vector,
+                                WriteMode::Document,
+                            )
+                        })
+                        .collect()
+                })
+            })
+            .await
+    }
+
     /// Active chunks previously written by a particular import mode.
     pub async fn ingested_memories(
         &self,
@@ -607,7 +659,24 @@ pub(crate) async fn embed_memory(retrieval: &Retrieval, content: &str) -> Result
     Ok(embedding)
 }
 
-fn token_count(retrieval: &Retrieval, content: &str) -> Result<i64> {
+pub(crate) async fn embed_document_chunks(
+    retrieval: &Retrieval,
+    chunks: &[NewMemory],
+) -> Result<Vec<Vec<f32>>> {
+    let texts: Vec<_> = chunks.iter().map(|chunk| chunk.content.clone()).collect();
+    let vectors = retrieval.embedder.embed_documents(&texts).await?;
+    if vectors.len() != texts.len() {
+        return Err(CobaltError::Embedding(
+            "unexpected document embedding count".into(),
+        ));
+    }
+    for vector in &vectors {
+        checked_vector(vector, retrieval.index.dimensions())?;
+    }
+    Ok(vectors)
+}
+
+pub(crate) fn token_count(retrieval: &Retrieval, content: &str) -> Result<i64> {
     i64::try_from(retrieval.tokens.count(content))
         .map_err(|_| CobaltError::InvalidInput("memory token count exceeds SQLite range".into()))
 }
@@ -787,6 +856,7 @@ pub(crate) enum WriteMode {
     Normal,
     Version(Box<Memory>, String),
     Document,
+    CountedDocument(i64),
 }
 
 pub(crate) fn write_memory(
@@ -798,7 +868,7 @@ pub(crate) fn write_memory(
     mode: WriteMode,
 ) -> Result<SaveOutcome> {
     let hash = content_hash(&new.content);
-    let exact = if matches!(mode, WriteMode::Document) {
+    let exact = if matches!(mode, WriteMode::Document | WriteMode::CountedDocument(_)) {
         conn.query_row(
             "SELECT * FROM memories WHERE branch_id = ?1 AND source_doc_id = ?2
              AND source_client IS ?3 AND project_id IS ?4 AND content_hash = ?5
@@ -826,11 +896,17 @@ pub(crate) fn write_memory(
         return Ok(outcome(WriteAction::Duplicate, row, None, Some(1.0)));
     }
     let settings = load_settings(conn)?.search;
+    let prepared_count = match &mode {
+        WriteMode::CountedDocument(count) => Some(*count),
+        _ => None,
+    };
     let (previous, reason, similarity, action) = match mode {
         WriteMode::Version(previous, reason) => {
             (Some(*previous), Some(reason), None, WriteAction::Superseded)
         }
-        WriteMode::Document => (None, None, None, WriteAction::Inserted),
+        WriteMode::Document | WriteMode::CountedDocument(_) => {
+            (None, None, None, WriteAction::Inserted)
+        }
         WriteMode::Normal => {
             match semantic_match(conn, retrieval, branch_id, new.project_id, embedding)? {
                 Some((previous, score)) if score > settings.dedup_threshold => {
@@ -871,7 +947,10 @@ pub(crate) fn write_memory(
         .confidence
         .or_else(|| previous.as_ref().map(|row| row.confidence))
         .unwrap_or(1.0);
-    let count = token_count(retrieval, &new.content)?;
+    let count = match prepared_count {
+        Some(count) => count,
+        None => token_count(retrieval, &new.content)?,
+    };
     let [x, y, z] = project_embedding(embedding);
     let previous_id = previous.as_ref().map(|row| row.id);
     let key = if action == WriteAction::UpdatedExisting {

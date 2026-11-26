@@ -1,5 +1,8 @@
 //! Local ONNX and Ollama embedding providers and exact BPE token accounting.
 
+/// Maximum number of documents sent to a CPU embedding batch.
+pub const DOCUMENT_EMBED_BATCH: usize = 24;
+
 mod ollama;
 mod onnx;
 mod tokens;

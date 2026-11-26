@@ -9,17 +9,16 @@ use cobalt_core::enums::{
     MemoryCategory, MemoryChangeKind, MemoryStatus, PastLifeSource, SourceType, WriteAction,
 };
 use cobalt_core::error::{CobaltError, Result};
-use cobalt_core::ids::{Id, new_id};
+use cobalt_core::ids::Id;
 use cobalt_core::memoryignore::MemoryIgnore;
 use cobalt_core::model::{GraphQuery, Memory, MemoryPatch, NewMemory, NewSourceDocument};
 use cobalt_core::scrubber::scrub;
 use cobalt_core::traits::{ProgressSink, TokenCounter};
-use cobalt_core::transfer::{
-    IngestIssue, IngestProgress, IngestReport, IngestRequest, PromoteFileRequest,
-};
+use cobalt_core::transfer::*;
+use cobalt_store::DOCUMENT_EMBED_BATCH;
 use sha2::{Digest, Sha256};
 
-use crate::jobs::{Cancellation, Progress, emit_progress};
+use crate::jobs::{Cancellation, Progress};
 use crate::{Context, blocking, past_life, watcher::Callbacks};
 
 pub(crate) const INGEST_CLIENT: &str = "cobalt-ingest";
@@ -239,7 +238,8 @@ fn collect(
                     return Ok(());
                 }
                 let discovered = (result.files.len() + result.directories.len()) as u64;
-                run.progress.document(&path, 0, discovered, "scanning");
+                run.progress
+                    .document(&path, 0, discovered, INGEST_STAGE_SCANNING);
                 for entry in std::fs::read_dir(&path)? {
                     run.cancellation.check()?;
                     match entry {
@@ -488,6 +488,18 @@ fn category(kind: SourceType) -> MemoryCategory {
     }
 }
 
+pub(crate) fn document_priority(path: &Path) -> u8 {
+    let in_docs = path
+        .components()
+        .any(|part| part.as_os_str().eq_ignore_ascii_case("docs"));
+    match SourceType::from_path(path) {
+        SourceType::Md => 0,
+        SourceType::Note | SourceType::Pdf => 1,
+        _ if in_docs => 1,
+        _ => 2,
+    }
+}
+
 fn chunk_limit(settings: &AppSettings) -> usize {
     settings
         .chunking
@@ -504,6 +516,13 @@ fn check_document_text(content: &str) -> Result<()> {
     Ok(())
 }
 
+struct PreparedChunk {
+    hash: String,
+    category: MemoryCategory,
+    content: String,
+    snippet: Option<String>,
+}
+
 struct FileInput {
     path: String,
     project_id: Option<Id>,
@@ -515,7 +534,7 @@ struct FileInput {
     file_hash: String,
     total_tokens: usize,
     redactions: u64,
-    contents: Vec<(MemoryCategory, String)>,
+    contents: Vec<PreparedChunk>,
 }
 
 #[derive(Clone, Default)]
@@ -542,24 +561,28 @@ impl Context {
         source: Option<PastLifeSource>,
         progress: ProgressSink<IngestProgress>,
     ) -> Result<IngestReport> {
-        let job = self.jobs.start();
-        let (updates, receiver) = Progress::channel(job.id, req.paths.first().map(String::as_str));
-        let ((), report) = tokio::join!(emit_progress(receiver, progress), async {
-            let report = self
-                .ingest_job(
-                    req,
-                    IngestRun {
-                        cancellation: job.cancellation.clone(),
-                        source,
-                        progress: updates,
-                        ..Default::default()
-                    },
-                )
-                .await;
-            drop(job);
-            report
-        });
-        report
+        let first_path = req.paths.first().cloned();
+        self.jobs
+            .run(
+                first_path.as_deref(),
+                req.project_id,
+                None,
+                Some(progress),
+                report_failed,
+                async |cancellation, progress| {
+                    self.ingest_job(
+                        req,
+                        IngestRun {
+                            cancellation,
+                            source,
+                            progress,
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                },
+            )
+            .await
     }
 
     pub(crate) async fn ingest_watched(
@@ -568,26 +591,20 @@ impl Context {
         folder_limited: bool,
         cancellation: &Cancellation,
         callbacks: &Callbacks,
+        progress: &Progress,
     ) -> Result<IngestReport> {
-        let mut run = IngestRun {
-            cancellation: cancellation.clone(),
-            from_watcher: true,
-            folder_limited,
-            callbacks: callbacks.clone(),
-            ..Default::default()
-        };
-        if let Some(progress) = &callbacks.progress {
-            let (updates, receiver) =
-                Progress::channel(new_id(), req.paths.first().map(String::as_str));
-            run.progress = updates;
-            let ((), report) = tokio::join!(
-                emit_progress(receiver, progress.clone()),
-                self.ingest_job(req, run)
-            );
-            report
-        } else {
-            self.ingest_job(req, run).await
-        }
+        self.ingest_job(
+            req,
+            IngestRun {
+                cancellation: cancellation.clone(),
+                from_watcher: true,
+                folder_limited,
+                callbacks: callbacks.clone(),
+                progress: progress.within_path(),
+                ..Default::default()
+            },
+        )
+        .await
     }
 
     async fn ingest_job(&self, req: IngestRequest, run: IngestRun) -> Result<IngestReport> {
@@ -637,6 +654,8 @@ impl Context {
         };
         let mut pending_watches = Vec::new();
         let mut processed = 0;
+        let mut files: Vec<_> = files.into_iter().collect();
+        files.sort_by_key(|(path, _)| document_priority(path));
         for (path, file) in directories.into_iter().map(|path| (path, None)).chain(
             files
                 .into_iter()
@@ -649,7 +668,11 @@ impl Context {
                 &path,
                 processed,
                 total,
-                if file.is_some() { "reading" } else { "saving" },
+                if file.is_some() {
+                    INGEST_STAGE_READING
+                } else {
+                    INGEST_STAGE_SAVING
+                },
             );
             let result = if let Some(explicit) = file {
                 self.process_file(&path, explicit, &work, &mut report).await
@@ -675,7 +698,7 @@ impl Context {
             processed += 1;
         }
         if !pending_watches.is_empty() && run.cancellation.check().is_ok() {
-            run.progress.stage("saving");
+            run.progress.stage(INGEST_STAGE_SAVING);
         }
         self.enroll_watches(pending_watches, &run, &mut report)
             .await;
@@ -771,8 +794,27 @@ impl Context {
         let tokens = self.tokens.clone();
         let max = chunk_limit(work.settings);
         let overlap = work.settings.chunking.overlap_tokens as usize;
+        let reusable = work.req.mark_reusable;
         let ocr = work.req.ocr;
         let cancellation = work.run.cancellation.clone();
+        let prior = self.store.find_source_document_by_path(&file_path).await?;
+        let mut previous_hash = None;
+        if let Some(doc) = &prior
+            && work.run.from_watcher
+            && doc.is_watched
+            && !doc.is_dir
+            && doc.project_id == work.req.project_id
+            && doc.source_type == kind
+            && let Some(hash) = &doc.file_hash
+            && (doc.total_tokens == 0
+                || self
+                    .watcher_store()?
+                    .has_ingested_chunks(work.branch, doc.id)
+                    .await?)
+        {
+            // A promoted or imported source can have a hash before it has any local chunks.
+            previous_hash = Some(hash.clone());
+        }
         let prepared = blocking(move || {
             cancellation.check()?;
             let bytes = match read_file(&read_path, kind, explicit, conversations_zip, ocr)? {
@@ -781,6 +823,9 @@ impl Context {
             };
             cancellation.check()?;
             let file_hash = digest(&bytes);
+            if previous_hash.as_deref() == Some(file_hash.as_str()) {
+                return Ok(Ok(None));
+            }
             let text = if conversations_zip {
                 let json = past_life::conversations_from_zip(&bytes)?;
                 text_from_bytes(&json, kind, ocr)?
@@ -809,6 +854,14 @@ impl Context {
                                 .map(|chunk| (category, chunk)),
                         );
                     }
+                } else if max != 0
+                    && clean.text == message
+                    && message.trim() == message
+                    && total <= max
+                {
+                    if !message.is_empty() {
+                        contents.push((category(kind), message));
+                    }
                 } else {
                     contents.extend(
                         chunks(tokens.as_ref(), &clean.text, max, overlap, &cancellation)?
@@ -817,7 +870,28 @@ impl Context {
                     );
                 }
             }
-            Ok(Ok((file_hash, total, redactions, contents)))
+            let mut seen = HashSet::new();
+            let contents = contents
+                .into_iter()
+                .filter_map(|(category, content)| {
+                    let hash = digest(content.as_bytes());
+                    seen.insert(hash.clone()).then(|| {
+                        let snippet = reusable.then(|| {
+                            tokens.truncate(
+                                &content,
+                                cobalt_core::mcp::REUSABLE_SUMMARY_TOKENS as usize,
+                            )
+                        });
+                        PreparedChunk {
+                            hash,
+                            category,
+                            content,
+                            snippet,
+                        }
+                    })
+                })
+                .collect();
+            Ok(Ok(Some((file_hash, total, redactions, contents))))
         });
         let result = tokio::select! {
             biased;
@@ -825,7 +899,11 @@ impl Context {
             result = prepared => result,
         };
         let (file_hash, total_tokens, redactions, contents) = match result {
-            Ok(Ok(prepared)) => prepared,
+            Ok(Ok(Some(prepared))) => prepared,
+            Ok(Ok(None)) => {
+                report.documents_unchanged += 1;
+                return Ok(prior.filter(|doc| !doc.is_watched).map(|doc| doc.id));
+            }
             Ok(Err(error))
             | Err(
                 error @ (CobaltError::Unsupported(_)
@@ -856,6 +934,7 @@ impl Context {
                 redactions,
                 contents,
             },
+            prior,
             work.run,
             report,
         )
@@ -865,28 +944,20 @@ impl Context {
     async fn persist_file(
         &self,
         input: FileInput,
+        prior: Option<cobalt_core::model::SourceDocument>,
         run: &IngestRun,
         report: &mut IngestReport,
     ) -> Result<Option<Id>> {
         run.cancellation.check()?;
-        run.progress.stage("saving");
+        run.progress.stage(INGEST_STAGE_SAVING);
         if input.contents.is_empty() && input.client == PAST_LIFE_CLIENT {
             return Err(CobaltError::InvalidInput(
                 "no atomic memories identified in this document".into(),
             ));
         }
-        let prior = self.store.find_source_document_by_path(&input.path).await?;
         let total_tokens = i64::try_from(input.total_tokens)
             .map_err(|_| CobaltError::InvalidInput("file token count is too large".into()))?;
-        let mut seen = HashSet::new();
-        let chunks = input
-            .contents
-            .into_iter()
-            .filter_map(|(category, content)| {
-                let hash = digest(content.as_bytes());
-                seen.insert(hash.clone())
-                    .then_some((hash, category, content))
-            });
+        let chunks = input.contents;
         let mut doc = NewSourceDocument {
             project_id: input.project_id,
             file_path: input.path,
@@ -904,33 +975,43 @@ impl Context {
             let expected_hash = doc.file_hash.clone();
             let explicit = !input.inherit_watch;
             doc.is_watched = true;
-            let chunks = chunks
-                .map(|(_, category, content)| NewMemory {
-                    category,
-                    project_id: input.project_id,
-                    branch_id: Some(input.branch),
-                    source_doc_id: None,
-                    source_type: Some(input.kind),
-                    confidence: None,
-                    is_core_pin: false,
-                    reusable_snippet: input.reusable.then(|| {
-                        self.tokens
-                            .truncate(&content, cobalt_core::mcp::REUSABLE_SUMMARY_TOKENS as usize)
-                    }),
-                    is_reusable: input.reusable,
-                    source_client: Some(INGEST_CLIENT.into()),
-                    content,
-                })
+            let chunks: Vec<_> = chunks
+                .into_iter()
+                .map(
+                    |PreparedChunk {
+                         category,
+                         content,
+                         snippet,
+                         ..
+                     }| NewMemory {
+                        category,
+                        project_id: input.project_id,
+                        branch_id: Some(input.branch),
+                        source_doc_id: None,
+                        source_type: Some(input.kind),
+                        confidence: None,
+                        is_core_pin: false,
+                        reusable_snippet: snippet,
+                        is_reusable: input.reusable,
+                        source_client: Some(INGEST_CLIENT.into()),
+                        content,
+                    },
+                )
                 .collect();
             let cancellation = run.cancellation.clone();
-            run.progress.stage("embedding");
+            run.progress.stage(INGEST_STAGE_EMBEDDING);
+            run.progress.start_chunks(chunks.len());
+            let progress = run.progress.clone();
             let change = store
-                .replace_watched_file(
+                .replace_watched_file_with_progress(
                     doc,
                     input.branch,
                     chunks,
                     input.inherit_watch,
-                    move || cancellation.check(),
+                    move |count| {
+                        progress.embedded(count);
+                        cancellation.check()
+                    },
                     move || {
                         let metadata = snapshot_path.symlink_metadata()?;
                         if metadata.is_file()
@@ -1006,14 +1087,13 @@ impl Context {
             .into_iter()
             .map(|row| (row.content_hash.clone(), row))
             .collect();
-        let chunks: Vec<_> = chunks.collect();
         if let Some(prior) = &prior
             && prior.file_hash == doc.file_hash
             && prior.project_id == doc.project_id
             && prior.total_tokens == doc.total_tokens
             && chunks.len() == old.len()
-            && chunks.iter().all(|(hash, _, _)| {
-                old.get(hash).is_some_and(|row| {
+            && chunks.iter().all(|chunk| {
+                old.get(&chunk.hash).is_some_and(|row| {
                     row.project_id == doc.project_id
                         && (!input.reusable || (row.is_reusable && row.reusable_snippet.is_some()))
                 })
@@ -1023,12 +1103,15 @@ impl Context {
             report.documents_unchanged += 1;
             return Ok((!doc.is_watched).then_some(doc_id));
         }
-        for (hash, category, content) in chunks {
+        let mut pending = Vec::new();
+        for PreparedChunk {
+            hash,
+            category,
+            content,
+            snippet,
+        } in chunks
+        {
             run.cancellation.check()?;
-            let snippet = input.reusable.then(|| {
-                self.tokens
-                    .truncate(&content, cobalt_core::mcp::REUSABLE_SUMMARY_TOKENS as usize)
-            });
             if let Some(row) = old.get(&hash)
                 && row.project_id == input.project_id
             {
@@ -1063,21 +1146,43 @@ impl Context {
                 reusable_snippet: snippet,
                 source_client: Some(input.client.into()),
             };
-            run.progress.stage("embedding");
-            // Each store call embeds and writes one chunk. Let the current write finish.
-            let action = if let Some(store) = &self.sqlite {
-                store.insert_document_chunk(new).await?.action
+            pending.push(new);
+        }
+        run.progress.start_chunks(pending.len());
+        if !pending.is_empty() {
+            run.progress.stage(INGEST_STAGE_EMBEDDING);
+        }
+        let batch_size = if self.sqlite.is_some() {
+            DOCUMENT_EMBED_BATCH
+        } else {
+            1
+        };
+        let mut pending = pending.into_iter();
+        while pending.len() != 0 {
+            run.cancellation.check()?;
+            let batch: Vec<_> = pending.by_ref().take(batch_size).collect();
+            let count = batch.len();
+            if let Some(store) = &self.sqlite {
+                let progress = run.progress.clone();
+                let cancellation = run.cancellation.clone();
+                for outcome in store
+                    .insert_document_chunks(batch, move |count| {
+                        progress.embedded(count);
+                        cancellation.check()
+                    })
+                    .await?
+                {
+                    record_chunk(report, outcome.action);
+                }
             } else {
-                self.store.save_memory(new).await?.action
-            };
-            report.memories_created += u64::from(matches!(
-                action,
-                WriteAction::Inserted | WriteAction::Superseded
-            ));
-            report.memories_superseded += u64::from(action == WriteAction::Superseded);
+                for chunk in batch {
+                    record_chunk(report, self.store.save_memory(chunk).await?.action);
+                }
+                run.progress.embedded(count);
+            }
         }
         run.cancellation.check()?;
-        run.progress.stage("saving");
+        run.progress.stage(INGEST_STAGE_SAVING);
         for row in old
             .into_values()
             .filter(|row| !row.is_core_pin && !row.is_encrypted)
@@ -1226,6 +1331,19 @@ impl Context {
         }
         Ok(saved.memory)
     }
+}
+
+fn report_failed(report: &IngestReport) -> bool {
+    !report.errors.is_empty()
+        && report.documents_created + report.documents_updated + report.documents_unchanged == 0
+}
+
+fn record_chunk(report: &mut IngestReport, action: WriteAction) {
+    report.memories_created += u64::from(matches!(
+        action,
+        WriteAction::Inserted | WriteAction::Superseded
+    ));
+    report.memories_superseded += u64::from(action == WriteAction::Superseded);
 }
 
 #[cfg(test)]
