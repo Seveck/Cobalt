@@ -40,8 +40,10 @@ export function NodeTooltip({
 
   return (
     <div
-      style={{ transform: `translate3d(${left}px, ${top}px, 0)` }}
-      className="pointer-events-none absolute top-0 left-0 z-20 w-72 rounded-[2px] border border-rule-strong border-t-2 border-t-cobalt bg-surface p-3 shadow-[0_12px_32px_rgba(0,0,0,0.72)]"
+      // Whole-pixel left/top (no translate3d): a GPU-composited layer at fractional
+      // offsets renders blurry text in WebKitGTK.
+      style={{ left: Math.round(left), top: Math.round(top) }}
+      className="pointer-events-none absolute z-20 w-72 rounded-[2px] border border-rule-strong border-t-2 border-t-cobalt bg-surface p-3 shadow-[0_12px_32px_rgba(0,0,0,0.72)]"
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
