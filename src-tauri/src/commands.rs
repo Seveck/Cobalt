@@ -197,3 +197,52 @@ pub async fn vault_lock(app: AppHandle, state: State<'_, AppState>) -> CmdResult
     state.vault.lock();
     emit_vault(&app, &state).await
 }
+
+/// Full name of the OS account, used to prefill the greeting name (never sent anywhere).
+#[tauri::command]
+pub fn get_system_user_name() -> CmdResult<Option<String>> {
+    Ok(system_user_name())
+}
+
+fn system_user_name() -> Option<String> {
+    let clean = |s: &str| {
+        let s = s.split(',').next().unwrap_or_default().trim().to_owned();
+        (!s.is_empty()).then_some(s)
+    };
+    #[cfg(target_os = "macos")]
+    if let Ok(out) = std::process::Command::new("id").arg("-F").output() {
+        if let Some(n) = clean(&String::from_utf8_lossy(&out.stdout)) {
+            return Some(n);
+        }
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let user = std::env::var("USER").unwrap_or_default();
+        if let Ok(passwd) = std::fs::read_to_string("/etc/passwd")
+            && let Some(gecos) = passwd
+                .lines()
+                .map(|l| l.split(':').collect::<Vec<_>>())
+                .find(|f| f.first() == Some(&user.as_str()))
+                .and_then(|f| f.get(4).and_then(|g| clean(g)))
+            {
+                return Some(gecos);
+            }
+    }
+    #[cfg(windows)]
+    if let Ok(out) = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "(Get-CimInstance Win32_UserAccount -Filter \"Name='$env:USERNAME'\").FullName",
+        ])
+        .output()
+    {
+        if let Some(n) = clean(&String::from_utf8_lossy(&out.stdout)) {
+            return Some(n);
+        }
+    }
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok()
+        .and_then(|u| clean(&u))
+}

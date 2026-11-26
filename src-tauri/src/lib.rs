@@ -204,6 +204,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
+            commands::get_system_user_name,
             commands::get_hardware_profile,
             commands::get_settings,
             commands::update_settings,

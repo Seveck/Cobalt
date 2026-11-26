@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.4.0";
+export const CONTRACT_VERSION = "1.5.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -62,7 +62,7 @@ export type Language = (typeof LANGUAGES)[number];
 export type FileAvailability = "available" | "modified" | "snippet_only" | "missing";
 
 export const LAYOUT_TYPES = [
-  "galaxy", "brain", "neural_net", "knowledge_tree", "project_clusters", "custom_mesh",
+  "galaxy", "brain", "neural_net", "knowledge_tree", "project_clusters", "project_islands", "custom_mesh",
 ] as const;
 export type LayoutType = (typeof LAYOUT_TYPES)[number];
 
@@ -753,6 +753,8 @@ export interface CaptureSettings {
 
 export interface AppSettings {
   onboarding_completed: boolean;
+  /** Name used to greet the user. */
+  user_display_name: string | null;
   hardware_tier: HardwareTier;
   vector_engine: EngineKind;
   embedding_model_id: string;
@@ -1164,6 +1166,8 @@ export interface McpToolDoc {
 export interface IpcCommandMap {
   // Phase 0/1 — app, hardware, settings, engines, vault
   app_info: { args: void; result: AppInfo };
+  /** Full name of the OS account (prefill for the greeting), if available. */
+  get_system_user_name: { args: void; result: string | null };
   get_hardware_profile: { args: void; result: HardwareProfile };
   get_settings: { args: void; result: AppSettings };
   update_settings: { args: AppSettings; result: AppSettings };

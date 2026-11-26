@@ -227,6 +227,8 @@ string_enum! {
     pub enum LayoutType {
         Galaxy => "galaxy", Brain => "brain", NeuralNet => "neural_net",
         KnowledgeTree => "knowledge_tree", ProjectClusters => "project_clusters",
+        /// Each project as a separate flat "island" laid out on a grid, labelled above.
+        ProjectIslands => "project_islands",
         CustomMesh => "custom_mesh",
     }
 }

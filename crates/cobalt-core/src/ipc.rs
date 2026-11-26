@@ -14,6 +14,7 @@ use crate::model::{MemoryPatch, ProjectPatch};
 pub mod commands {
     // App / hardware / settings / engines (Phase 1)
     pub const APP_INFO: &str = "app_info";
+    pub const GET_SYSTEM_USER_NAME: &str = "get_system_user_name";
     pub const GET_HARDWARE_PROFILE: &str = "get_hardware_profile";
     pub const GET_SETTINGS: &str = "get_settings";
     pub const UPDATE_SETTINGS: &str = "update_settings";

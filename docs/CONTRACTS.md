@@ -1,4 +1,8 @@
-# Cobalt — Frozen Contracts (v1.3.2)
+# Cobalt — Frozen Contracts (v1.5.0)
+
+> v1.5.0 (additive): `AppSettings.user_display_name`, IPC `get_system_user_name`, layout
+> `project_islands` (each project as a separate flat island on a grid).
+> v1.4.0: automatic CLI capture (see `docs/CLI_CAPTURE.md`).
 
 > v1.3.2 (Phase 3 fix, additive): `IngestService::cancel_job` + IPC `cancel_ingest`; ingest
 > progress is emitted per chunk/embedding batch; folder walks skip binaries (sniffed from the first
@@ -339,7 +343,7 @@ selectable only in Pro mode (`PRO_ENGLISH_MODELS`). Defaults come from
 
 ## 8. 3D layout contract (frontend-only)
 
-`LayoutType = galaxy | brain | neural_net | knowledge_tree | project_clusters | custom_mesh`.
+`LayoutType = galaxy | brain | neural_net | knowledge_tree | project_clusters | project_islands | custom_mesh`.
 A layout is a pure `LayoutFn` returning `LayoutResult { nodePositions, virtualAnchors?,
 structuralEdges?, projectContainers? }`; `ProjectContainer = { id, projectId, label, center,
 radius, vectorCount, totalTokens, color }`. Data ⟂ layout math ⟂ materials/shaders; switching

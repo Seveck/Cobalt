@@ -243,6 +243,8 @@ impl Default for OllamaSettings {
 #[serde(default)]
 pub struct AppSettings {
     pub onboarding_completed: bool,
+    /// Name used to greet the user (asked in onboarding, prefilled from the OS account).
+    pub user_display_name: Option<String>,
     pub hardware_tier: HardwareTier,
     pub vector_engine: EngineKind,
     pub embedding_model_id: String,
@@ -273,6 +275,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             onboarding_completed: false,
+            user_display_name: None,
             hardware_tier: HardwareTier::Eco,
             vector_engine: EngineKind::SqliteVec,
             embedding_model_id: DEFAULT_EMBEDDING_MODEL_ID.into(),
