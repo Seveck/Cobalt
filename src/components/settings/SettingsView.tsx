@@ -1,6 +1,20 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowRightLeft, Check, Cpu, Download, Loader2, RotateCcw, Save, Shield, Trash2 } from "lucide-react";
+import {
+  ArrowRightLeft,
+  Check,
+  Cpu,
+  Download,
+  FolderSync,
+  GitCommitHorizontal,
+  History,
+  Loader2,
+  RotateCcw,
+  Save,
+  Shield,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { SUPPORTED_LANGUAGES } from "@/i18n";
 import {
   estimateDownloadBytes,
@@ -12,12 +26,15 @@ import { useHardwareStore, useMemoryStore, useSettingsStore, useUiStore } from "
 import { DownloadProgressBar, HardwareConfigForm } from "@/components/onboarding";
 import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
-import type { EngineKind, HardwareTier, Language } from "@/types/contracts";
+import type { CaptureSettings, EngineKind, HardwareTier, Language } from "@/types/contracts";
 
 export function SettingsView() {
   const { t } = useTranslation();
   const langLabelId = useId();
   const readOnlyLabelId = useId();
+  const autoWatchLabelId = useId();
+  const sessionHandoffsLabelId = useId();
+  const gitCommitsLabelId = useId();
 
   const settings = useSettingsStore((s) => s.settings);
   const saving = useSettingsStore((s) => s.saving);
@@ -154,6 +171,15 @@ export function SettingsView() {
     }
   };
 
+  const handleToggleCaptureSetting = (key: keyof CaptureSettings, value: boolean) => {
+    void patchSettings({
+      capture: {
+        ...settings.capture,
+        [key]: value,
+      },
+    }).then(showSavedFlash);
+  };
+
   return (
     <div className="h-full overflow-y-auto bg-void p-6 lg:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
@@ -228,12 +254,88 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* 02 — Hardware & Engine section */}
+        {/* 02 — Automatic capture section */}
+        <section className="rounded-[2px] border border-rule bg-surface">
+          <div className="border-b border-rule px-5 py-3">
+            <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+              <Sparkles size={13} className="text-cobalt-ink" aria-hidden />
+              02 — {t("settings.captureTitle")}
+            </h2>
+            <p className="mt-1 text-xs text-bone-muted">{t("settings.captureSubtitle")}</p>
+          </div>
+
+          <div className="divide-y divide-rule px-5">
+            <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+              <div className="min-w-0 flex-1">
+                <div
+                  id={autoWatchLabelId}
+                  className="flex items-center gap-1.5 text-sm font-medium text-bone"
+                >
+                  <FolderSync size={14} className="text-cobalt-ink" aria-hidden />
+                  {t("settings.captureAutoWatchTitle")}
+                </div>
+                <div className="mt-0.5 text-xs text-bone-muted">
+                  {t("settings.captureAutoWatchDesc")}
+                </div>
+              </div>
+              <Toggle
+                checked={settings.capture.auto_watch_projects}
+                disabled={saving}
+                ariaLabelledBy={autoWatchLabelId}
+                onChange={(checked) => handleToggleCaptureSetting("auto_watch_projects", checked)}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+              <div className="min-w-0 flex-1">
+                <div
+                  id={sessionHandoffsLabelId}
+                  className="flex items-center gap-1.5 text-sm font-medium text-bone"
+                >
+                  <History size={14} className="text-cobalt-ink" aria-hidden />
+                  {t("settings.captureSessionHandoffsTitle")}
+                </div>
+                <div className="mt-0.5 text-xs text-bone-muted">
+                  {t("settings.captureSessionHandoffsDesc")}
+                </div>
+              </div>
+              <Toggle
+                checked={settings.capture.session_handoffs}
+                disabled={saving}
+                ariaLabelledBy={sessionHandoffsLabelId}
+                onChange={(checked) => handleToggleCaptureSetting("session_handoffs", checked)}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+              <div className="min-w-0 flex-1">
+                <div
+                  id={gitCommitsLabelId}
+                  className="flex items-center gap-1.5 text-sm font-medium text-bone"
+                >
+                  <GitCommitHorizontal size={14} className="text-cobalt-ink" aria-hidden />
+                  {t("settings.captureGitCommitsTitle")}
+                </div>
+                <div className="mt-0.5 text-xs text-bone-muted">
+                  {t("settings.captureGitCommitsDesc")}
+                </div>
+              </div>
+              <Toggle
+                checked={settings.capture.git_commits}
+                disabled={saving}
+                ariaLabelledBy={gitCommitsLabelId}
+                onChange={(checked) => handleToggleCaptureSetting("git_commits", checked)}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* 03 — Hardware & Engine section */}
         <section className="rounded-[2px] border border-rule bg-surface">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule px-5 py-3">
             <div>
               <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
-                02 — {t("settings.engineTitle")}
+                03 — {t("settings.engineTitle")}
               </h2>
               <p className="mt-1 text-xs text-bone-muted">{t("settings.engineSubtitle")}</p>
             </div>
@@ -361,12 +463,12 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* 03 — Detected hardware & re-open onboarding */}
+        {/* 04 — Detected hardware & re-open onboarding */}
         <section className="rounded-[2px] border border-rule bg-surface">
           <div className="border-b border-rule px-5 py-3">
             <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
               <Cpu size={13} className="text-cobalt-ink" aria-hidden />
-              03 — {t("settings.hardwareTitle")}
+              04 — {t("settings.hardwareTitle")}
             </h2>
           </div>
 

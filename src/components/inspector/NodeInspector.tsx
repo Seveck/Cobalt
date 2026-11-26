@@ -31,6 +31,7 @@ import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickSinglePath } from "@/lib/dialogs";
 import { formatAiClientName } from "@/lib/format";
 import { IpcError } from "@/lib/ipc";
+import { cacheSourceDocPath } from "@/lib/sourceDocCache";
 import {
   useBranchesStore,
   useMemoryStore,
@@ -171,6 +172,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
         ]);
         if (docRes.status === "fulfilled") {
           setSourceDoc(docRes.value);
+          cacheSourceDocPath(docRes.value.id, docRes.value.file_path);
         }
         if (statusRes.status === "fulfilled") {
           setDiskStatus(statusRes.value);
@@ -332,6 +334,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
         new_path: newPath,
       });
       setSourceDoc(updated);
+      cacheSourceDocPath(updated.id, updated.file_path);
       const status = await backendCall("verify_source_document", { id: updated.id });
       setDiskStatus(status);
       flashNotice(t("library.relinkedNotice"));
@@ -536,6 +539,19 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                   <RotateCcw size={12} aria-hidden />
                   {t("inspector.restoreMemoryButton")}
                 </button>
+              </div>
+            )}
+
+            {/* Modified-on-disk warning banner (`verify_source_document === "modified"`) */}
+            {diskStatus === "modified" && (
+              <div className="flex items-start gap-2 rounded-[2px] border border-ochre-rule bg-ochre-wash px-3 py-2.5 text-xs text-ochre">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden />
+                <div className="min-w-0">
+                  <div className="font-semibold">{t("inspector.fileChangedSinceSaved")}</div>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-bone-muted">
+                    {t("inspector.fileChangedHint")}
+                  </p>
+                </div>
               </div>
             )}
 
@@ -795,9 +811,14 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                 </span>
                 {diskStatus && (
                   <span
-                    className={`rounded-[2px] border px-1.5 py-0.5 font-mono text-[10px] uppercase ${diskStatusBadgeClass}`}
+                    className={`inline-flex items-center gap-1 rounded-[2px] border px-1.5 py-0.5 font-mono text-[10px] ${
+                      diskStatus === "modified" ? "font-medium" : "uppercase"
+                    } ${diskStatusBadgeClass}`}
                   >
-                    {t(`availability.${diskStatus}`)}
+                    {diskStatus === "modified" && <AlertTriangle size={10} aria-hidden />}
+                    {diskStatus === "modified"
+                      ? t("inspector.fileChangedSinceSaved")
+                      : t(`availability.${diskStatus}`)}
                   </span>
                 )}
               </div>

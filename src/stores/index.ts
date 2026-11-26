@@ -9,6 +9,12 @@ export { useTelemetryStore, type TelemetryState } from "./telemetry";
 export { useBranchesStore, type BranchesState } from "./branches";
 export { useSynapticStore, type SynapticPulse, type SynapticState } from "./synaptic";
 export {
+  useCliActivityStore,
+  CLI_ACTIVITY_COLORS,
+  type CliActivityEntry,
+  type CliActivityState,
+} from "./cliActivity";
+export {
   useIngestStore,
   type IngestJob,
   type IngestJobOrigin,

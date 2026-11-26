@@ -231,6 +231,8 @@
     "sourceDocSection": "Source file",
     "watchFile": "Watch changes",
     "noSourceDoc": "Not linked to a file on disk (note or snippet only).",
+    "fileChangedSinceSaved": "File changed since saved",
+    "fileChangedHint": "The file on your computer is newer than this memory. Double-check it before relying on it or edit this memory to update it.",
     "contentSection": "Content",
     "editContent": "Edit",
     "encrypt": "Encrypt",
@@ -383,6 +385,14 @@
     "proModeDesc": "Unlocks advanced search tuning, MCP tool docstrings, REST API and external engines.",
     "readOnlyTitle": "Read-Only Mode",
     "readOnlyDesc": "Prevents AI tools from writing or modifying your memories.",
+    "captureTitle": "Automatic capture",
+    "captureSubtitle": "Keep your memory automatically up to date as you work with your files and AI assistants.",
+    "captureAutoWatchTitle": "Watch projects automatically",
+    "captureAutoWatchDesc": "When you import a folder or an AI works inside a project, Cobalt keeps its files indexed and up to date in the background.",
+    "captureSessionHandoffsTitle": "Automatic session handoffs",
+    "captureSessionHandoffsDesc": "When an AI session finishes, saves a short temporary summary of recent progress so your next AI can pick up where you left off.",
+    "captureGitCommitsTitle": "Record saved project changes (Git)",
+    "captureGitCommitsDesc": "Saves a short note for each recorded change (commit) and automatically re-indexes the modified files.",
     "saved": "Changes saved",
     "engineTitle": "Hardware profile & engine",
     "engineSubtitle": "Change the tier, vector engine or embedding model selected during onboarding.",
@@ -446,6 +456,62 @@
     "manualSetupDesc": "Prefer configuring it yourself? Paste this snippet into your AI client's settings file.",
     "copySnippet": "Copy snippet",
     "httpEndpointHint": "Local Streamable HTTP endpoint also available at {{url}}"
+  },
+  "capture": {
+    "title": "Automatic capture",
+    "subtitle": "Keeps Cobalt up to date even when your AI assistants forget to save or look things up on their own. Every option is optional and reversible.",
+    "reversibleBadge": "Optional · .bak backup",
+    "loading": "Loading capture integrations…",
+    "editsFileLabel": "File it edits",
+    "noFileDetected": "Not detected on this computer",
+    "enabledNotice": "Automatic capture enabled for {{name}}.",
+    "disabledNotice": "Automatic capture disabled for {{name}}.",
+    "privacyNote": "Everything stays on your device, passes through secret filtering and ignore rules (.memoryignore), and automatically pauses whenever Read-Only mode is enabled.",
+    "status": {
+      "enabled": "Active",
+      "disabled": "Off",
+      "unsupported": "Not supported"
+    },
+    "groups": {
+      "global_instructions": {
+        "title": "Global instructions for your AIs",
+        "plainExplanation": "Adds a short guide to your AI assistant's instructions file reminding it to check your rules, search before asking again, and save key decisions. Turning it off removes only that block.",
+        "empty": "No compatible AI assistants found for global instructions."
+      },
+      "session_hooks": {
+        "title": "Live session activity & handoffs",
+        "plainExplanation": "Lets Cobalt notice right away when your assistant edits files so your memory stays fresh and saves a short temporary handoff when the session ends, without ever slowing down your tool.",
+        "empty": "No compatible AI assistants found for session events."
+      },
+      "git_hooks": {
+        "title": "Saved project changes (Git)",
+        "plainExplanation": "Whenever you save a change (commit) in a project, records a short note of what changed and re-indexes those files. Any existing project automation is preserved safely.",
+        "empty": "Once you link a project folder that uses Git, you can enable it here."
+      }
+    }
+  },
+  "cliActivity": {
+    "regionLabel": "Live AI assistant activity",
+    "liveBadge": "LIVE",
+    "feedTitle": "Recent AI assistant activity",
+    "showFeed": "Show recent activity",
+    "hideFeed": "Hide recent activity",
+    "clearFeed": "Clear",
+    "nodesPulsed": "3D · {{count}}",
+    "pulseNodesHint": "Locate and highlight related nodes in the 3D Brain",
+    "action": {
+      "fileEditOne": "edited {{file}}",
+      "fileEditMany": "edited {{file}} (+{{count}})",
+      "fileEditGeneric": "edited files",
+      "gitCommitDetail": "committed: {{detail}}",
+      "gitCommitFile": "committed {{file}}",
+      "gitCommitGeneric": "recorded a Git commit",
+      "commandDetail": "ran {{detail}}",
+      "commandGeneric": "ran a command",
+      "sessionStart": "started session",
+      "turnEnd": "finished a step",
+      "sessionEnd": "ended session"
+    }
   },
   "doctor": {
     "title": "MCP Doctor",

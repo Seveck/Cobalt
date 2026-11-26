@@ -200,5 +200,78 @@ export function createDefaultSettings(): AppSettings {
     ollama: {
       base_url: "http://127.0.0.1:11434",
     },
+    capture: {
+      auto_watch_projects: true,
+      session_handoffs: true,
+      git_commits: true,
+    },
   };
+}
+
+/** Normalize a filesystem path for cross-platform comparison (forward slashes, no trailing slash). */
+export function normalizeFilePath(raw: string): string {
+  let path = raw.trim().replace(/\\/g, "/");
+  path = path.replace(/\/+/g, "/");
+  if (path.length > 1 && path.endsWith("/")) {
+    path = path.slice(0, -1);
+  }
+  if (/^[A-Z]:\//.test(path)) {
+    path = `${path[0]!.toLowerCase()}${path.slice(1)}`;
+  }
+  return path;
+}
+
+/**
+ * Format a file path compactly for live activity feeds (e.g. `src/api.ts`).
+ * Strips `cwd` or `projectRoot` prefix when present; otherwise shows up to the last 2 segments.
+ */
+export function formatShortFilePath(
+  filePath: string,
+  cwd?: string | null,
+  projectRoot?: string | null,
+): string {
+  const norm = normalizeFilePath(filePath);
+  for (const base of [projectRoot, cwd]) {
+    if (!base) continue;
+    const normBase = normalizeFilePath(base);
+    if (norm.startsWith(`${normBase}/`)) {
+      return norm.slice(normBase.length + 1);
+    }
+  }
+  const parts = norm.split("/").filter(Boolean);
+  if (parts.length <= 2) return norm;
+  return parts.slice(-2).join("/");
+}
+
+/** Extract the final folder/file name from a path. */
+export function pathBasename(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const norm = normalizeFilePath(raw);
+  const parts = norm.split("/").filter(Boolean);
+  return parts.length > 0 ? (parts[parts.length - 1] ?? null) : null;
+}
+
+/** Returns true when a stored `SourceDocument.file_path` matches a touched CLI file path. */
+export function sourcePathMatchesTouched(
+  sourceDocPath: string,
+  touchedPath: string,
+  cwd?: string | null,
+): boolean {
+  const normDoc = normalizeFilePath(sourceDocPath);
+  const normTouched = normalizeFilePath(touchedPath);
+  if (!normDoc || !normTouched) return false;
+
+  const candidates = [normTouched];
+  const isAbs = normTouched.startsWith("/") || /^[a-z]:\//.test(normTouched);
+  if (!isAbs && cwd) {
+    const cleanRel = normTouched.replace(/^\.\//, "");
+    candidates.push(normalizeFilePath(`${cwd}/${cleanRel}`));
+  }
+
+  for (const candidate of candidates) {
+    const clean = candidate.replace(/^\.\//, "");
+    if (normDoc === clean) return true;
+    if (normDoc.endsWith(`/${clean}`) || clean.endsWith(`/${normDoc}`)) return true;
+  }
+  return false;
 }
