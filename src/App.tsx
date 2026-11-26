@@ -21,6 +21,8 @@ import { CobaltMark } from "@/components/shell/CobaltMark";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { ThemeStoreView } from "@/components/store/ThemeStoreView";
 import { TelemetryView } from "@/components/telemetry/TelemetryView";
+import { ToolsView } from "@/components/tools/ToolsView";
+import { BUILTIN_THEME_ID } from "@/types/contracts";
 
 export default function App() {
   const { t } = useTranslation();
@@ -40,17 +42,23 @@ export default function App() {
 
   const loadHardwareAll = useHardwareStore((s) => s.loadAll);
   const subscribeDownloadProgress = useHardwareStore((s) => s.subscribeDownloadProgress);
+  const subscribeEngineSwapProgress = useHardwareStore((s) => s.subscribeEngineSwapProgress);
 
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const loadBranches = useBranchesStore((s) => s.loadBranches);
   const loadInstalledThemes = useThemeStore((s) => s.loadInstalledThemes);
+  const setActiveTheme = useThemeStore((s) => s.setActiveTheme);
   const pushActivity = useTelemetryStore((s) => s.pushActivity);
   const ingestActivity = useSynapticStore((s) => s.ingestActivity);
   const pulseMemoryChange = useSynapticStore((s) => s.pulseMemoryChange);
 
   useEffect(() => {
     void loadAppInfo();
-    void loadSettings();
+    void loadSettings().then((loaded) => {
+      if (loaded.active_theme_id && loaded.active_theme_id !== BUILTIN_THEME_ID) {
+        void setActiveTheme(loaded.active_theme_id);
+      }
+    });
     void loadHardwareAll();
     void loadBranches();
     void loadInstalledThemes();
@@ -73,6 +81,7 @@ export default function App() {
     };
 
     register(subscribeDownloadProgress());
+    register(subscribeEngineSwapProgress());
 
     register(
       backendOn("cobalt://mcp-activity", (payload) => {
@@ -139,9 +148,11 @@ export default function App() {
     loadVaultStatus,
     pulseMemoryChange,
     pushActivity,
+    setActiveTheme,
     setDaemonStatus,
     setVaultStatus,
     subscribeDownloadProgress,
+    subscribeEngineSwapProgress,
     syncReadOnly,
   ]);
 
@@ -169,6 +180,7 @@ export default function App() {
         {activeNav === "library" && <LibraryView />}
         {activeNav === "telemetry" && <TelemetryView />}
         {activeNav === "connectors" && <ConnectorsView />}
+        {activeNav === "tools" && <ToolsView />}
         {activeNav === "store" && <ThemeStoreView />}
         {activeNav === "settings" && <SettingsView />}
       </main>

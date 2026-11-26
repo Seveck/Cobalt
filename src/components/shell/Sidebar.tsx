@@ -8,6 +8,7 @@ import {
   Settings,
   Shield,
   Store,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { SUPPORTED_LANGUAGES } from "@/i18n";
@@ -32,8 +33,9 @@ const NAV_ITEMS: readonly NavItem[] = [
   { key: "library", index: "02", icon: Library },
   { key: "telemetry", index: "03", icon: Gauge },
   { key: "connectors", index: "04", icon: Plug },
-  { key: "store", index: "05", icon: Store },
-  { key: "settings", index: "06", icon: Settings },
+  { key: "tools", index: "05", icon: Wrench },
+  { key: "store", index: "06", icon: Store },
+  { key: "settings", index: "07", icon: Settings },
 ];
 
 export function Sidebar() {
