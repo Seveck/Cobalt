@@ -1,10 +1,13 @@
 //! Canonical SQLite repositories and hybrid retrieval.
 
 mod db;
+#[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+mod external;
 mod governance;
 mod lifecycle;
 mod memory;
 mod migration;
+mod portable;
 mod repositories;
 mod retrieval;
 mod snapshots;
@@ -20,6 +23,14 @@ use cobalt_core::traits::{Embedder, TokenCounter};
 use db::Database;
 
 pub use cobalt_core;
+#[cfg(feature = "chroma")]
+pub use external::Chroma;
+#[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+pub use external::ExternalVectorStore;
+#[cfg(feature = "lancedb")]
+pub use external::LanceDb;
+#[cfg(feature = "qdrant")]
+pub use external::QdrantSidecar;
 pub use memory::project_embedding;
 pub use vector::{SqliteVec, Usearch};
 

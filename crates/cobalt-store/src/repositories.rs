@@ -389,7 +389,7 @@ impl ProjectRepository for SqliteStore {
     }
 }
 
-fn source(row: &Row<'_>) -> rusqlite::Result<SourceDocument> {
+pub(crate) fn source(row: &Row<'_>) -> rusqlite::Result<SourceDocument> {
     Ok(SourceDocument {
         id: id(row, "id")?,
         project_id: optional_id(row, "project_id")?,

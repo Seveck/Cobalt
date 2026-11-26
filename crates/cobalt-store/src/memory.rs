@@ -126,6 +126,64 @@ fn graph_node(row: &Row<'_>) -> rusqlite::Result<GraphNode> {
     })
 }
 
+impl SqliteStore {
+    /// Inserts a document chunk without treating similar adjacent chunks as versions.
+    pub async fn insert_document_chunk(&self, new: NewMemory) -> Result<SaveOutcome> {
+        let gate = self.engine_write().await;
+        validate_content(&new.content, new.confidence.unwrap_or(1.0))?;
+        if new.source_doc_id.is_none() {
+            return Err(CobaltError::InvalidInput(
+                "a document chunk requires a source document".into(),
+            ));
+        }
+        let retrieval = self.retrieval()?;
+        let embedding = embed_memory(&retrieval, &new.content).await?;
+        self.db
+            .write(move |conn| {
+                let _gate = gate;
+                edit_transaction(conn, Some(&retrieval), |tx, retrieval| {
+                    let branch_id = branch(tx, new.branch_id)?.id;
+                    write_memory(
+                        tx,
+                        configured(retrieval)?,
+                        branch_id,
+                        new,
+                        &embedding,
+                        WriteMode::Document,
+                    )
+                })
+            })
+            .await
+    }
+
+    /// Active chunks previously written by a particular import mode.
+    pub async fn ingested_memories(
+        &self,
+        branch_id: Id,
+        source_id: Id,
+        client: &str,
+    ) -> Result<Vec<Memory>> {
+        let client = client.to_owned();
+        self.db
+            .read(move |conn| {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT * FROM memories WHERE branch_id = ?1 AND source_doc_id = ?2
+                 AND source_client = ?3 AND status = 'active' ORDER BY id",
+                    )
+                    .map_err(sql_error)?;
+                stmt.query_map(
+                    params![branch_id.to_string(), source_id.to_string(), client],
+                    memory,
+                )
+                .map_err(sql_error)?
+                .collect::<rusqlite::Result<_>>()
+                .map_err(sql_error)
+            })
+            .await
+    }
+}
+
 #[async_trait]
 impl MemoryRepository for SqliteStore {
     async fn save_memory(&self, new: NewMemory) -> Result<SaveOutcome> {
@@ -159,8 +217,68 @@ impl MemoryRepository for SqliteStore {
             .write(move |conn| {
                 let _gate = gate;
                 edit_transaction(conn, Some(&retrieval), |tx, retrieval| {
-                    write_memory(tx, configured(retrieval)?, branch_id, new, &embedding, None)
+                    write_memory(
+                        tx,
+                        configured(retrieval)?,
+                        branch_id,
+                        new,
+                        &embedding,
+                        WriteMode::Normal,
+                    )
                 })
+            })
+            .await
+    }
+
+    async fn archive_memory(&self, id: Id, reason: &str) -> Result<Memory> {
+        if reason.trim().is_empty() {
+            return Err(CobaltError::InvalidInput("archive reason is empty".into()));
+        }
+        let reason = reason.to_owned();
+        self.db
+            .write(move |conn| {
+                let tx = conn.transaction().map_err(sql_error)?;
+                let row = required_memory(&tx, id)?;
+                if row.is_core_pin || row.status == MemoryStatus::Superseded {
+                    return Err(CobaltError::Conflict(
+                        "cannot archive a Nuclear Law or superseded version".into(),
+                    ));
+                }
+                if row.status == MemoryStatus::Archived {
+                    return Ok(row);
+                }
+                let archived = tx.query_row(
+                    "UPDATE memories SET status = 'archived', version_reason = ?2, updated_at = ?3
+                 WHERE id = ?1 RETURNING *",
+                    params![id.to_string(), reason, stamp()],
+                    memory,
+                )
+                .map_err(sql_error)?;
+                clear_semantic_edges(&tx, id)?;
+                tx.commit().map_err(sql_error)?;
+                Ok(archived)
+            })
+            .await
+    }
+
+    async fn find_similar(
+        &self,
+        content: &str,
+        project_id: Option<Id>,
+        min_similarity: f64,
+    ) -> Result<Option<(Memory, f64)>> {
+        validate_content(content, min_similarity)?;
+        let _gate = self.engine_gate.read().await;
+        let retrieval = self.retrieval()?;
+        let embedding = embed_memory(&retrieval, content).await?;
+        self.db
+            .read(move |conn| {
+                let tx = conn.unchecked_transaction().map_err(sql_error)?;
+                let branch_id = branch(&tx, None)?.id;
+                Ok(
+                    semantic_match(&tx, &retrieval, branch_id, project_id, &embedding)?
+                        .filter(|(_, score)| *score >= min_similarity),
+                )
             })
             .await
     }
@@ -248,7 +366,7 @@ impl MemoryRepository for SqliteStore {
                         previous.branch_id,
                         new,
                         &embedding,
-                        Some((previous, req.reason)),
+                        WriteMode::Version(Box::new(previous), req.reason),
                     )
                 })
             })
@@ -448,7 +566,7 @@ impl MemoryRepository for SqliteStore {
     }
 }
 
-fn configured(retrieval: Option<&Retrieval>) -> Result<&Retrieval> {
+pub(crate) fn configured(retrieval: Option<&Retrieval>) -> Result<&Retrieval> {
     retrieval
         .ok_or_else(|| CobaltError::Internal("missing retrieval during vector transaction".into()))
 }
@@ -665,16 +783,41 @@ pub(crate) fn semantic_match(
     .transpose()
 }
 
+pub(crate) enum WriteMode {
+    Normal,
+    Version(Box<Memory>, String),
+    Document,
+}
+
 pub(crate) fn write_memory(
     conn: &Connection,
     retrieval: &Retrieval,
     branch_id: Id,
     new: NewMemory,
     embedding: &[f32],
-    explicit: Option<(Memory, String)>,
+    mode: WriteMode,
 ) -> Result<SaveOutcome> {
     let hash = content_hash(&new.content);
-    if let Some(row) = exact_match(conn, branch_id, new.project_id, &hash, None)? {
+    let exact = if matches!(mode, WriteMode::Document) {
+        conn.query_row(
+            "SELECT * FROM memories WHERE branch_id = ?1 AND source_doc_id = ?2
+             AND source_client IS ?3 AND project_id IS ?4 AND content_hash = ?5
+             AND status = 'active' ORDER BY id LIMIT 1",
+            params![
+                branch_id.to_string(),
+                new.source_doc_id.map(|id| id.to_string()),
+                new.source_client,
+                new.project_id.map(|id| id.to_string()),
+                hash
+            ],
+            memory,
+        )
+        .optional()
+        .map_err(sql_error)?
+    } else {
+        exact_match(conn, branch_id, new.project_id, &hash, None)?
+    };
+    if let Some(row) = exact {
         if row.is_encrypted {
             return Err(CobaltError::Conflict(
                 "content is already protected by the vault".into(),
@@ -683,30 +826,34 @@ pub(crate) fn write_memory(
         return Ok(outcome(WriteAction::Duplicate, row, None, Some(1.0)));
     }
     let settings = load_settings(conn)?.search;
-    let (previous, reason, similarity, action) = if let Some((previous, reason)) = explicit {
-        (Some(previous), Some(reason), None, WriteAction::Superseded)
-    } else {
-        match semantic_match(conn, retrieval, branch_id, new.project_id, embedding)? {
-            Some((previous, score)) if score > settings.dedup_threshold => {
-                // The higher duplicate threshold denotes a near-identical meaning. A match
-                // between the thresholds is retained as a separate version for inspection.
-                if score >= settings.duplicate_threshold {
-                    (
-                        Some(previous),
-                        None,
-                        Some(score),
-                        WriteAction::UpdatedExisting,
-                    )
-                } else {
-                    (
-                        Some(previous),
-                        Some("Semantic match on save".into()),
-                        Some(score),
-                        WriteAction::Superseded,
-                    )
+    let (previous, reason, similarity, action) = match mode {
+        WriteMode::Version(previous, reason) => {
+            (Some(*previous), Some(reason), None, WriteAction::Superseded)
+        }
+        WriteMode::Document => (None, None, None, WriteAction::Inserted),
+        WriteMode::Normal => {
+            match semantic_match(conn, retrieval, branch_id, new.project_id, embedding)? {
+                Some((previous, score)) if score > settings.dedup_threshold => {
+                    // The higher duplicate threshold denotes a near-identical meaning. A match
+                    // between the thresholds is retained as a separate version for inspection.
+                    if score >= settings.duplicate_threshold {
+                        (
+                            Some(previous),
+                            None,
+                            Some(score),
+                            WriteAction::UpdatedExisting,
+                        )
+                    } else {
+                        (
+                            Some(previous),
+                            Some("Semantic match on save".into()),
+                            Some(score),
+                            WriteAction::Superseded,
+                        )
+                    }
                 }
+                _ => (None, None, None, WriteAction::Inserted),
             }
-            _ => (None, None, None, WriteAction::Inserted),
         }
     };
 

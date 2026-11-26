@@ -13,7 +13,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use crate::db::sql_error;
 use crate::governance::branch_memories;
 use crate::memory::{
-    clear_semantic_edges, exact_match, mark_superseded, refresh_edges, remove_vectors,
+    WriteMode, clear_semantic_edges, exact_match, mark_superseded, refresh_edges, remove_vectors,
     semantic_match, write_memory,
 };
 use crate::repositories::{
@@ -162,7 +162,14 @@ fn merge_rows(
                     reusable_snippet: row.reusable_snippet,
                     source_client: row.source_client,
                 };
-                let result = write_memory(conn, retrieval, MAIN_BRANCH_ID, new, &vector, None)?;
+                let result = write_memory(
+                    conn,
+                    retrieval,
+                    MAIN_BRANCH_ID,
+                    new,
+                    &vector,
+                    WriteMode::Normal,
+                )?;
                 redirect_history(conn, row.id, result.memory.id)?;
                 removed.push(row.id);
                 report.merged += 1;
@@ -294,7 +301,7 @@ impl BranchRepository for SqliteStore {
     }
 }
 
-fn handoff(row: &Row<'_>) -> rusqlite::Result<Handoff> {
+pub(crate) fn handoff(row: &Row<'_>) -> rusqlite::Result<Handoff> {
     Ok(Handoff {
         id: id(row, "id")?,
         project_id: optional_id(row, "project_id")?,

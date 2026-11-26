@@ -178,6 +178,38 @@ impl TelemetryRepository for SqliteStore {
         self.db.read(move |conn| summary(conn, range, start)).await
     }
 
+    async fn memory_usage_by_client(
+        &self,
+        memory_id: Id,
+    ) -> Result<Vec<cobalt_core::mcp::ClientUsage>> {
+        self.db
+            .read(move |conn| {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT client_name, count(*) AS uses, max(timestamp) AS last_used_at
+                 FROM telemetry_logs
+                 WHERE operation IN ('read', 'reuse') AND EXISTS (
+                    SELECT 1 FROM json_each(CASE WHEN json_valid(returned_items_json)
+                                                THEN returned_items_json END) AS item
+                    WHERE (CASE WHEN item.type = 'object' THEN item.value END) ->> 'memory_id' = ?1
+                 )
+                 GROUP BY client_name ORDER BY last_used_at DESC, client_name",
+                    )
+                    .map_err(sql_error)?;
+                stmt.query_map([memory_id.to_string()], |row| {
+                    Ok(cobalt_core::mcp::ClientUsage {
+                        client_name: row.get("client_name")?,
+                        uses: row.get::<_, i64>("uses")? as u64,
+                        last_used_at: timestamp(row, "last_used_at")?,
+                    })
+                })
+                .map_err(sql_error)?
+                .collect::<rusqlite::Result<_>>()
+                .map_err(sql_error)
+            })
+            .await
+    }
+
     async fn apply_retention(&self) -> Result<u64> {
         self.db
             .write(|conn| {
