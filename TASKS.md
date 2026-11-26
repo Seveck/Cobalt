@@ -138,7 +138,7 @@ consulta y **actúa** sobre el cerebro. Se construye después de la Fase 3 (sus 
 - [ ] [GEMINI] Auditoría visual, FPS/fugas WebGL, traducciones 100 %
 - [ ] [CLAUDE] **Limpieza total de datos de ejemplo (obligatorio antes de v1.0):** eliminar `src/lib/backendMock.ts`, el grafo simulado (~300 nodos), proyectos/telemetría/temas ficticios y el badge MOCK; verificar que una instalación nueva arranca con el cerebro vacío (0 memorias, 0 proyectos) y sin datos precargados
 - [ ] [CLAUDE] E2E completo, empaquetado `.AppImage/.deb/.rpm`, `.msi/.exe`, `.dmg`, `README.md`, reporte v1.0
-- [ ] [CLAUDE] App instalada sin terminal: lanzador en el menú del sistema, arranque automático al iniciar sesión (minimizada en bandeja, desactivable), actualizaciones automáticas firmadas; reinstalar conectores/hooks apuntando al ejecutable instalado
+- [ ] [CLAUDE] App instalada sin terminal: lanzador en el menú del sistema, arranque automático al iniciar sesión (minimizada en bandeja, desactivable), actualizaciones automáticas firmadas (`tauri-plugin-updater` + `latest.json` en GitHub Releases + clave de firma del dueño guardada como secret; GitHub Action que compila y firma Linux/Windows/macOS por tag; AppImage/msi/macOS se actualizan en 1 clic, rpm/deb solo avisan; comprobación sin datos personales y desactivable); reinstalar conectores/hooks apuntando al ejecutable instalado
 
 ## Fase 5 — Expansión por módulos (post-v1, todo opcional y oculto si no se usa)
 Orden sugerido; se prioriza según el uso real de los usuarios.
