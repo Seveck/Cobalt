@@ -6,19 +6,22 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use cobalt_core::engine::EmbeddingModelSpec;
 use cobalt_core::enums::{
-    HardwareTier, MemoryCategory, MemoryStatus, PastLifeSource, SourceType, TelemetryOperation,
-    TokenEncoding,
+    HardwareTier, MemoryCategory, MemoryChangeKind, MemoryStatus, PastLifeSource, SourceType,
+    TelemetryOperation, TokenEncoding,
 };
 use cobalt_core::error::{CobaltError, Result};
-use cobalt_core::model::{GraphQuery, NewHandoff, NewMemory, NewProject, UpdateMemoryRequest};
+use cobalt_core::model::{
+    GraphQuery, NewHandoff, NewMemory, NewProject, SourceDocument, UpdateMemoryRequest,
+};
+use cobalt_core::search::VectorFilter;
 use cobalt_core::telemetry::{NewTelemetryEvent, ReturnedItem, TelemetryQuery};
 use cobalt_core::traits::{
     ConfigRepository, Embedder, HandoffRepository, IngestService as _, MemoryRepository,
-    ProjectRepository, SourceDocumentRepository, TelemetryRepository, TokenCounter,
+    ProjectRepository, SourceDocumentRepository, TelemetryRepository, TokenCounter, VectorStore,
 };
 use cobalt_core::transfer::*;
 use cobalt_embeddings::{TiktokenCounter, default_model_spec};
-use cobalt_store::SqliteStore;
+use cobalt_store::{SqliteStore, SqliteVec};
 use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
 
@@ -494,12 +497,35 @@ async fn reads_pdf_text_without_ocr_models() {
     );
 }
 
+async fn source_at(store: &SqliteStore, file: &Path) -> Option<SourceDocument> {
+    store
+        .find_source_document_by_path(&path(file))
+        .await
+        .unwrap()
+}
+
+async fn wait_for_hash(store: &SqliteStore, file: &Path, hash: Option<String>) {
+    tokio::time::timeout(Duration::from_secs(8), async {
+        loop {
+            if source_at(store, file)
+                .await
+                .is_some_and(|doc| doc.file_hash == hash)
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
-async fn watcher_reconciles_atomic_replace_and_stops() {
+async fn watcher_replaces_chunks_and_vectors_without_rewriting_linked_memory() {
     let dir = tempfile::tempdir().unwrap();
-    let (store, ingest, _) = setup(dir.path(), "test").await;
-    let file = dir.path().join("watched.md");
-    std::fs::write(&file, "Before.").unwrap();
+    let (store, ingest, tokens) = setup(dir.path(), "test").await;
+    let file = dir.path().canonicalize().unwrap().join("watched.md");
+    std::fs::write(&file, "Original astronomy notes.").unwrap();
     let watch = IngestRequest {
         watch: true,
         ..req(&file)
@@ -512,34 +538,194 @@ async fn watcher_reconciles_atomic_replace_and_stops() {
             .errors
             .is_empty()
     );
+    let doc = source_at(&store, &file).await.unwrap();
+    let old = store.graph(GraphQuery::default()).await.unwrap().nodes[0].id;
+    let written = store
+        .insert_document_chunk(NewMemory {
+            source_doc_id: Some(doc.id),
+            source_client: Some("claude-code".into()),
+            ..memory("Keep the telescope aligned to the north.")
+        })
+        .await
+        .unwrap()
+        .memory;
+    let (changes, mut activity) = mpsc::unbounded_channel();
+    let ingest = ingest.with_watcher_callbacks(
+        quiet_progress(),
+        Arc::new(move |event| {
+            changes.send(event).unwrap();
+        }),
+    );
     ingest.start_watcher().await.unwrap();
+    let new_text = "Revised telescope alignment notes.";
     let mut replacement = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
-    std::io::Write::write_all(&mut replacement, b"After.").unwrap();
+    std::io::Write::write_all(&mut replacement, new_text.as_bytes()).unwrap();
     replacement.persist(&file).unwrap();
+    wait_for_hash(&store, &file, Some(digest(new_text.as_bytes()))).await;
+    ingest.stop_watcher().await.unwrap();
+
+    let deleted = activity.try_recv().unwrap();
+    let created = activity.try_recv().unwrap();
+    assert_eq!(deleted.kind, MemoryChangeKind::Deleted);
+    assert_eq!(deleted.memory_ids, vec![old]);
+    assert_eq!(created.kind, MemoryChangeKind::Created);
+    assert_eq!(created.source_client.as_deref(), Some("cobalt-ingest"));
+    assert_eq!(created.memory_ids.len(), 1);
+    assert!(activity.try_recv().is_err());
+    let fresh = created.memory_ids[0];
+    assert!(store.get_memory(old).await.unwrap().is_none());
+    assert_eq!(
+        store.get_memory(fresh).await.unwrap().unwrap().content,
+        new_text
+    );
+    assert_eq!(
+        store.get_memory(written.id).await.unwrap().unwrap(),
+        written
+    );
+    let updated = source_at(&store, &file).await.unwrap();
+    assert_eq!(updated.id, doc.id);
+    assert_eq!(updated.total_tokens, tokens.count(new_text) as i64);
+    let index = SqliteVec::open(&store, 2).await.unwrap();
+    let hits = index
+        .search(&[1.0, 0.0], 10, &VectorFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 2);
+    assert!(hits.iter().any(|hit| hit.memory_id == fresh));
+
+    std::fs::remove_file(&file).unwrap();
+    ingest.start_watcher().await.unwrap();
+    wait_for_hash(&store, &file, None).await;
+    ingest.stop_watcher().await.unwrap();
+    let archived = store.get_memory(fresh).await.unwrap().unwrap();
+    assert_eq!(archived.status, MemoryStatus::Archived);
+    assert_eq!(archived.version_reason.as_deref(), Some("file deleted"));
+    assert_eq!(
+        store.get_memory(written.id).await.unwrap().unwrap(),
+        written
+    );
+    assert_eq!(
+        activity.try_recv().unwrap().kind,
+        MemoryChangeKind::Archived
+    );
+}
+
+#[tokio::test]
+async fn watched_directory_discovers_and_retires_files_under_moved_or_deleted_subtrees() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, ingest, _) = setup(dir.path(), "test").await;
+    let root = dir.path().canonicalize().unwrap().join("documents");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(
+        root.join(".memoryignore"),
+        "/hidden.md
+",
+    )
+    .unwrap();
+    let watch = IngestRequest {
+        watch: true,
+        ..req(&root)
+    };
+    assert!(
+        ingest
+            .ingest_paths(watch, quiet_progress())
+            .await
+            .unwrap()
+            .errors
+            .is_empty()
+    );
+    ingest.start_watcher().await.unwrap();
+    let nested = root.join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    let first = nested.join("first.md");
+    let second = root.join("second.md");
+    let text = b"New field notes";
+    std::fs::write(&first, text).unwrap();
+    std::fs::write(&second, b"Root notes").unwrap();
+    let excluded = [
+        root.join("hidden.md"),
+        root.join(".env"),
+        nested.join("oversized.txt"),
+    ];
+    std::fs::write(&excluded[0], text).unwrap();
+    std::fs::write(&excluded[1], text).unwrap();
+    std::fs::write(&excluded[2], vec![b'x'; 2 * 1024 * 1024 + 1]).unwrap();
+    wait_for_hash(&store, &first, Some(digest(text))).await;
+    wait_for_hash(&store, &second, Some(digest(b"Root notes"))).await;
+    let before = store.graph(GraphQuery::default()).await.unwrap();
+    assert_eq!(before.nodes.len(), 2);
+    let moved = dir.path().join("moved");
+    std::fs::rename(&nested, &moved).unwrap();
+    wait_for_hash(&store, &first, None).await;
+    std::fs::remove_dir_all(&root).unwrap();
+    wait_for_hash(&store, &second, None).await;
+    ingest.stop_watcher().await.unwrap();
+    for file in excluded {
+        assert!(
+            source_at(&store, &file).await.is_none(),
+            "{}",
+            file.display()
+        );
+    }
+    for node in before.nodes {
+        let row = store.get_memory(node.id).await.unwrap().unwrap();
+        assert_eq!(row.status, MemoryStatus::Archived);
+        assert_eq!(row.version_reason.as_deref(), Some("file deleted"));
+    }
+}
+
+#[tokio::test]
+async fn watcher_debounces_editor_bursts() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, ingest, _) = setup(dir.path(), "test").await;
+    let file = dir.path().canonicalize().unwrap().join("burst.md");
+    std::fs::write(&file, "Initial notes").unwrap();
+    let watch = IngestRequest {
+        watch: true,
+        ..req(&file)
+    };
+    ingest.ingest_paths(watch, quiet_progress()).await.unwrap();
+    let (progress, mut updates) = mpsc::unbounded_channel();
+    let (changes, mut activity) = mpsc::unbounded_channel();
+    let ingest = ingest.with_watcher_callbacks(
+        Arc::new(move |update| {
+            progress.send(update).unwrap();
+        }),
+        Arc::new(move |event| {
+            changes.send(event).unwrap();
+        }),
+    );
+    ingest.start_watcher().await.unwrap();
     tokio::time::timeout(Duration::from_secs(8), async {
         loop {
-            let graph = store.graph(GraphQuery::default()).await.unwrap();
-            if graph.nodes.iter().any(|node| node.preview == "After.") {
+            let update = updates.recv().await.unwrap();
+            if update.total > 0 && update.processed == update.total {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     })
     .await
     .unwrap();
+    for text in ["Draft one", "Draft two", "Final notes"] {
+        std::fs::write(&file, text).unwrap();
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+    wait_for_hash(&store, &file, Some(digest(b"Final notes"))).await;
     ingest.stop_watcher().await.unwrap();
-    let all = store
+    let changes: Vec<_> = std::iter::from_fn(|| activity.try_recv().ok()).collect();
+    assert_eq!(
+        changes.iter().map(|event| event.kind).collect::<Vec<_>>(),
+        vec![MemoryChangeKind::Deleted, MemoryChangeKind::Created]
+    );
+    let graph = store
         .graph(GraphQuery {
             include_archived: true,
             ..Default::default()
         })
         .await
         .unwrap();
-    assert!(
-        all.nodes
-            .iter()
-            .any(|node| node.preview == "Before." && node.status == MemoryStatus::Archived)
-    );
+    assert_eq!(graph.nodes.len(), 1);
+    assert_eq!(graph.nodes[0].preview, "Final notes");
 }
 
 #[tokio::test]

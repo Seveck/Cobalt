@@ -677,3 +677,80 @@ async fn usearch_home_child() {
 }
 
 mod phase2;
+
+#[tokio::test]
+async fn watched_file_replacement_rolls_back_metadata_chunks_and_vectors_on_write_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(&dir).await;
+    let original = NewSourceDocument {
+        project_id: None,
+        file_path: "watched.md".into(),
+        is_dir: false,
+        source_type: None,
+        file_hash: Some("original".into()),
+        total_tokens: 2,
+        is_watched: true,
+    };
+    let first = store
+        .replace_watched_file(
+            original.clone(),
+            MAIN_BRANCH_ID,
+            vec![new_memory("alpha before")],
+            false,
+            || Ok(()),
+            || Ok(()),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .created[0];
+    let invalid = NewMemory {
+        confidence: Some(2.0),
+        ..new_memory("invalid chunk")
+    };
+    assert!(
+        store
+            .replace_watched_file(
+                NewSourceDocument {
+                    file_hash: Some("changed".into()),
+                    total_tokens: 6,
+                    ..original
+                },
+                MAIN_BRANCH_ID,
+                vec![new_memory("beta after"), invalid],
+                false,
+                || Ok(()),
+                || Ok(()),
+            )
+            .await
+            .is_err()
+    );
+    let source = store
+        .find_source_document_by_path("watched.md")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(source.file_hash.as_deref(), Some("original"));
+    assert_eq!(source.total_tokens, 2);
+    let hits = store
+        .search(search_request("alpha before"))
+        .await
+        .unwrap()
+        .hits;
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].memory.id, first);
+    store
+        .db
+        .read(move |conn| {
+            let mut stmt = conn.prepare("SELECT memory_id FROM vec_memories").unwrap();
+            let ids: Vec<String> = stmt
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+            assert_eq!(ids, vec![first.to_string()]);
+            Ok(())
+        })
+        .await
+        .unwrap();
+}

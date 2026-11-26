@@ -5,9 +5,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cobalt_core::config::AppSettings;
-use cobalt_core::enums::{MemoryCategory, MemoryStatus, PastLifeSource, SourceType, WriteAction};
+use cobalt_core::enums::{
+    MemoryCategory, MemoryChangeKind, MemoryStatus, PastLifeSource, SourceType, WriteAction,
+};
 use cobalt_core::error::{CobaltError, Result};
-use cobalt_core::ids::Id;
+use cobalt_core::ids::{Id, new_id};
 use cobalt_core::memoryignore::MemoryIgnore;
 use cobalt_core::model::{GraphQuery, Memory, MemoryPatch, NewMemory, NewSourceDocument};
 use cobalt_core::scrubber::scrub;
@@ -18,7 +20,7 @@ use cobalt_core::transfer::{
 use sha2::{Digest, Sha256};
 
 use crate::jobs::{Cancellation, Progress, emit_progress};
-use crate::{Context, blocking, past_life};
+use crate::{Context, blocking, past_life, watcher::Callbacks};
 
 pub(crate) const INGEST_CLIENT: &str = "cobalt-ingest";
 const PAST_LIFE_CLIENT: &str = "cobalt-past-life";
@@ -210,7 +212,7 @@ fn collect(
         let visit = (|| {
             let absolute = std::path::absolute(&path)?;
             let metadata = absolute.symlink_metadata()?;
-            if metadata.is_symlink() {
+            if metadata.is_symlink() || !(metadata.is_dir() || metadata.is_file()) {
                 result.skipped += u64::from(visited_skips.insert(absolute));
                 return Ok(());
             }
@@ -222,13 +224,15 @@ fn collect(
                 return Ok(());
             }
             let path = absolute.canonicalize()?;
-            if !known_binary && ignores.ignored(&path, metadata.is_dir(), root, global)? {
+            if (run.from_watcher && path != absolute)
+                || (!known_binary && ignores.ignored(&path, metadata.is_dir(), root, global)?)
+            {
                 result.skipped += u64::from(visited_skips.insert(path));
                 return Ok(());
             }
             path_string(&path)?;
             if metadata.is_dir() {
-                if direct && source.is_none() {
+                if direct && source.is_none() && !run.from_watcher {
                     result.directories.insert(path.clone());
                 }
                 if !visited_directories.insert(path.clone()) {
@@ -506,6 +510,7 @@ struct FileInput {
     branch: Id,
     kind: SourceType,
     reusable: bool,
+    inherit_watch: bool,
     client: &'static str,
     file_hash: String,
     total_tokens: usize,
@@ -513,13 +518,14 @@ struct FileInput {
     contents: Vec<(MemoryCategory, String)>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct IngestRun {
     cancellation: Cancellation,
     folder_limited: bool,
     from_watcher: bool,
     source: Option<PastLifeSource>,
     progress: Progress,
+    callbacks: Callbacks,
 }
 
 struct DocumentWork<'a> {
@@ -561,17 +567,27 @@ impl Context {
         req: IngestRequest,
         folder_limited: bool,
         cancellation: &Cancellation,
+        callbacks: &Callbacks,
     ) -> Result<IngestReport> {
-        self.ingest_job(
-            req,
-            IngestRun {
-                cancellation: cancellation.clone(),
-                from_watcher: true,
-                folder_limited,
-                ..Default::default()
-            },
-        )
-        .await
+        let mut run = IngestRun {
+            cancellation: cancellation.clone(),
+            from_watcher: true,
+            folder_limited,
+            callbacks: callbacks.clone(),
+            ..Default::default()
+        };
+        if let Some(progress) = &callbacks.progress {
+            let (updates, receiver) =
+                Progress::channel(new_id(), req.paths.first().map(String::as_str));
+            run.progress = updates;
+            let ((), report) = tokio::join!(
+                emit_progress(receiver, progress.clone()),
+                self.ingest_job(req, run)
+            );
+            report
+        } else {
+            self.ingest_job(req, run).await
+        }
     }
 
     async fn ingest_job(&self, req: IngestRequest, run: IngestRun) -> Result<IngestReport> {
@@ -592,11 +608,7 @@ impl Context {
         };
         let global = self.global_ignore.clone();
         let paths = req.paths.clone();
-        let scan = IngestRun {
-            cancellation: run.cancellation.clone(),
-            progress: run.progress.clone(),
-            ..run
-        };
+        let scan = run.clone();
         let Paths {
             files,
             directories,
@@ -639,15 +651,7 @@ impl Context {
                 total,
                 if file.is_some() { "reading" } else { "saving" },
             );
-            let result = if run.from_watcher
-                && self
-                    .store
-                    .find_source_document_by_path(&path_string(&path)?)
-                    .await?
-                    .is_some_and(|doc| !doc.is_watched)
-            {
-                Ok(None)
-            } else if let Some(explicit) = file {
+            let result = if let Some(explicit) = file {
                 self.process_file(&path, explicit, &work, &mut report).await
             } else {
                 self.register_directory(&path, &req, &mut report).await
@@ -655,6 +659,16 @@ impl Context {
             match result {
                 Ok(Some(id)) if req.watch => pending_watches.push((id, path)),
                 Err(CobaltError::Cancelled) if run.cancellation.check().is_err() => break,
+                Err(error) if run.from_watcher => {
+                    if matches!(&error, CobaltError::Io(error) if matches!(
+                        error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                    )) {
+                        self.archive_watched_path(&path, "file deleted", &run.callbacks)
+                            .await?;
+                    } else {
+                        return Err(error);
+                    }
+                }
                 Err(error) => report.errors.push(issue(&path, error)),
                 Ok(_) => {}
             }
@@ -808,15 +822,25 @@ impl Context {
         let result = tokio::select! {
             biased;
             _ = work.run.cancellation.cancelled() => return Err(CobaltError::Cancelled),
-            result = prepared => result?,
+            result = prepared => result,
         };
         let (file_hash, total_tokens, redactions, contents) = match result {
-            Ok(prepared) => prepared,
-            Err(error) => {
+            Ok(Ok(prepared)) => prepared,
+            Ok(Err(error))
+            | Err(
+                error @ (CobaltError::Unsupported(_)
+                | CobaltError::FirewallBlocked(_)
+                | CobaltError::InvalidInput(_)),
+            ) => {
+                if work.run.from_watcher {
+                    self.archive_watched_path(path, "file excluded", &work.run.callbacks)
+                        .await?;
+                }
                 report.skipped_ignored += 1;
                 report.errors.push(issue(path, error));
                 return Ok(None);
             }
+            Err(error) => return Err(error),
         };
         self.persist_file(
             FileInput {
@@ -825,6 +849,7 @@ impl Context {
                 branch: work.branch,
                 kind,
                 reusable: work.req.mark_reusable,
+                inherit_watch: !explicit,
                 client,
                 file_hash,
                 total_tokens,
@@ -853,6 +878,15 @@ impl Context {
         let prior = self.store.find_source_document_by_path(&input.path).await?;
         let total_tokens = i64::try_from(input.total_tokens)
             .map_err(|_| CobaltError::InvalidInput("file token count is too large".into()))?;
+        let mut seen = HashSet::new();
+        let chunks = input
+            .contents
+            .into_iter()
+            .filter_map(|(category, content)| {
+                let hash = digest(content.as_bytes());
+                seen.insert(hash.clone())
+                    .then_some((hash, category, content))
+            });
         let mut doc = NewSourceDocument {
             project_id: input.project_id,
             file_path: input.path,
@@ -862,6 +896,77 @@ impl Context {
             total_tokens,
             is_watched: prior.as_ref().is_some_and(|doc| doc.is_watched),
         };
+        if run.from_watcher
+            || (self.sqlite.is_some() && doc.is_watched && input.client == INGEST_CLIENT)
+        {
+            let store = self.watcher_store()?;
+            let snapshot_path = PathBuf::from(&doc.file_path);
+            let expected_hash = doc.file_hash.clone();
+            let explicit = !input.inherit_watch;
+            doc.is_watched = true;
+            let chunks = chunks
+                .map(|(_, category, content)| NewMemory {
+                    category,
+                    project_id: input.project_id,
+                    branch_id: Some(input.branch),
+                    source_doc_id: None,
+                    source_type: Some(input.kind),
+                    confidence: None,
+                    is_core_pin: false,
+                    reusable_snippet: input.reusable.then(|| {
+                        self.tokens
+                            .truncate(&content, cobalt_core::mcp::REUSABLE_SUMMARY_TOKENS as usize)
+                    }),
+                    is_reusable: input.reusable,
+                    source_client: Some(INGEST_CLIENT.into()),
+                    content,
+                })
+                .collect();
+            let cancellation = run.cancellation.clone();
+            run.progress.stage("embedding");
+            let change = store
+                .replace_watched_file(
+                    doc,
+                    input.branch,
+                    chunks,
+                    input.inherit_watch,
+                    move || cancellation.check(),
+                    move || {
+                        let metadata = snapshot_path.symlink_metadata()?;
+                        if metadata.is_file()
+                            && snapshot_path.canonicalize()? == snapshot_path
+                            && let FileRead::Bytes(bytes) =
+                                read_file(&snapshot_path, input.kind, explicit, false, false)?
+                            && expected_hash.as_deref() == Some(&digest(&bytes))
+                        {
+                            return Ok(());
+                        }
+                        Err(CobaltError::Conflict("file changed during indexing".into()))
+                    },
+                )
+                .await?;
+            if let Some(change) = change {
+                report.memories_created += change.created.len() as u64;
+                report.total_tokens += input.total_tokens as u64;
+                report.redacted_secrets += input.redactions;
+                if change
+                    .previous
+                    .as_ref()
+                    .is_some_and(|doc| doc.file_hash.is_some())
+                {
+                    report.documents_updated += 1;
+                } else {
+                    report.documents_created += 1;
+                }
+                run.callbacks
+                    .changed(MemoryChangeKind::Deleted, change.deleted);
+                run.callbacks
+                    .changed(MemoryChangeKind::Created, change.created);
+            } else {
+                report.documents_unchanged += 1;
+            }
+            return Ok(None);
+        }
         let doc_id = if let Some(prior) = &prior {
             prior.id
         } else {
@@ -901,16 +1006,7 @@ impl Context {
             .into_iter()
             .map(|row| (row.content_hash.clone(), row))
             .collect();
-        let mut seen = HashSet::new();
-        let chunks: Vec<_> = input
-            .contents
-            .into_iter()
-            .filter_map(|(category, content)| {
-                let hash = digest(content.as_bytes());
-                seen.insert(hash.clone())
-                    .then_some((hash, category, content))
-            })
-            .collect();
+        let chunks: Vec<_> = chunks.collect();
         if let Some(prior) = &prior
             && prior.file_hash == doc.file_hash
             && prior.project_id == doc.project_id

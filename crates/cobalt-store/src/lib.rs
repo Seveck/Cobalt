@@ -4,6 +4,7 @@ mod db;
 #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
 mod external;
 mod governance;
+mod ingest;
 mod lifecycle;
 mod memory;
 mod migration;
@@ -31,6 +32,7 @@ pub use external::ExternalVectorStore;
 pub use external::LanceDb;
 #[cfg(feature = "qdrant")]
 pub use external::QdrantSidecar;
+pub use ingest::WatchedFileUpdate;
 pub use memory::project_embedding;
 pub use vector::{SqliteVec, Usearch};
 
