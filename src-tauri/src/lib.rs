@@ -147,6 +147,7 @@ pub fn run() {
             desktop::setup_tray(&handle, &settings)?;
             desktop::register_shortcuts(&handle, &settings);
             spawn_vault_auto_lock(handle.clone());
+            spawn_database_watcher(handle.clone());
             if !headless {
                 desktop::show_main(&handle);
             }
@@ -260,6 +261,44 @@ fn spawn_vault_auto_lock(app: AppHandle) {
                     }
                     Err(err) => tracing::warn!(%err, "vault status after auto-lock"),
                 }
+            }
+        }
+    });
+}
+
+/// Detects writes to the canonical database that did not announce themselves (bulk imports in
+/// progress, restores, external tools) and asks the UI to refresh, so the brain always reflects
+/// the real state within ~2 s. Writes made through the daemon already emit precise events.
+fn spawn_database_watcher(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let home = app.state::<AppState>().home.clone();
+        let files = [
+            home.join(cobalt_core::paths::DATABASE_FILE),
+            home.join(format!("{}-wal", cobalt_core::paths::DATABASE_FILE)),
+        ];
+        let stamp = |files: &[std::path::PathBuf]| -> Vec<Option<(std::time::SystemTime, u64)>> {
+            files
+                .iter()
+                .map(|f| {
+                    std::fs::metadata(f)
+                        .ok()
+                        .and_then(|m| Some((m.modified().ok()?, m.len())))
+                })
+                .collect()
+        };
+        let mut last = stamp(&files);
+        let mut tick = tokio::time::interval(Duration::from_secs(2));
+        loop {
+            tick.tick().await;
+            let now = stamp(&files);
+            if now != last {
+                last = now;
+                let state = app.state::<AppState>();
+                state.daemon.emit_memory_changed(MemoryChanged {
+                    kind: cobalt_core::enums::MemoryChangeKind::Updated,
+                    memory_ids: Vec::new(),
+                    source_client: None,
+                });
             }
         }
     });
