@@ -2708,6 +2708,8 @@ export async function callBackendMock<C extends IpcCommand>(
           background: false,
           project_id: req.project_id,
           eta_seconds: total > 2 ? Math.ceil(total * 0.5) : null,
+          file_chunks_done: null,
+          file_chunks_total: null,
         });
         await sleep(160);
 
@@ -2722,6 +2724,8 @@ export async function callBackendMock<C extends IpcCommand>(
               background: false,
               project_id: req.project_id,
               eta_seconds: null,
+              file_chunks_done: null,
+              file_chunks_total: null,
             });
             break;
           }
@@ -2737,8 +2741,10 @@ export async function callBackendMock<C extends IpcCommand>(
             background: false,
             project_id: req.project_id,
             eta_seconds: remaining > 0 ? Math.ceil(remaining * 0.5) : null,
+            file_chunks_done: null,
+            file_chunks_total: null,
           });
-          await sleep(220);
+          await sleep(180);
 
           if (cancelledMockIngestJobs.has(jobId)) {
             emitMockEvent("cobalt://ingest-progress", {
@@ -2750,21 +2756,50 @@ export async function callBackendMock<C extends IpcCommand>(
               background: false,
               project_id: req.project_id,
               eta_seconds: null,
+              file_chunks_done: null,
+              file_chunks_total: null,
             });
             break;
           }
 
-          emitMockEvent("cobalt://ingest-progress", {
-            job_id: jobId,
-            processed: i + 1,
-            total,
-            current_path: currentPath,
-            stage: "embedding",
-            background: false,
-            project_id: req.project_id,
-            eta_seconds: Math.max(0, total - (i + 1)) > 0 ? Math.ceil((total - (i + 1)) * 0.5) : null,
-          });
-          await sleep(260);
+          const fileChunksTotal = 3 + (i % 3);
+          let cancelledDuringChunks = false;
+          for (let chunk = 1; chunk <= fileChunksTotal; chunk += 1) {
+            if (cancelledMockIngestJobs.has(jobId)) {
+              emitMockEvent("cobalt://ingest-progress", {
+                job_id: jobId,
+                processed,
+                total,
+                current_path: currentPath,
+                stage: "cancelled",
+                background: false,
+                project_id: req.project_id,
+                eta_seconds: null,
+                file_chunks_done: null,
+                file_chunks_total: null,
+              });
+              cancelledDuringChunks = true;
+              break;
+            }
+            const nextProcessed = chunk === fileChunksTotal ? i + 1 : i;
+            const remainingFiles = Math.max(0, total - nextProcessed);
+            emitMockEvent("cobalt://ingest-progress", {
+              job_id: jobId,
+              processed: nextProcessed,
+              total,
+              current_path: currentPath,
+              stage: "embedding",
+              background: false,
+              project_id: req.project_id,
+              eta_seconds: remainingFiles > 0 ? Math.ceil(remainingFiles * 0.5) : null,
+              file_chunks_done: chunk,
+              file_chunks_total: fileChunksTotal,
+            });
+            await sleep(90);
+          }
+          if (cancelledDuringChunks) {
+            break;
+          }
 
           processed = i + 1;
           if (currentPath && /\.(exe|bin|zip|tar|gz|dll|so)$/i.test(currentPath)) {
@@ -2791,6 +2826,8 @@ export async function callBackendMock<C extends IpcCommand>(
             background: false,
             project_id: req.project_id,
             eta_seconds: null,
+            file_chunks_done: null,
+            file_chunks_total: null,
           });
         }
 
@@ -2841,8 +2878,10 @@ export async function callBackendMock<C extends IpcCommand>(
           background: false,
           project_id: req.project_id,
           eta_seconds: 1,
+          file_chunks_done: null,
+          file_chunks_total: null,
         });
-        await sleep(260);
+        await sleep(220);
         if (cancelledMockIngestJobs.has(jobId)) {
           emitMockEvent("cobalt://ingest-progress", {
             job_id: jobId,
@@ -2853,6 +2892,8 @@ export async function callBackendMock<C extends IpcCommand>(
             background: false,
             project_id: req.project_id,
             eta_seconds: null,
+            file_chunks_done: null,
+            file_chunks_total: null,
           });
           const partial: IngestReport = {
             documents_created: 0,
@@ -2867,17 +2908,25 @@ export async function callBackendMock<C extends IpcCommand>(
           };
           return partial as ResultOf<C>;
         }
-        emitMockEvent("cobalt://ingest-progress", {
-          job_id: jobId,
-          processed: 1,
-          total: 2,
-          current_path: req.path,
-          stage: "embedding",
-          background: false,
-          project_id: req.project_id,
-          eta_seconds: 1,
-        });
-        await sleep(260);
+        const pastLifeChunks = 3;
+        for (let chunk = 1; chunk <= pastLifeChunks; chunk += 1) {
+          if (cancelledMockIngestJobs.has(jobId)) {
+            break;
+          }
+          emitMockEvent("cobalt://ingest-progress", {
+            job_id: jobId,
+            processed: 1,
+            total: 2,
+            current_path: req.path,
+            stage: "embedding",
+            background: false,
+            project_id: req.project_id,
+            eta_seconds: 1,
+            file_chunks_done: chunk,
+            file_chunks_total: pastLifeChunks,
+          });
+          await sleep(100);
+        }
         const wasCancelled = cancelledMockIngestJobs.has(jobId);
         emitMockEvent("cobalt://ingest-progress", {
           job_id: jobId,
@@ -2888,6 +2937,8 @@ export async function callBackendMock<C extends IpcCommand>(
           background: false,
           project_id: req.project_id,
           eta_seconds: null,
+          file_chunks_done: null,
+          file_chunks_total: null,
         });
         const report: IngestReport = {
           documents_created: wasCancelled ? 0 : 1,
