@@ -273,6 +273,40 @@
     "confirmDelete": "Confirmar borrado",
     "updatedAt": "Actualizado {{date}}"
   },
+  "delete": {
+    "dialogTitle": "Borrado permanente",
+    "irreversibleHeadline": "Eliminar esta memoria es PERMANENTE y NO se puede deshacer.",
+    "irreversibleSubtext": "Una vez borrada, esta memoria se eliminará de Cobalt y no podrás recuperarla.",
+    "loadingImpact": "Comprobando qué depende de esta memoria…",
+    "loadError": "No se pudo comprobar el impacto de eliminar esta memoria.",
+    "retryImpact": "Reintentar",
+    "previewLabel": "Memoria a eliminar",
+    "consequencesTitle": "Qué ocurrirá si la eliminas",
+    "consequence": {
+      "irreversible": "Eliminación definitiva: esta memoria se borrará por completo y no podrá recuperarse.",
+      "core_law": "Regla fijada (Ley Nuclear): tus IAs dejarán de recibir esta regla importante automáticamente.",
+      "reusable": "Elemento reutilizable (usado {{reuses}} vez/veces): desaparecerá de tu Biblioteca en todos tus proyectos.",
+      "used_by_agents": "Usado por {{agents}} asistente(s) de IA: pueden perder contexto del que dependen para ayudarte.",
+      "history": "Historial de versiones: {{versions}} versión(es) anterior(es) perderán su enlace con esta memoria.",
+      "snapshots": "Snapshots guardados: {{snapshots}} punto(s) de control anterior(es) aún pueden conservar una copia hasta que se eliminen.",
+      "encrypted": "Nota protegida en bóveda: su contenido cifrado se destruirá definitivamente y no podrá recuperarse ni con tu clave de bóveda."
+    },
+    "agentsSectionTitle": "Asistentes de IA que dependen de esta memoria",
+    "agentWarning": "Esta IA puede perder contexto del que depende",
+    "agentLastUsed": "Último uso {{date}}",
+    "historyVersionsCount": "Versiones anteriores en el historial: {{count}}",
+    "snapshotsCount": "Snapshots que aún pueden tener una copia: {{count}}",
+    "archiveAlternativeTitle": "¿Buscas una opción más segura y reversible?",
+    "archiveAlternativeBody": "Archivar oculta esta memoria a tus IAs sin borrarla — podrás restaurarla en cualquier momento.",
+    "archiveAlternativeCorePinNote": "Desactiva primero Ley Nuclear si prefieres archivar esta memoria en lugar de eliminarla.",
+    "archiveAlternativeAlreadyArchived": "Esta memoria ya está archivada y oculta para tus IAs. Puedes dejarla archivada en vez de borrarla para siempre.",
+    "archiveInsteadButton": "Archivar en su lugar (reversible)",
+    "confirmPrompt": "Para confirmar el borrado definitivo, escribe {{word}} abajo:",
+    "confirmWord": "ELIMINAR",
+    "confirmPlaceholder": "Escribe ELIMINAR para confirmar",
+    "confirmButton": "Eliminar permanentemente",
+    "deleting": "Eliminando…"
+  },
   "rag": {
     "title": "Depurador RAG",
     "shortLabel": "RAG",
@@ -429,12 +463,13 @@
       "error": "Error",
       "skipped": "Omitido"
     },
-    "checks": {
-      "daemon_socket": "Socket del daemon local",
-      "sqlite_wal": "Base de datos e índice FTS5",
-      "embedding_model": "Modelo local de embeddings",
-      "connector_configs": "Archivos de configuración de conectores"
-    }
+    "daemon_socket": "Servicio local en segundo plano",
+    "daemon_http": "Conexión local (HTTP)",
+    "sqlite": "Base de datos de memorias",
+    "engine_model": "Modelo local de búsqueda",
+    "engine_retrieval": "Prueba de búsqueda en memorias",
+    "vault": "Bóveda cifrada",
+    "client": "Conexión de {{client}}"
   },
   "pro": {
     "title": "Modo Pro",

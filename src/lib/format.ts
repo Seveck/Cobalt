@@ -3,6 +3,7 @@ import {
   BUILTIN_THEME_ID,
   DEFAULT_ENGINE_BY_TIER,
   DEFAULT_MODEL_BY_TIER,
+  type AiClient,
   type AppSettings,
   type EngineKind,
   type EngineState,
@@ -10,6 +11,26 @@ import {
   type EmbeddingModelSpec,
   type HardwareProfile,
 } from "@/types/contracts";
+
+/** Canonical human-readable display names for supported AI clients. */
+export const AI_CLIENT_LABELS: Record<AiClient, string> = {
+  claude_desktop: "Claude Desktop",
+  claude_code: "Claude Code",
+  cursor: "Cursor",
+  windsurf: "Windsurf",
+  cline: "Cline",
+  gemini_cli: "Gemini CLI",
+  codex_cli: "Codex CLI",
+};
+
+/** Resolve an AI client identifier (e.g. `claude_code`) to its display name. */
+export function formatAiClientName(client: string): string {
+  const key = client.trim().toLowerCase() as AiClient;
+  if (key in AI_CLIENT_LABELS) {
+    return AI_CLIENT_LABELS[key];
+  }
+  return client;
+}
 
 /** Format a byte count into a human-readable size string (e.g. `118.4 MB`). */
 export function formatBytes(bytes: number): string {

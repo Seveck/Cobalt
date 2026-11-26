@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard } from "@/lib/dialogs";
+import { AI_CLIENT_LABELS, formatAiClientName } from "@/lib/format";
 import { useSettingsStore } from "@/stores";
 import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
@@ -29,15 +30,7 @@ import {
 } from "@/types/contracts";
 import { ProModePanel } from "./ProModePanel";
 
-const CLIENT_LABELS: Record<AiClient, string> = {
-  claude_desktop: "Claude Desktop",
-  claude_code: "Claude Code",
-  cursor: "Cursor",
-  windsurf: "Windsurf",
-  cline: "Cline",
-  gemini_cli: "Gemini CLI",
-  codex_cli: "Codex CLI",
-};
+const CLIENT_LABELS = AI_CLIENT_LABELS;
 
 function buildManualSnippet(client: AiClient, httpPort: number, httpEnabled: boolean): string {
   if (client === "codex_cli") {
@@ -457,7 +450,19 @@ export function ConnectorsView() {
               <div className="divide-y divide-rule rounded-[2px] border border-rule bg-void">
                 {doctorReport.checks.map((check) => {
                   const fixing = fixingCheckId === check.id;
-                  const translatedLabel = t(check.label_key, { defaultValue: check.id });
+                  const translatedLabel =
+                    check.label_key === "doctor.client"
+                      ? (() => {
+                          const rawClient = check.id.startsWith("client.")
+                            ? check.id.slice("client.".length)
+                            : check.id;
+                          const clientName = formatAiClientName(rawClient);
+                          return t("doctor.client", {
+                            client: clientName,
+                            defaultValue: clientName,
+                          });
+                        })()
+                      : t(check.label_key, { defaultValue: check.id });
                   return (
                     <div
                       key={check.id}

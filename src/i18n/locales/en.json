@@ -273,6 +273,40 @@
     "confirmDelete": "Confirm delete",
     "updatedAt": "Updated {{date}}"
   },
+  "delete": {
+    "dialogTitle": "Permanent deletion",
+    "irreversibleHeadline": "Deleting this memory is PERMANENT and CANNOT be undone.",
+    "irreversibleSubtext": "Once deleted, this memory is erased from Cobalt and cannot be recovered.",
+    "loadingImpact": "Checking what depends on this memory…",
+    "loadError": "Could not check the impact of deleting this memory.",
+    "retryImpact": "Try again",
+    "previewLabel": "Memory to delete",
+    "consequencesTitle": "What will happen if you delete it",
+    "consequence": {
+      "irreversible": "Permanent removal: this memory will be erased completely and cannot be recovered.",
+      "core_law": "Pinned rule (Nuclear Law): your AIs will stop receiving this important rule automatically.",
+      "reusable": "Reusable item (used {{reuses}} time(s)): it will be removed from your Reusable Library across all projects.",
+      "used_by_agents": "Used by {{agents}} AI assistant(s): they may lose context they rely on to help you.",
+      "history": "Version history: {{versions}} earlier version(s) will lose their link to this memory.",
+      "snapshots": "Saved snapshots: {{snapshots}} older backup snapshot(s) may still contain a copy until those snapshots are deleted.",
+      "encrypted": "Protected vault note: its encrypted content will be permanently destroyed and cannot be recovered even with your vault password."
+    },
+    "agentsSectionTitle": "AI assistants that rely on this memory",
+    "agentWarning": "This AI may lose context it relies on",
+    "agentLastUsed": "Last used {{date}}",
+    "historyVersionsCount": "Previous versions in history: {{count}}",
+    "snapshotsCount": "Snapshots that may still contain a copy: {{count}}",
+    "archiveAlternativeTitle": "Looking for a safer, reversible option?",
+    "archiveAlternativeBody": "Archiving hides this memory from your AIs without erasing it — you can restore it anytime.",
+    "archiveAlternativeCorePinNote": "Unpin Nuclear Law first if you want to archive this memory instead of deleting it.",
+    "archiveAlternativeAlreadyArchived": "This memory is already archived and hidden from your AIs. You can leave it archived instead of erasing it forever.",
+    "archiveInsteadButton": "Archive instead (reversible)",
+    "confirmPrompt": "To confirm permanent deletion, type {{word}} below:",
+    "confirmWord": "DELETE",
+    "confirmPlaceholder": "Type DELETE to confirm",
+    "confirmButton": "Delete permanently",
+    "deleting": "Deleting…"
+  },
   "rag": {
     "title": "RAG Debugger",
     "shortLabel": "RAG",
@@ -429,12 +463,13 @@
       "error": "Error",
       "skipped": "Skipped"
     },
-    "checks": {
-      "daemon_socket": "Local daemon socket",
-      "sqlite_wal": "Database & FTS5 search index",
-      "embedding_model": "Local embedding model",
-      "connector_configs": "AI connector configuration files"
-    }
+    "daemon_socket": "Local background service",
+    "daemon_http": "Local connection bridge (HTTP)",
+    "sqlite": "Local memory database",
+    "engine_model": "Local search model",
+    "engine_retrieval": "Memory search test",
+    "vault": "Encrypted vault",
+    "client": "{{client}} connection"
   },
   "pro": {
     "title": "Pro Mode",
