@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  AlertTriangle,
   Check,
   Code2,
   Compass,
@@ -610,12 +611,18 @@ export function LibraryView() {
 
                       <div className="flex items-center gap-1.5">
                         <span
-                          className={`inline-flex items-center gap-1 rounded-[2px] border px-1.5 py-0.5 font-mono text-[10px] uppercase ${availabilityClass(
-                            diskStatus,
-                          )}`}
+                          className={`inline-flex items-center gap-1 rounded-[2px] border px-1.5 py-0.5 font-mono text-[10px] ${
+                            diskStatus === "modified" ? "font-medium" : "uppercase"
+                          } ${availabilityClass(diskStatus)}`}
                         >
-                          <FileCheck2 size={10} aria-hidden />
-                          {t(`availability.${diskStatus}`)}
+                          {diskStatus === "modified" ? (
+                            <AlertTriangle size={10} aria-hidden />
+                          ) : (
+                            <FileCheck2 size={10} aria-hidden />
+                          )}
+                          {diskStatus === "modified"
+                            ? t("inspector.fileChangedSinceSaved")
+                            : t(`availability.${diskStatus}`)}
                         </span>
                         {asset.source_doc_id && (
                           <button

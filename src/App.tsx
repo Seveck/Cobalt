@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { backendOn } from "@/lib/backend";
 import {
   useBranchesStore,
+  useCliActivityStore,
   useHardwareStore,
   useIngestStore,
   useMemoryStore,
@@ -18,6 +19,7 @@ import { ConnectorsView } from "@/components/connectors/ConnectorsView";
 import { LibraryView } from "@/components/library/LibraryView";
 import { OnboardingScreen } from "@/components/onboarding";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { CliActivityShellBar } from "@/components/shell/CliActivityShellBar";
 import { CobaltMark } from "@/components/shell/CobaltMark";
 import { IngestShellIndicator } from "@/components/shell/IngestShellIndicator";
 import { Sidebar } from "@/components/shell/Sidebar";
@@ -54,6 +56,7 @@ export default function App() {
   const pushActivity = useTelemetryStore((s) => s.pushActivity);
   const ingestActivity = useSynapticStore((s) => s.ingestActivity);
   const pulseMemoryChange = useSynapticStore((s) => s.pulseMemoryChange);
+  const ingestCliActivity = useCliActivityStore((s) => s.ingestCliActivity);
 
   useEffect(() => {
     void loadAppInfo();
@@ -131,6 +134,12 @@ export default function App() {
       }),
     );
 
+    register(
+      backendOn("cobalt://cli-activity", (payload) => {
+        ingestCliActivity(payload);
+      }),
+    );
+
     return () => {
       active = false;
       if (refreshTimer !== null) {
@@ -142,6 +151,7 @@ export default function App() {
     };
   }, [
     ingestActivity,
+    ingestCliActivity,
     loadAppInfo,
     loadBranches,
     loadDaemonStatus,
@@ -182,6 +192,7 @@ export default function App() {
       <Sidebar />
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-void">
         <IngestShellIndicator />
+        <CliActivityShellBar />
         <main className="relative min-h-0 flex-1 overflow-hidden bg-void">
           {activeNav === "brain" && <BrainCanvas />}
           {activeNav === "library" && <LibraryView />}

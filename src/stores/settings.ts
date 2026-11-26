@@ -42,7 +42,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   loadSettings: async () => {
     try {
-      const settings = await backendCall("get_settings");
+      const loaded = await backendCall("get_settings");
+      const defaults = createDefaultSettings();
+      const settings: AppSettings = {
+        ...defaults,
+        ...loaded,
+        capture: { ...defaults.capture, ...(loaded.capture ?? {}) },
+      };
       await applyLanguageToDom(settings.language);
       set({ settings, loaded: true, error: null });
       return settings;

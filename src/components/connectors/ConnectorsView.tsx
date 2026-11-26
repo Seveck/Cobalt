@@ -28,6 +28,7 @@ import {
   type ConnectorStatus,
   type DoctorReport,
 } from "@/types/contracts";
+import { AutoCaptureSection } from "./AutoCaptureSection";
 import { ProModePanel } from "./ProModePanel";
 
 const CLIENT_LABELS = AI_CLIENT_LABELS;
@@ -89,6 +90,7 @@ export function ConnectorsView() {
 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [captureRefreshSignal, setCaptureRefreshSignal] = useState(0);
 
   const flashNotice = useCallback((msg: string) => {
     setNotice(msg);
@@ -230,7 +232,10 @@ export function ConnectorsView() {
           <button
             type="button"
             disabled={loading}
-            onClick={() => void loadConnectors()}
+            onClick={() => {
+              void loadConnectors();
+              setCaptureRefreshSignal((n) => n + 1);
+            }}
             className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface px-3 py-1.5 font-mono text-xs text-bone-muted hover:border-cobalt-ink/60 hover:text-bone disabled:opacity-45"
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} aria-hidden />
@@ -354,13 +359,20 @@ export function ConnectorsView() {
           </div>
         </section>
 
-        {/* 02 — Manual setup (NEVER "Copy Config") */}
+        {/* 02 — Automatic capture */}
+        <AutoCaptureSection
+          refreshSignal={captureRefreshSignal}
+          onNotice={flashNotice}
+          onError={setError}
+        />
+
+        {/* 03 — Manual setup (NEVER "Copy Config") */}
         <section className="rounded-[2px] border border-rule bg-surface p-5">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-4">
             <div>
               <h2 className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-bone">
                 <Terminal size={13} className="text-cobalt-ink" aria-hidden />
-                02 — {t("connectors.manualSetupTitle")}
+                03 — {t("connectors.manualSetupTitle")}
               </h2>
               <p className="mt-1 text-xs text-bone-muted">{t("connectors.manualSetupDesc")}</p>
             </div>
@@ -402,13 +414,13 @@ export function ConnectorsView() {
           )}
         </section>
 
-        {/* 03 — MCP Doctor */}
+        {/* 04 — MCP Doctor */}
         <section className="rounded-[2px] border border-rule bg-surface p-5">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-4">
             <div>
               <h2 className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-bone">
                 <Stethoscope size={13} className="text-cobalt-ink" aria-hidden />
-                03 — {t("doctor.title")}
+                04 — {t("doctor.title")}
               </h2>
               <p className="mt-1 text-xs text-bone-muted">{t("doctor.subtitle")}</p>
             </div>

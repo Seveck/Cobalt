@@ -78,6 +78,8 @@ export const PHASE3_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>
   "query_telemetry",
   "list_connectors",
   "toggle_connector",
+  "list_capture_integrations",
+  "toggle_capture_integration",
   "run_doctor",
   "doctor_fix",
   "get_mcp_tool_docs",
@@ -117,6 +119,7 @@ export const REAL_IPC_EVENTS: ReadonlySet<EventName> = new Set<EventName>([
   "cobalt://read-only-changed",
   "cobalt://vault-status",
   "cobalt://daemon-status",
+  "cobalt://cli-activity",
 ]);
 
 /** Returns `true` only in browser preview (outside Tauri); inside Tauri all commands use real IPC. */

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Pin, Search, SlidersHorizontal, X } from "lucide-react";
+import { AlertTriangle, Loader2, Pin, Search, SlidersHorizontal, X } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import {
   useBranchesStore,
@@ -8,7 +8,7 @@ import {
   useSettingsStore,
 } from "@/stores";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
-import type { ProjectScope, SearchResponse } from "@/types/contracts";
+import type { FileAvailability, ProjectScope, SearchResponse, Uuid } from "@/types/contracts";
 
 interface RagDebuggerProps {
   onClose: () => void;
@@ -37,6 +37,8 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SearchResponse | null>(null);
+  const [docAvailability, setDocAvailability] = useState<Record<Uuid, FileAvailability>>({});
+  const searchSeqRef = useRef(0);
 
   // Clear 3D highlights when closing debugger
   useEffect(() => {
@@ -80,8 +82,11 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
     const trimmed = query.trim();
     if (!trimmed) return;
 
+    const seq = searchSeqRef.current + 1;
+    searchSeqRef.current = seq;
     setLoading(true);
     setError(null);
+    setDocAvailability({});
     try {
       const response = await backendCall("search_memories", {
         query: trimmed,
@@ -104,8 +109,35 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
           : null,
         record_hits: false,
       });
+      if (searchSeqRef.current !== seq) return;
       setResult(response);
       setHighlightedNodeIds(response.hits.map((h) => h.memory.id));
+
+      // Verify linked source documents on disk so modified files show a clear badge.
+      const docIds = Array.from(
+        new Set(
+          [...response.hits.map((h) => h.memory.source_doc_id), ...response.core_rules.map((r) => r.source_doc_id)].filter(
+            (id): id is Uuid => Boolean(id),
+          ),
+        ),
+      );
+      if (docIds.length > 0) {
+        void Promise.allSettled(
+          docIds.map(async (id) => ({
+            id,
+            status: await backendCall("verify_source_document", { id }),
+          })),
+        ).then((settled) => {
+          if (searchSeqRef.current !== seq) return;
+          const nextMap: Record<Uuid, FileAvailability> = {};
+          for (const entry of settled) {
+            if (entry.status === "fulfilled") {
+              nextMap[entry.value.id] = entry.value.status;
+            }
+          }
+          setDocAvailability(nextMap);
+        });
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -317,16 +349,27 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
                   {t("rag.coreRulesCount", { count: result.core_rules.length })}
                 </div>
                 <div className="space-y-1">
-                  {result.core_rules.map((rule) => (
-                    <button
-                      key={rule.id}
-                      type="button"
-                      onClick={() => onInspectMemory(rule.id)}
-                      className="w-full rounded-[2px] border border-ochre-rule/60 bg-ochre-wash/60 px-2.5 py-1.5 text-left text-[11px] text-bone hover:border-ochre"
-                    >
-                      <span className="line-clamp-2">{rule.content}</span>
-                    </button>
-                  ))}
+                  {result.core_rules.map((rule) => {
+                    const ruleModified =
+                      rule.source_doc_id !== null &&
+                      docAvailability[rule.source_doc_id] === "modified";
+                    return (
+                      <button
+                        key={rule.id}
+                        type="button"
+                        onClick={() => onInspectMemory(rule.id)}
+                        className="w-full space-y-1 rounded-[2px] border border-ochre-rule/60 bg-ochre-wash/60 px-2.5 py-1.5 text-left text-[11px] text-bone hover:border-ochre"
+                      >
+                        <span className="line-clamp-2">{rule.content}</span>
+                        {ruleModified && (
+                          <span className="inline-flex items-center gap-1 rounded-[2px] border border-ochre-rule bg-ochre-wash px-1.5 py-0.5 font-mono text-[10px] font-medium text-ochre">
+                            <AlertTriangle size={10} aria-hidden />
+                            {t("inspector.fileChangedSinceSaved")}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -340,49 +383,61 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
               {result.hits.length === 0 ? (
                 <p className="text-xs text-bone-subtle">{t("rag.noHits")}</p>
               ) : (
-                result.hits.map((hit, idx) => (
-                  <button
-                    key={hit.memory.id}
-                    type="button"
-                    onClick={() => onInspectMemory(hit.memory.id)}
-                    className="w-full space-y-2 rounded-[2px] border border-rule bg-surface-2 p-3 text-left transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3"
-                  >
-                    <div className="flex items-center justify-between gap-2 font-mono text-[10px] tabular-nums">
-                      <span className="font-semibold text-cobalt-ink">
-                        #{idx + 1} · {t("rag.finalScore")} {hit.score.toFixed(4)}
-                      </span>
-                      <span className="text-bone-muted">
-                        {t("brain.tokens", { count: hit.memory.chunk_tokens })}
-                      </span>
-                    </div>
+                result.hits.map((hit, idx) => {
+                  const fileModified =
+                    hit.memory.source_doc_id !== null &&
+                    docAvailability[hit.memory.source_doc_id] === "modified";
+                  return (
+                    <button
+                      key={hit.memory.id}
+                      type="button"
+                      onClick={() => onInspectMemory(hit.memory.id)}
+                      className="w-full space-y-2 rounded-[2px] border border-rule bg-surface-2 p-3 text-left transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3"
+                    >
+                      <div className="flex items-center justify-between gap-2 font-mono text-[10px] tabular-nums">
+                        <span className="font-semibold text-cobalt-ink">
+                          #{idx + 1} · {t("rag.finalScore")} {hit.score.toFixed(4)}
+                        </span>
+                        <span className="text-bone-muted">
+                          {t("brain.tokens", { count: hit.memory.chunk_tokens })}
+                        </span>
+                      </div>
 
-                    <p className="line-clamp-3 text-xs leading-relaxed text-bone">
-                      {hit.memory.content}
-                    </p>
+                      {fileModified && (
+                        <div className="inline-flex items-center gap-1.5 rounded-[2px] border border-ochre-rule bg-ochre-wash px-2 py-0.5 font-mono text-[10px] font-medium text-ochre">
+                          <AlertTriangle size={11} className="shrink-0" aria-hidden />
+                          <span>{t("inspector.fileChangedSinceSaved")}</span>
+                        </div>
+                      )}
 
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-rule pt-1.5 font-mono text-[10px] tabular-nums text-bone-subtle">
-                      <span>
-                        cos: <strong className="text-bone">{hit.similarity_score.toFixed(3)}</strong>
-                      </span>
-                      <span>
-                        rrf: <strong className="text-bone">{hit.rrf_score.toFixed(4)}</strong>
-                      </span>
-                      <span>
-                        vec:{" "}
-                        <strong className="text-bone">
-                          {hit.vector_rank !== null ? `#${hit.vector_rank}` : "—"}
-                        </strong>
-                      </span>
-                      <span>
-                        fts:{" "}
-                        <strong className="text-bone">
-                          {hit.fts_rank !== null ? `#${hit.fts_rank}` : "—"}
-                        </strong>
-                        {hit.bm25 !== null ? ` (${hit.bm25.toFixed(2)})` : ""}
-                      </span>
-                    </div>
-                  </button>
-                ))
+                      <p className="line-clamp-3 text-xs leading-relaxed text-bone">
+                        {hit.memory.content}
+                      </p>
+
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-rule pt-1.5 font-mono text-[10px] tabular-nums text-bone-subtle">
+                        <span>
+                          cos: <strong className="text-bone">{hit.similarity_score.toFixed(3)}</strong>
+                        </span>
+                        <span>
+                          rrf: <strong className="text-bone">{hit.rrf_score.toFixed(4)}</strong>
+                        </span>
+                        <span>
+                          vec:{" "}
+                          <strong className="text-bone">
+                            {hit.vector_rank !== null ? `#${hit.vector_rank}` : "—"}
+                          </strong>
+                        </span>
+                        <span>
+                          fts:{" "}
+                          <strong className="text-bone">
+                            {hit.fts_rank !== null ? `#${hit.fts_rank}` : "—"}
+                          </strong>
+                          {hit.bm25 !== null ? ` (${hit.bm25.toFixed(2)})` : ""}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })
               )}
             </div>
           </>

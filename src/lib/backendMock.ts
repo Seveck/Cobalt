@@ -22,6 +22,8 @@ import {
   type BranchMergeReport,
   type CapsuleExportRequest,
   type CapsuleManifest,
+  type CaptureStatus,
+  type CaptureToggleRequest,
   type ConnectorStatus,
   type ConnectorToggleRequest,
   type ConnectorToggleResult,
@@ -154,6 +156,7 @@ const mockListeners: EventListenerMap = {
   "cobalt://read-only-changed": new Set(),
   "cobalt://vault-status": new Set(),
   "cobalt://daemon-status": new Set(),
+  "cobalt://cli-activity": new Set(),
 };
 
 const runningMockIngestJobs = new Set<string>();
@@ -358,6 +361,7 @@ interface MockStoreState {
   snapshots: Snapshot[];
   snapshotBackups: Map<string, Memory[]>;
   connectors: ConnectorStatus[];
+  captureIntegrations: CaptureStatus[];
   installedThemes: InstalledTheme[];
   themeManifests: Map<string, ThemeManifest>;
   telemetryLogs: TelemetryLog[];
@@ -615,6 +619,63 @@ function ensureMockState(): MockStoreState {
     };
   });
 
+  const captureIntegrations: CaptureStatus[] = [
+    {
+      integration: "global_instructions",
+      client: "claude_code",
+      project_id: null,
+      supported: true,
+      enabled: true,
+      path: "~/.claude/CLAUDE.md",
+      detail: null,
+    },
+    {
+      integration: "global_instructions",
+      client: "codex_cli",
+      project_id: null,
+      supported: true,
+      enabled: false,
+      path: "~/.codex/AGENTS.md",
+      detail: null,
+    },
+    {
+      integration: "global_instructions",
+      client: "gemini_cli",
+      project_id: null,
+      supported: true,
+      enabled: false,
+      path: "~/.gemini/GEMINI.md",
+      detail: null,
+    },
+    {
+      integration: "session_hooks",
+      client: "claude_code",
+      project_id: null,
+      supported: true,
+      enabled: true,
+      path: "~/.claude/settings.json",
+      detail: null,
+    },
+    {
+      integration: "session_hooks",
+      client: "codex_cli",
+      project_id: null,
+      supported: true,
+      enabled: false,
+      path: "~/.codex/config.toml",
+      detail: null,
+    },
+    ...projects.map((p, idx): CaptureStatus => ({
+      integration: "git_hooks",
+      client: null,
+      project_id: p.id,
+      supported: Boolean(p.root_path),
+      enabled: idx === 0,
+      path: p.root_path ? `${p.root_path}/.git/hooks/post-commit` : null,
+      detail: null,
+    })),
+  ];
+
   mockState = {
     projects,
     sourceDocs,
@@ -625,6 +686,7 @@ function ensureMockState(): MockStoreState {
     snapshots,
     snapshotBackups,
     connectors,
+    captureIntegrations,
     installedThemes,
     themeManifests,
     telemetryLogs,
@@ -721,7 +783,11 @@ function loadPersistedMockSettings(): AppSettings {
     const raw = window.localStorage.getItem(MOCK_SETTINGS_STORAGE_KEY);
     if (!raw) return defaults;
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
-    return { ...defaults, ...parsed };
+    return {
+      ...defaults,
+      ...parsed,
+      capture: { ...defaults.capture, ...(parsed.capture ?? {}) },
+    };
   } catch {
     return defaults;
   }
@@ -2245,6 +2311,32 @@ export async function callBackendMock<C extends IpcCommand>(
         backup_path: backupPath,
       };
       return res as ResultOf<C>;
+    }
+    case "list_capture_integrations": {
+      return state.captureIntegrations.map((c) => ({ ...c })) as ResultOf<C>;
+    }
+    case "toggle_capture_integration": {
+      const req = args as CaptureToggleRequest;
+      const target = state.captureIntegrations.find(
+        (c) =>
+          c.integration === req.integration &&
+          c.client === req.client &&
+          c.project_id === req.project_id,
+      );
+      if (!target) {
+        throw new IpcError(command, {
+          kind: "not_found",
+          message: `Capture integration ${req.integration} not found`,
+        });
+      }
+      if (!target.supported) {
+        throw new IpcError(command, {
+          kind: "unsupported",
+          message: target.detail ?? "Integration is not supported for this target.",
+        });
+      }
+      target.enabled = req.enable;
+      return { ...target } as ResultOf<C>;
     }
     case "run_doctor": {
       const clientChecks = state.connectors

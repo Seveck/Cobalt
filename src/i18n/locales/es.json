@@ -231,6 +231,8 @@
     "sourceDocSection": "Archivo de origen",
     "watchFile": "Vigilar cambios",
     "noSourceDoc": "Sin archivo local vinculado (solo nota o fragmento).",
+    "fileChangedSinceSaved": "El archivo cambió desde que se guardó",
+    "fileChangedHint": "El archivo en tu equipo es más reciente que esta memoria. Revísala antes de confiar en ella o edítala para ponerla al día.",
     "contentSection": "Contenido",
     "editContent": "Editar",
     "encrypt": "Cifrar",
@@ -383,6 +385,14 @@
     "proModeDesc": "Desbloquea ajustes avanzados de búsqueda, descripciones MCP, API REST y motores externos.",
     "readOnlyTitle": "Modo Solo Lectura",
     "readOnlyDesc": "Impide que las herramientas de IA escriban o modifiquen tus memorias.",
+    "captureTitle": "Captura automática",
+    "captureSubtitle": "Mantén tu memoria sincronizada automáticamente mientras trabajas con tus archivos y asistentes de IA.",
+    "captureAutoWatchTitle": "Vigilar proyectos automáticamente",
+    "captureAutoWatchDesc": "Cuando importas una carpeta o una IA trabaja dentro de un proyecto, Cobalt mantiene sus archivos indexados al día en segundo plano.",
+    "captureSessionHandoffsTitle": "Resúmenes automáticos entre sesiones",
+    "captureSessionHandoffsDesc": "Cuando termina una sesión con tu IA, guarda un resumen corto y temporal de lo último que hicieron para que la siguiente IA retome sin perder el hilo.",
+    "captureGitCommitsTitle": "Registrar cambios confirmados (Git)",
+    "captureGitCommitsDesc": "Guarda una nota breve por cada cambio confirmado (commit) y vuelve a indexar automáticamente los archivos modificados.",
     "saved": "Cambios guardados",
     "engineTitle": "Perfil de hardware y motor",
     "engineSubtitle": "Cambia el perfil, motor vectorial o modelo elegido durante el onboarding.",
@@ -446,6 +456,62 @@
     "manualSetupDesc": "¿Prefieres configurarlo por tu cuenta? Pega este bloque en el archivo de configuración de tu asistente.",
     "copySnippet": "Copiar bloque",
     "httpEndpointHint": "También disponible por HTTP local (Streamable HTTP) en {{url}}"
+  },
+  "capture": {
+    "title": "Captura automática",
+    "subtitle": "Mantiene Cobalt actualizado incluso cuando tus asistentes de IA olvidan consultar o guardar información por su cuenta. Cada opción es voluntaria y reversible.",
+    "reversibleBadge": "Opcional · Respaldo .bak",
+    "loading": "Cargando integraciones de captura…",
+    "editsFileLabel": "Archivo que edita",
+    "noFileDetected": "No detectado en este equipo",
+    "enabledNotice": "Captura automática activada para {{name}}.",
+    "disabledNotice": "Captura automática desactivada para {{name}}.",
+    "privacyNote": "Todo permanece en tu equipo, pasa por el filtro de secretos y reglas de exclusión (.memoryignore), y se pausa automáticamente cuando activas el modo Solo Lectura.",
+    "status": {
+      "enabled": "Activo",
+      "disabled": "Inactivo",
+      "unsupported": "No compatible"
+    },
+    "groups": {
+      "global_instructions": {
+        "title": "Instrucciones globales para tus IAs",
+        "plainExplanation": "Añade una pequeña guía en el archivo de instrucciones de tu asistente para recordarle consultar tus reglas, buscar antes de volver a preguntar y guardar decisiones importantes. Al desactivarlo se elimina solo ese bloque.",
+        "empty": "No se encontraron asistentes compatibles para instrucciones globales."
+      },
+      "session_hooks": {
+        "title": "Actividad en vivo y relevos de sesión",
+        "plainExplanation": "Permite que Cobalt vea al instante qué archivos edita tu asistente para mantenerlos actualizados en tu memoria y crear un breve resumen temporal al terminar la sesión, sin frenar nunca tu trabajo.",
+        "empty": "No se encontraron asistentes compatibles para eventos de sesión."
+      },
+      "git_hooks": {
+        "title": "Cambios guardados por proyecto (Git)",
+        "plainExplanation": "Cada vez que confirmas un cambio (commit) en un proyecto, guarda una nota breve con lo que cambió y vuelve a indexar esos archivos. Si el proyecto ya tenía automatizaciones previas, se conservan intactas.",
+        "empty": "Cuando vincules un proyecto con una carpeta que use Git, podrás activarlo aquí."
+      }
+    }
+  },
+  "cliActivity": {
+    "regionLabel": "Actividad en vivo de asistentes",
+    "liveBadge": "EN VIVO",
+    "feedTitle": "Actividad reciente de tus IAs",
+    "showFeed": "Ver actividad reciente",
+    "hideFeed": "Ocultar actividad reciente",
+    "clearFeed": "Limpiar",
+    "nodesPulsed": "3D · {{count}}",
+    "pulseNodesHint": "Ver e iluminar los nodos relacionados en el Cerebro 3D",
+    "action": {
+      "fileEditOne": "editó {{file}}",
+      "fileEditMany": "editó {{file}} (+{{count}})",
+      "fileEditGeneric": "editó archivos",
+      "gitCommitDetail": "guardó cambio: {{detail}}",
+      "gitCommitFile": "guardó cambio en {{file}}",
+      "gitCommitGeneric": "confirmó un cambio en Git",
+      "commandDetail": "ejecutó {{detail}}",
+      "commandGeneric": "ejecutó un comando",
+      "sessionStart": "inició sesión",
+      "turnEnd": "terminó un paso",
+      "sessionEnd": "cerró sesión"
+    }
   },
   "doctor": {
     "title": "MCP Doctor",

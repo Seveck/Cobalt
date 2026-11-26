@@ -35,6 +35,12 @@ export interface SynapticState {
   hudExpanded: boolean;
   ingestActivity: (activity: McpActivity) => void;
   pulseMemoryChange: (kind: MemoryChangeKind, memoryIds: readonly Uuid[]) => void;
+  pulseNodes: (
+    memoryIds: readonly Uuid[],
+    colorHex: string,
+    durationMs?: number,
+    intensity?: number,
+  ) => void;
   dismissHud: () => void;
   toggleHudExpanded: () => void;
 }
@@ -74,16 +80,21 @@ export const useSynapticStore = create<SynapticState>((set, get) => ({
 
   pulseMemoryChange: (kind, memoryIds) => {
     if (memoryIds.length === 0) return;
+    get().pulseNodes(memoryIds, CHANGE_PULSE_COLORS[kind], 1800, 0.75);
+  },
+
+  pulseNodes: (memoryIds, colorHex, durationMs = DEFAULT_PULSE_DURATION_MS, intensity = 0.9) => {
+    if (memoryIds.length === 0) return;
     const now = performance.now();
-    const colorHex = CHANGE_PULSE_COLORS[kind];
     const pulses = get().pulses;
+    const clampedIntensity = Math.max(0.25, Math.min(1.0, intensity));
     for (const id of memoryIds) {
       pulses.set(id, {
         memoryId: id,
         colorHex,
-        intensity: 0.75,
+        intensity: clampedIntensity,
         startedAt: now,
-        durationMs: 1800,
+        durationMs,
       });
     }
     set((state) => ({ pulseEpoch: state.pulseEpoch + 1 }));
