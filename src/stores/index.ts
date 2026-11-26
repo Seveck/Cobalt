@@ -7,3 +7,4 @@ export { useFiltersStore, matchesVisualFilters, type FiltersState } from "./filt
 export { useLibraryStore, type LibraryState } from "./library";
 export { useTelemetryStore, type TelemetryState } from "./telemetry";
 export { useBranchesStore, type BranchesState } from "./branches";
+export { useSynapticStore, type SynapticPulse, type SynapticState } from "./synaptic";

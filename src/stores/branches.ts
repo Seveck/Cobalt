@@ -1,22 +1,37 @@
 import { create } from "zustand";
 import { backendCall, isCommandMocked } from "@/lib/backend";
-import { MAIN_BRANCH_ID, type Branch, type Uuid } from "@/types/contracts";
+import {
+  MAIN_BRANCH_ID,
+  type Branch,
+  type BranchMergeReport,
+  type Uuid,
+} from "@/types/contracts";
 
 export interface BranchesState {
   branches: Branch[];
   activeBranchId: Uuid;
   loading: boolean;
+  mutating: boolean;
   error: string | null;
+  lastMergeReport: BranchMergeReport | null;
   isMockData: boolean;
   loadBranches: () => Promise<void>;
   setActiveBranchId: (branchId: Uuid) => void;
+  createBranch: (name: string, parentBranchId?: Uuid | null) => Promise<Branch | null>;
+  switchBranch: (branchId: Uuid) => Promise<Branch | null>;
+  mergeBranch: (branchId: Uuid) => Promise<BranchMergeReport | null>;
+  discardBranch: (branchId: Uuid) => Promise<boolean>;
+  clearMergeReport: () => void;
+  clearError: () => void;
 }
 
-export const useBranchesStore = create<BranchesState>((set) => ({
+export const useBranchesStore = create<BranchesState>((set, get) => ({
   branches: [],
   activeBranchId: MAIN_BRANCH_ID,
   loading: false,
+  mutating: false,
   error: null,
+  lastMergeReport: null,
   isMockData: isCommandMocked("list_branches"),
 
   loadBranches: async () => {
@@ -36,4 +51,66 @@ export const useBranchesStore = create<BranchesState>((set) => ({
   },
 
   setActiveBranchId: (activeBranchId) => set({ activeBranchId }),
+
+  createBranch: async (name, parentBranchId) => {
+    set({ mutating: true, error: null });
+    try {
+      const created = await backendCall("create_branch", {
+        name: name.trim(),
+        parent_branch_id: parentBranchId ?? get().activeBranchId,
+      });
+      await get().loadBranches();
+      set({ mutating: false });
+      return created;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ mutating: false, error: message });
+      return null;
+    }
+  },
+
+  switchBranch: async (branchId) => {
+    set({ mutating: true, error: null });
+    try {
+      const active = await backendCall("switch_branch", { id: branchId });
+      await get().loadBranches();
+      set({ activeBranchId: active.id, mutating: false });
+      return active;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ mutating: false, error: message });
+      return null;
+    }
+  },
+
+  mergeBranch: async (branchId) => {
+    set({ mutating: true, error: null });
+    try {
+      const report = await backendCall("merge_branch", { id: branchId });
+      await get().loadBranches();
+      set({ lastMergeReport: report, mutating: false });
+      return report;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ mutating: false, error: message });
+      return null;
+    }
+  },
+
+  discardBranch: async (branchId) => {
+    set({ mutating: true, error: null });
+    try {
+      await backendCall("discard_branch", { id: branchId });
+      await get().loadBranches();
+      set({ mutating: false });
+      return true;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ mutating: false, error: message });
+      return false;
+    }
+  },
+
+  clearMergeReport: () => set({ lastMergeReport: null }),
+  clearError: () => set({ error: null }),
 }));
