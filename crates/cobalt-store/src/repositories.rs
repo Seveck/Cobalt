@@ -452,22 +452,26 @@ pub(crate) fn source_availability(doc: &SourceDocument, snippet: bool) -> Result
     }
 }
 
+pub(crate) fn upsert_source(conn: &Connection, doc: NewSourceDocument) -> Result<SourceDocument> {
+    let source_type = doc
+        .source_type
+        .unwrap_or_else(|| SourceType::from_path(Path::new(&doc.file_path)));
+    let hash = if doc.is_dir { None } else { doc.file_hash };
+    conn.query_row(
+        "INSERT INTO source_documents (id, project_id, file_path, is_dir, source_type, file_hash, total_tokens, is_watched, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         ON CONFLICT(file_path) DO UPDATE SET project_id = excluded.project_id, is_dir = excluded.is_dir,
+            source_type = excluded.source_type, file_hash = excluded.file_hash, total_tokens = excluded.total_tokens,
+            is_watched = excluded.is_watched, updated_at = excluded.updated_at RETURNING *",
+        params![new_id().to_string(), doc.project_id.map(|id| id.to_string()), doc.file_path, doc.is_dir,
+            source_type.as_str(), hash, doc.total_tokens, doc.is_watched, stamp()], source,
+    ).map_err(sql_error)
+}
+
 #[async_trait]
 impl SourceDocumentRepository for SqliteStore {
     async fn upsert_source_document(&self, doc: NewSourceDocument) -> Result<SourceDocument> {
-        self.db.write(move |conn| {
-            let source_type = doc.source_type.unwrap_or_else(|| SourceType::from_path(Path::new(&doc.file_path)));
-            let hash = if doc.is_dir { None } else { doc.file_hash };
-            conn.query_row(
-                "INSERT INTO source_documents (id, project_id, file_path, is_dir, source_type, file_hash, total_tokens, is_watched, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                 ON CONFLICT(file_path) DO UPDATE SET project_id = excluded.project_id, is_dir = excluded.is_dir,
-                    source_type = excluded.source_type, file_hash = excluded.file_hash, total_tokens = excluded.total_tokens,
-                    is_watched = excluded.is_watched, updated_at = excluded.updated_at RETURNING *",
-                params![new_id().to_string(), doc.project_id.map(|id| id.to_string()), doc.file_path, doc.is_dir,
-                    source_type.as_str(), hash, doc.total_tokens, doc.is_watched, stamp()], source,
-            ).map_err(sql_error)
-        }).await
+        self.db.write(move |conn| upsert_source(conn, doc)).await
     }
 
     async fn get_source_document(&self, id: Id) -> Result<Option<SourceDocument>> {

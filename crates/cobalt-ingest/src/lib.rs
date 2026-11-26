@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use cobalt_core::error::Result;
-use cobalt_core::model::Memory;
+use cobalt_core::model::{Memory, MemoryChanged};
 use cobalt_core::traits::{CobaltStore, ProgressSink, TokenCounter};
 use cobalt_core::transfer::*;
 use cobalt_store::SqliteStore;
@@ -24,6 +24,7 @@ pub use cobalt_core;
 pub struct IngestService {
     inner: Arc<Context>,
     watcher: Mutex<Option<watcher::WatchTask>>,
+    watcher_callbacks: watcher::Callbacks,
 }
 
 struct Context {
@@ -44,6 +45,19 @@ impl IngestService {
     /// Enables identity-preserving imports and independent document chunks on the canonical store.
     pub fn with_sqlite_store(store: Arc<SqliteStore>, tokens: Arc<dyn TokenCounter>) -> Self {
         Self::build(store.clone(), Some(store), tokens)
+    }
+
+    /// Installs callbacks for background ingest progress and committed memory changes.
+    pub fn with_watcher_callbacks(
+        mut self,
+        progress: ProgressSink<IngestProgress>,
+        memory_changed: ProgressSink<MemoryChanged>,
+    ) -> Self {
+        self.watcher_callbacks = watcher::Callbacks {
+            progress: Some(progress),
+            memory_changed: Some(memory_changed),
+        };
+        self
     }
 
     /// Drains recent errors reported by the background watcher.
@@ -72,6 +86,7 @@ impl IngestService {
                 watcher_issues: std::sync::Mutex::default(),
             }),
             watcher: Mutex::default(),
+            watcher_callbacks: watcher::Callbacks::default(),
         }
     }
 }
@@ -130,7 +145,9 @@ impl cobalt_core::traits::IngestService for IngestService {
     async fn start_watcher(&self) -> Result<()> {
         let mut watcher = self.watcher.lock().await;
         if watcher.is_none() {
-            *watcher = Some(watcher::start(self.inner.clone()).await?);
+            self.inner.watcher_store()?;
+            *watcher =
+                Some(watcher::start(self.inner.clone(), self.watcher_callbacks.clone()).await?);
         }
         Ok(())
     }
