@@ -1,6 +1,7 @@
 //! Local document ingestion and portable knowledge transfer.
 
 mod documents;
+mod jobs;
 mod past_life;
 mod transfer;
 mod watcher;
@@ -31,6 +32,7 @@ struct Context {
     tokens: Arc<dyn TokenCounter>,
     global_ignore: Option<PathBuf>,
     writes: Mutex<()>,
+    jobs: jobs::Jobs,
     watcher_issues: std::sync::Mutex<VecDeque<IngestIssue>>,
 }
 
@@ -66,6 +68,7 @@ impl IngestService {
                 tokens,
                 global_ignore: cobalt_core::paths::cobalt_home().ok(),
                 writes: Mutex::new(()),
+                jobs: jobs::Jobs::default(),
                 watcher_issues: std::sync::Mutex::default(),
             }),
             watcher: Mutex::default(),
@@ -93,7 +96,7 @@ impl cobalt_core::traits::IngestService for IngestService {
         req: IngestRequest,
         progress: ProgressSink<IngestProgress>,
     ) -> Result<IngestReport> {
-        self.inner.ingest(req, None, false, progress).await
+        self.inner.ingest(req, None, progress).await
     }
 
     async fn import_past_life(
@@ -111,7 +114,6 @@ impl cobalt_core::traits::IngestService for IngestService {
                     ocr: false,
                 },
                 Some(req.source),
-                false,
                 progress,
             )
             .await
@@ -119,6 +121,10 @@ impl cobalt_core::traits::IngestService for IngestService {
 
     async fn promote_file_to_reusable(&self, req: PromoteFileRequest) -> Result<Memory> {
         self.inner.promote(req).await
+    }
+
+    async fn cancel_job(&self, job_id: cobalt_core::ids::Id) -> Result<bool> {
+        Ok(self.inner.jobs.cancel(job_id))
     }
 
     async fn start_watcher(&self) -> Result<()> {

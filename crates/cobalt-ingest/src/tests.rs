@@ -1,6 +1,7 @@
+use std::io::{Cursor, Read};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use cobalt_core::engine::EmbeddingModelSpec;
@@ -19,18 +20,28 @@ use cobalt_core::transfer::*;
 use cobalt_embeddings::{TiktokenCounter, default_model_spec};
 use cobalt_store::SqliteStore;
 use serde_json::json;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::IngestService;
-use crate::documents::{chunks, digest, quiet_progress};
+use crate::documents::{FileRead, chunks, digest, quiet_progress, read_text_document};
+use crate::jobs::Cancellation;
 
-struct IngestEmbedderMock(EmbeddingModelSpec);
+struct IngestEmbedderMock {
+    spec: EmbeddingModelSpec,
+    calls: Option<mpsc::UnboundedSender<oneshot::Sender<()>>>,
+}
 
 #[async_trait]
 impl Embedder for IngestEmbedderMock {
     fn spec(&self) -> &EmbeddingModelSpec {
-        &self.0
+        &self.spec
     }
     async fn embed_documents(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        if let Some(calls) = &self.calls {
+            let (release, wait) = oneshot::channel();
+            calls.send(release).unwrap();
+            wait.await.unwrap();
+        }
         Ok(vec![vec![1.0, 0.0]; texts.len()])
     }
     async fn embed_query(&self, _: &str) -> Result<Vec<f32>> {
@@ -42,6 +53,14 @@ async fn setup(
     dir: &Path,
     model: &str,
 ) -> (Arc<SqliteStore>, IngestService, Arc<dyn TokenCounter>) {
+    setup_with_embedder_gate(dir, model, None).await
+}
+
+async fn setup_with_embedder_gate(
+    dir: &Path,
+    model: &str,
+    calls: Option<mpsc::UnboundedSender<oneshot::Sender<()>>>,
+) -> (Arc<SqliteStore>, IngestService, Arc<dyn TokenCounter>) {
     let mut spec = default_model_spec(HardwareTier::Eco);
     spec.id = model.into();
     spec.dimensions = 2;
@@ -50,7 +69,7 @@ async fn setup(
         SqliteStore::open_at(dir.join("cobalt.db"))
             .await
             .unwrap()
-            .with_sqlite_vec(Arc::new(IngestEmbedderMock(spec)), tokens.clone())
+            .with_sqlite_vec(Arc::new(IngestEmbedderMock { spec, calls }), tokens.clone())
             .await
             .unwrap(),
     );
@@ -98,7 +117,7 @@ fn memory(content: &str) -> NewMemory {
 fn chunking_stays_bounded_with_unicode_and_overlap() {
     let tokens = TiktokenCounter::new(TokenEncoding::Cl100kBase);
     let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa 🦊 おはようございます";
-    let chunks = chunks(&tokens, text, 8, 3).unwrap();
+    let chunks = chunks(&tokens, text, 8, 3, &Cancellation::default()).unwrap();
     assert!(chunks.len() >= 3);
     assert!(chunks.iter().all(|chunk| tokens.count(chunk) <= 8));
     assert!(chunks.windows(2).any(|pair| {
@@ -108,6 +127,170 @@ fn chunking_stays_bounded_with_unicode_and_overlap() {
             .is_some_and(|word| pair[1].contains(word))
     }));
     assert!(chunks.last().unwrap().ends_with("ございます"));
+}
+
+struct PrefixOnlyReaderMock(Cursor<Vec<u8>>);
+
+impl Read for PrefixOnlyReaderMock {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.0.read(buffer)?;
+        assert!(
+            read > 0 || buffer.is_empty(),
+            "read beyond the sniff prefix"
+        );
+        Ok(read)
+    }
+}
+
+#[test]
+fn rejects_binary_prefix_without_reading_the_rest() {
+    const PREFIX: usize = 8 * 1024;
+    for (binary_byte, reason) in [(0, "NUL byte"), (0xff, "UTF-8")] {
+        let mut bytes = vec![b'x'; PREFIX];
+        bytes[PREFIX - 1] = binary_byte;
+        let mut input = PrefixOnlyReaderMock(Cursor::new(bytes));
+        let result = read_text_document(&mut input, 128 * 1024 * 1024).unwrap();
+        assert!(matches!(result, FileRead::Skipped(error) if error.to_string().contains(reason)));
+        assert_eq!(input.0.position(), PREFIX as u64);
+    }
+
+    let text = format!("{}é", "x".repeat(PREFIX - 1));
+    assert!(matches!(
+        read_text_document(text.as_bytes(), 2 * 1024 * 1024).unwrap(),
+        FileRead::Bytes(bytes) if bytes == text.as_bytes()
+    ));
+}
+
+#[tokio::test]
+async fn reports_large_and_binary_folder_skips() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, ingest, _) = setup(dir.path(), "test").await;
+    let root = dir.path().join("folder");
+    std::fs::create_dir(&root).unwrap();
+    let large = root.join("large.txt");
+    let initial = vec![b' '; 2 * 1024 * 1024 + 1];
+    std::fs::write(&large, &initial).unwrap();
+    std::fs::write(root.join("model.BIN"), "looks like text").unwrap();
+    std::fs::write(root.join("unknown"), b"prefix\x00data").unwrap();
+    let report = ingest
+        .ingest_paths(req(&root), quiet_progress())
+        .await
+        .unwrap();
+    assert_eq!(report.skipped_ignored, 3);
+    assert_eq!(report.documents_created, 1);
+    assert_eq!(report.errors.len(), 3);
+    for (name, reason) in [
+        ("large.txt", "2 MiB"),
+        ("model.BIN", "file extension"),
+        ("unknown", "NUL byte"),
+    ] {
+        assert!(report.errors.iter().any(|issue| {
+            Path::new(&issue.path).ends_with(name) && issue.message.contains(reason)
+        }));
+    }
+
+    // An explicit file reaches the sniff stage instead of the folder size check.
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&large)
+        .unwrap();
+    std::io::Write::write_all(&mut &file, &[0]).unwrap();
+    let report = ingest
+        .ingest_paths(req(&large), quiet_progress())
+        .await
+        .unwrap();
+    assert_eq!(report.skipped_ignored, 1);
+    assert!(report.errors[0].message.contains("NUL byte"));
+    file.set_len(128 * 1024 * 1024 + 1).unwrap();
+    let report = ingest
+        .ingest_paths(req(&large), quiet_progress())
+        .await
+        .unwrap();
+    assert_eq!(report.skipped_ignored, 1);
+    assert!(report.errors[0].message.contains("128 MiB"));
+    assert!(
+        store
+            .find_source_document_by_path(&path(&large.canonicalize().unwrap()))
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn cancels_mid_folder_between_embedding_chunks() {
+    let dir = tempfile::tempdir().unwrap();
+    let (calls, mut embeddings) = mpsc::unbounded_channel();
+    let (store, ingest, _) = setup_with_embedder_gate(dir.path(), "test", Some(calls)).await;
+    let root = dir.path().join("folder");
+    std::fs::create_dir(&root).unwrap();
+    let first = root.join("a.md");
+    let second = root.join("b.md");
+    let third = root.join("c.md");
+    std::fs::write(&first, "Use atomic releases.").unwrap();
+    std::fs::write(&second, "astronomy apple bronze cactus diamond eagle forest guitar harp iron jelly kitten lemon moon nest ocean piano quartz ribbon star tulip umbrella violet wolf xylophone yarn zebra").unwrap();
+    std::fs::write(&third, "Keep the data local.").unwrap();
+    let (send, mut progress) = mpsc::unbounded_channel();
+    let request = IngestRequest {
+        watch: true,
+        ..req(&root)
+    };
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let (report, id) = tokio::join!(
+            ingest.ingest_paths(
+                request,
+                Arc::new(move |event| {
+                    send.send((Instant::now(), event)).unwrap();
+                })
+            ),
+            async {
+                let (initial_time, initial) = progress.recv().await.unwrap();
+                assert_eq!(initial.stage, "scanning");
+                assert_eq!(initial.processed, 0);
+
+                embeddings.recv().await.unwrap().send(()).unwrap();
+                let in_flight = embeddings.recv().await.unwrap();
+                let mut last_time = initial_time;
+                loop {
+                    let (time, event) = progress.recv().await.unwrap();
+                    assert!(time.duration_since(last_time) >= Duration::from_millis(95));
+                    assert_eq!(event.job_id, initial.job_id);
+                    last_time = time;
+                    if event.stage == "embedding" && event.processed == 2 {
+                        assert_eq!(event.total, 4);
+                        assert_eq!(
+                            event.current_path,
+                            Some(path(&second.canonicalize().unwrap()))
+                        );
+                        break;
+                    }
+                }
+
+                assert!(ingest.cancel_job(initial.job_id).await.unwrap());
+                in_flight.send(()).unwrap();
+                initial.job_id
+            }
+        );
+        let report = report.unwrap();
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert_eq!(report.documents_created, 2);
+        assert_eq!(report.memories_created, 2);
+        assert!(!ingest.cancel_job(id).await.unwrap());
+        assert!(embeddings.try_recv().is_err());
+        assert!(store.list_watched().await.unwrap().is_empty());
+
+        let find = |file: &Path| {
+            let path = path(&file.canonicalize().unwrap());
+            let store = store.clone();
+            async move { store.find_source_document_by_path(&path).await.unwrap() }
+        };
+        assert!(find(&first).await.unwrap().file_hash.is_some());
+        assert!(find(&second).await.unwrap().file_hash.is_none());
+        assert!(find(&third).await.is_none());
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -131,9 +314,13 @@ async fn ingests_files_with_privacy_metadata_reuse_and_incremental_updates() {
     assert_eq!(report.documents_created, 2);
     assert!(report.memories_created > 1);
     assert_eq!(report.redacted_secrets, 1);
-    assert_eq!(report.skipped_ignored, 2);
+    assert_eq!(report.skipped_ignored, 3);
     assert_eq!(report.errors.len(), 1);
-    assert!(report.errors[0].message.contains("catalog-verified ocrs"));
+    assert!(
+        report.errors[0]
+            .message
+            .contains("excluded by file extension")
+    );
     let doc = store
         .find_source_document_by_path(&path(&file.canonicalize().unwrap()))
         .await
@@ -199,6 +386,11 @@ async fn past_life_accepts_each_supported_source_and_omits_assistant_speculation
     let (store, ingest, _) = setup(dir.path(), "test").await;
     let chatgpt = dir.path().join("chatgpt.json");
     let claude = dir.path().join("claude.zip");
+    // The built-in ignores exclude archives unless the user opts in.
+    let global = dir.path().join("ignore-config");
+    std::fs::create_dir(&global).unwrap();
+    std::fs::write(global.join(".memoryignore"), "!claude.zip\n").unwrap();
+
     let cursor = dir.path().join(".cursorrules");
     let instructions = dir.path().join("CLAUDE.md");
     let folder = dir.path().join("notes");
@@ -348,6 +540,44 @@ async fn watcher_reconciles_atomic_replace_and_stops() {
             .iter()
             .any(|node| node.preview == "Before." && node.status == MemoryStatus::Archived)
     );
+}
+
+#[tokio::test]
+async fn stopping_watcher_stops_active_reconciliation_between_chunks() {
+    let dir = tempfile::tempdir().unwrap();
+    let (calls, mut embeddings) = mpsc::unbounded_channel();
+    let (store, ingest, _) = setup_with_embedder_gate(dir.path(), "test", Some(calls)).await;
+    let file = dir.path().join("watched.md");
+    std::fs::write(&file, "").unwrap();
+    let watch = IngestRequest {
+        watch: true,
+        ..req(&file)
+    };
+    let initial = ingest.ingest_paths(watch, quiet_progress()).await.unwrap();
+    assert!(initial.errors.is_empty());
+    ingest.start_watcher().await.unwrap();
+    std::fs::write(&file, "astronomy apple bronze cactus diamond eagle forest guitar harp iron jelly kitten lemon moon nest ocean piano quartz ribbon star tulip umbrella violet wolf xylophone yarn zebra").unwrap();
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let in_flight = embeddings.recv().await.unwrap();
+        let (stopped, ()) = tokio::join!(
+            biased;
+            ingest.stop_watcher(),
+            async { in_flight.send(()).unwrap() },
+        );
+        stopped.unwrap();
+    })
+    .await
+    .unwrap();
+
+    assert!(embeddings.try_recv().is_err());
+    let doc = store
+        .find_source_document_by_path(&path(&file.canonicalize().unwrap()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(doc.file_hash, Some(digest(b"")));
+    assert!(doc.is_watched);
 }
 
 #[tokio::test]

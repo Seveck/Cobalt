@@ -7,26 +7,25 @@ use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::model::{GraphQuery, NewSourceDocument, SourceDocument};
 use cobalt_core::transfer::{IngestIssue, IngestRequest};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::Context;
-use crate::documents::{INGEST_CLIENT, issue, quiet_progress};
+use crate::documents::{INGEST_CLIENT, issue};
+use crate::jobs::Cancellation;
 
 const DEBOUNCE: Duration = Duration::from_millis(300);
 const MAX_DEBOUNCE: Duration = Duration::from_secs(1);
 const REFRESH: Duration = Duration::from_secs(2);
 
 pub(crate) struct WatchTask {
-    stop: Option<oneshot::Sender<()>>,
+    cancellation: Cancellation,
     handle: Option<JoinHandle<()>>,
 }
 
 impl WatchTask {
     pub(crate) async fn stop(mut self) {
-        if let Some(stop) = self.stop.take() {
-            let _ = stop.send(());
-        }
+        self.cancellation.cancel();
         if let Some(handle) = self.handle.take() {
             let _ = handle.await;
         }
@@ -35,9 +34,7 @@ impl WatchTask {
 
 impl Drop for WatchTask {
     fn drop(&mut self) {
-        if let Some(stop) = self.stop.take() {
-            let _ = stop.send(());
-        }
+        self.cancellation.cancel();
     }
 }
 
@@ -93,7 +90,8 @@ fn refresh(
 }
 
 pub(crate) async fn start(context: Arc<Context>) -> Result<WatchTask> {
-    let docs = context.store.list_watched().await?;
+    let cancellation = Cancellation::default();
+    let docs = list_watched(&context, &cancellation).await?;
     let (event_tx, mut events) = mpsc::channel::<notify::Result<Event>>(1024);
     let overflow = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let overrun = overflow.clone();
@@ -112,7 +110,7 @@ pub(crate) async fn start(context: Arc<Context>) -> Result<WatchTask> {
     ) {
         context.watch_issue(issue);
     }
-    let (stop, mut stopped) = oneshot::channel();
+    let task_cancellation = cancellation.clone();
     let handle = tokio::spawn(async move {
         let mut docs = docs;
         let mut pending = BTreeSet::new();
@@ -123,7 +121,7 @@ pub(crate) async fn start(context: Arc<Context>) -> Result<WatchTask> {
         let mut rescan = true;
         loop {
             tokio::select! {
-                _ = &mut stopped => break,
+                _ = task_cancellation.cancelled() => break,
                 received = events.recv() => {
                     match received {
                         Some(Ok(event)) if !event.kind.is_access() => {
@@ -144,7 +142,7 @@ pub(crate) async fn start(context: Arc<Context>) -> Result<WatchTask> {
                 }
                 _ = tick.tick() => {
                     if last_refresh.elapsed() >= REFRESH {
-                        match context.store.list_watched().await {
+                        match list_watched(&context, &task_cancellation).await {
                             Ok(updated) => {
                                 for doc in &updated {
                                     if !docs.iter().any(|previous| previous.id == doc.id) {
@@ -154,6 +152,7 @@ pub(crate) async fn start(context: Arc<Context>) -> Result<WatchTask> {
                                 docs = updated;
                                 for issue in refresh(&mut watcher, &mut roots, &docs, context.global_ignore.as_deref()) { context.watch_issue(issue); }
                             }
+                            Err(CobaltError::Cancelled) => break,
                             Err(error) => context.watch_issue(issue(Path::new("watcher"), error)),
                         }
                         last_refresh = tokio::time::Instant::now();
@@ -165,16 +164,28 @@ pub(crate) async fn start(context: Arc<Context>) -> Result<WatchTask> {
                         batch_started = None;
                         let paths = std::mem::take(&mut pending);
                         let full = std::mem::take(&mut rescan);
-                        reconcile(&context, &docs, paths, full).await;
+                        reconcile(&context, &docs, paths, full, &task_cancellation).await;
                     }
                 }
             }
         }
     });
     Ok(WatchTask {
-        stop: Some(stop),
+        cancellation,
         handle: Some(handle),
     })
+}
+
+async fn list_watched(
+    context: &Context,
+    cancellation: &Cancellation,
+) -> Result<Vec<SourceDocument>> {
+    let _write = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return Err(CobaltError::Cancelled),
+        guard = context.writes.lock() => guard,
+    };
+    context.store.list_watched().await
 }
 
 async fn reconcile(
@@ -182,13 +193,22 @@ async fn reconcile(
     docs: &[SourceDocument],
     paths: BTreeSet<PathBuf>,
     full: bool,
+    cancellation: &Cancellation,
 ) {
     let mut jobs = BTreeSet::new();
+    let watched_directories: BTreeSet<_> = docs
+        .iter()
+        .filter(|doc| doc.is_dir)
+        .map(|doc| Path::new(&doc.file_path))
+        .collect();
     let global_changed = context
         .global_ignore
         .as_ref()
         .is_some_and(|global| paths.contains(&global.join(cobalt_core::paths::MEMORY_IGNORE_FILE)));
     for doc in docs {
+        if cancellation.check().is_err() {
+            return;
+        }
         let watched = Path::new(&doc.file_path);
         let ignore_changed = paths.iter().any(|path| {
             path.file_name().is_some_and(|name| name == ".memoryignore")
@@ -210,8 +230,13 @@ async fn reconcile(
         }
     }
     for (project_id, path) in jobs {
+        if cancellation.check().is_err() {
+            return;
+        }
         if !path.exists() {
-            if let Err(error) = retire_missing(context, &path).await {
+            if let Err(error) = retire_missing(context, &path, cancellation).await
+                && !matches!(error, CobaltError::Cancelled)
+            {
                 context.watch_issue(issue(&path, error));
             }
             continue;
@@ -223,17 +248,29 @@ async fn reconcile(
             mark_reusable: false,
             ocr: true,
         };
-        match context.ingest(req, None, true, quiet_progress()).await {
+        let folder_limited = path
+            .ancestors()
+            .skip(1)
+            .any(|parent| watched_directories.contains(parent));
+        let report = context
+            .ingest_watched(req, folder_limited, cancellation)
+            .await;
+        if cancellation.check().is_err() {
+            return;
+        }
+        match report {
             Ok(report) => {
+                let excluded = report.skipped_ignored == 1 && report.errors.is_empty();
                 for issue in report.errors {
                     context.watch_issue(issue);
                 }
-                if report.skipped_ignored == 1
+                if excluded
                     && report.documents_created
                         + report.documents_updated
                         + report.documents_unchanged
                         == 0
-                    && let Err(error) = retire_missing(context, &path).await
+                    && let Err(error) = retire_missing(context, &path, cancellation).await
+                    && !matches!(error, CobaltError::Cancelled)
                 {
                     context.watch_issue(issue(&path, error));
                 }
@@ -243,8 +280,12 @@ async fn reconcile(
     }
 }
 
-async fn retire_missing(context: &Context, path: &Path) -> Result<()> {
-    let _write = context.writes.lock().await;
+async fn retire_missing(context: &Context, path: &Path, cancellation: &Cancellation) -> Result<()> {
+    let _write = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return Err(CobaltError::Cancelled),
+        guard = context.writes.lock() => guard,
+    };
     let Some(doc) = context
         .store
         .find_source_document_by_path(&super::documents::path_string(path)?)
