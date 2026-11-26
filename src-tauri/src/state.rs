@@ -154,12 +154,11 @@ impl AppState {
         if let Some(old) = previous {
             let _ = cobalt_core::traits::IngestService::stop_watcher(old.as_ref()).await;
         }
-        if !self.config.get().capture.indexing_paused {
-            if let Err(err) =
+        if !self.config.get().capture.indexing_paused
+            && let Err(err) =
                 cobalt_core::traits::IngestService::start_watcher(ingest.as_ref()).await
-            {
-                tracing::warn!(%err, "file watcher not started");
-            }
+        {
+            tracing::warn!(%err, "file watcher not started");
         }
         *self
             .active_sqlite
@@ -176,10 +175,10 @@ impl AppState {
         use cobalt_core::traits::IngestService as _;
         let Ok(ingest) = self.ingest() else { return };
         let _ = ingest.stop_watcher().await;
-        if !self.config.get().capture.indexing_paused {
-            if let Err(err) = ingest.start_watcher().await {
-                tracing::warn!(%err, "file watcher not restarted");
-            }
+        if !self.config.get().capture.indexing_paused
+            && let Err(err) = ingest.start_watcher().await
+        {
+            tracing::warn!(%err, "file watcher not restarted");
         }
     }
 

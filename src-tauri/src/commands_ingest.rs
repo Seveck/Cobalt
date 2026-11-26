@@ -189,6 +189,9 @@ pub async fn reindex_files(
     let Some(project_id) = project_id else {
         return Ok(());
     };
+    if state.config.get().capture.indexing_paused {
+        return Ok(());
+    }
     let ingest = state.ingest()?;
     let existing: Vec<String> = files
         .into_iter()
@@ -208,7 +211,7 @@ pub async fn reindex_files(
                     mark_reusable: false,
                     ocr: false,
                 },
-                progress_sink(app),
+                background_sink(app, Some(project_id)),
             )
             .await?;
     }
@@ -255,7 +258,7 @@ pub async fn watch_project_root(
                     mark_reusable: false,
                     ocr: false,
                 },
-                progress_sink(app),
+                background_sink(app, Some(project.id)),
             )
             .await?;
     }
