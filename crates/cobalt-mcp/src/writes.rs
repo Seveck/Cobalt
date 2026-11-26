@@ -55,11 +55,11 @@ impl Daemon {
         let started = Instant::now();
         let outcome = {
             let _slot = self.write_slot().await;
-            self.store.save_memory(new).await?
+            self.store().save_memory(new).await?
         };
         let m = &outcome.memory;
         let log = self
-            .store
+            .store()
             .record_event(NewTelemetryEvent {
                 client_name: client_name.to_owned(),
                 operation: TelemetryOperation::Write,

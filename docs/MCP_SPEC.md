@@ -65,8 +65,8 @@ Output: `SearchMemoryOutput { project, core_rules[], results[], savings }`. Tele
 ```
 Searches **all projects**, `is_reusable = 1` only (never mixed into `search_memory`). For each
 asset the daemon re-verifies `source_documents.file_path` + `file_hash` (`available` / `modified`
-/ `snippet_only` / `missing`). Increments `reuse_count` of returned assets and logs
-`operation = 'reuse'` with `output_tokens_saved` (estimated tokens of the asset body).
+/ `snippet_only` / `missing`). The store increments `reuse_count` of returned assets; the daemon logs `operation = 'reuse'`
+(attributed to `clientInfo.name`) with `output_tokens_saved` (estimated tokens of the asset body).
 Output: `SearchReusableAssetsOutput { assets[], savings }`.
 
 ### 2.3 `save_memory`

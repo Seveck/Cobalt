@@ -1,0 +1,371 @@
+//! End-to-end: real SqliteStore (sqlite-vec) + daemon + authenticated local socket (exactly
+//! what `cobalt --mcp-stdio` talks to) + streamable HTTP + REST. Uses a deterministic
+//! bag-of-words embedder so no model download is needed.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
+use cobalt_core::catalog::Catalog;
+use cobalt_core::config_manager::ConfigManager;
+use cobalt_core::engine::EmbeddingModelSpec;
+use cobalt_core::enums::TokenEncoding;
+use cobalt_core::error::Result;
+use cobalt_core::model::MemoryChanged;
+use cobalt_core::telemetry::McpActivity;
+use cobalt_core::traits::Embedder;
+use cobalt_embeddings::TiktokenCounter;
+use cobalt_mcp::http::HttpServer;
+use cobalt_mcp::socket::{SocketServer, connect_existing};
+use cobalt_mcp::{Daemon, EventSink};
+use cobalt_store::SqliteStore;
+use serde_json::{Value, json};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+
+struct BagOfWords(EmbeddingModelSpec);
+
+impl BagOfWords {
+    fn vector(text: &str) -> Vec<f32> {
+        let mut v = vec![0f32; 384];
+        for word in text
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.len() > 2)
+        {
+            let h = word.bytes().fold(1469598103934665603u64, |h, b| {
+                (h ^ u64::from(b)).wrapping_mul(1099511628211)
+            });
+            v[(h % 384) as usize] += 1.0;
+        }
+        let n = v.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-6);
+        v.iter_mut().for_each(|x| *x /= n);
+        v
+    }
+}
+
+#[async_trait]
+impl Embedder for BagOfWords {
+    fn spec(&self) -> &EmbeddingModelSpec {
+        &self.0
+    }
+    async fn embed_documents(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        Ok(texts.iter().map(|t| Self::vector(t)).collect())
+    }
+    async fn embed_query(&self, text: &str) -> Result<Vec<f32>> {
+        Ok(Self::vector(text))
+    }
+}
+
+#[derive(Default)]
+struct Recorder {
+    activity: Mutex<Vec<McpActivity>>,
+    changes: Mutex<Vec<MemoryChanged>>,
+    blocked: Mutex<Vec<String>>,
+}
+
+impl EventSink for Recorder {
+    fn mcp_activity(&self, a: &McpActivity) {
+        self.activity.lock().unwrap().push(a.clone());
+    }
+    fn memory_changed(&self, c: &MemoryChanged) {
+        self.changes.lock().unwrap().push(c.clone());
+    }
+    fn read_only_changed(&self, _: bool) {}
+    fn firewall_blocked(&self, client: &str, _: &str) {
+        self.blocked.lock().unwrap().push(client.to_owned());
+    }
+}
+
+struct Client {
+    stream: interprocess::local_socket::tokio::Stream,
+    next: u64,
+}
+
+impl Client {
+    async fn send(&mut self, msg: Value) {
+        let mut line = serde_json::to_vec(&msg).unwrap();
+        line.push(b'\n');
+        (&self.stream).write_all(&line).await.unwrap();
+    }
+
+    async fn recv(&mut self) -> Value {
+        // Byte-wise line read keeps no hidden buffer between calls.
+        let mut buf = Vec::new();
+        let mut byte = [0u8; 1];
+        loop {
+            (&self.stream).read_exact(&mut byte).await.unwrap();
+            if byte[0] == b'\n' {
+                break;
+            }
+            buf.push(byte[0]);
+        }
+        serde_json::from_slice(&buf).unwrap()
+    }
+
+    async fn request(&mut self, method: &str, params: Value) -> Value {
+        self.next += 1;
+        let id = self.next;
+        self.send(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
+            .await;
+        loop {
+            let msg = self.recv().await;
+            if msg.get("id") == Some(&json!(id)) {
+                return msg;
+            }
+        }
+    }
+
+    async fn call(&mut self, tool: &str, args: Value) -> Value {
+        self.request("tools/call", json!({ "name": tool, "arguments": args }))
+            .await["result"]
+            .clone()
+    }
+}
+
+async fn http(
+    addr: std::net::SocketAddr,
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> (u16, String, String) {
+    let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let mut req = format!(
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nContent-Length: {}\r\n",
+        body.len()
+    );
+    for (k, v) in headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
+    }
+    req.push_str("\r\n");
+    req.push_str(body);
+    s.write_all(req.as_bytes()).await.unwrap();
+    let mut raw = String::new();
+    BufReader::new(s).read_to_string(&mut raw).await.unwrap();
+    let (head, body) = raw.split_once("\r\n\r\n").unwrap_or((&raw, ""));
+    let status = head.split_whitespace().nth(1).unwrap().parse().unwrap();
+    (status, head.to_lowercase(), body.to_owned())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn mcp_end_to_end_over_socket_and_http() {
+    let home = tempfile::tempdir().unwrap();
+    let base = SqliteStore::open_at(home.path().join("cobalt.db"))
+        .await
+        .unwrap();
+    let config = Arc::new(ConfigManager::load(Arc::new(base.clone())).await.unwrap());
+    let spec = Catalog::builtin()
+        .unwrap()
+        .model("multilingual-e5-small")
+        .unwrap()
+        .spec
+        .clone();
+    let tokens = Arc::new(TiktokenCounter::new(TokenEncoding::Cl100kBase));
+    let store = base
+        .with_sqlite_vec(Arc::new(BagOfWords(spec)), tokens.clone())
+        .await
+        .unwrap();
+    let recorder = Arc::new(Recorder::default());
+    let daemon = Daemon::new(
+        Arc::new(store),
+        config,
+        tokens,
+        home.path().to_path_buf(),
+        recorder.clone(),
+    );
+
+    let socket = SocketServer::start(daemon.clone()).await.unwrap();
+    // A second daemon on the same home must refuse to start.
+    assert!(SocketServer::start(daemon.clone()).await.is_err());
+
+    let mut c = Client {
+        stream: connect_existing(home.path()).await.unwrap(),
+        next: 0,
+    };
+    let init = c
+        .request("initialize", json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "e2e-client", "version": "1" } }))
+        .await;
+    assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
+    assert_eq!(init["result"]["serverInfo"]["name"], "cobalt");
+    c.send(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))
+        .await;
+
+    let tools = c.request("tools/list", json!({})).await;
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 7);
+
+    // save_memory: secret redacted, project auto-created by name.
+    let saved = c
+        .call("save_memory", json!({
+            "content": "Contexto: login lento. Decisión: cachear sesiones en Redis con TTL de 15 minutos. Razón: bajar latencia. token sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+            "category": "decision", "project": "shop-api"
+        }))
+        .await;
+    assert_eq!(saved["isError"], false, "{saved}");
+    assert_eq!(saved["structuredContent"]["action"], "inserted");
+    assert!(
+        saved["structuredContent"]["redacted_secrets"]
+            .as_u64()
+            .unwrap()
+            >= 1
+    );
+    assert_eq!(saved["structuredContent"]["project"]["created"], true);
+    let memory_id = saved["structuredContent"]["memory_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    c.call("save_memory", json!({ "content": "Usar siempre pnpm, nunca npm, en todos los proyectos.", "category": "preference", "project": "global" })).await;
+
+    // search_memory finds it, nothing secret leaks, telemetry + live pulse attributed to the client.
+    let found = c
+        .call(
+            "search_memory",
+            json!({ "query": "sesiones Redis TTL login", "project": "shop-api" }),
+        )
+        .await;
+    assert_eq!(found["isError"], false, "{found}");
+    let text = found["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("Redis") && !text.contains("sk-proj-"),
+        "{text}"
+    );
+    assert_eq!(
+        found["structuredContent"]["results"][0]["id"],
+        memory_id.as_str()
+    );
+    {
+        let activity = recorder.activity.lock().unwrap();
+        let read = activity
+            .iter()
+            .rev()
+            .find(|a| a.operation.as_str() == "read")
+            .unwrap();
+        assert_eq!(read.client_name, "e2e-client");
+        assert!(
+            read.matched_nodes
+                .iter()
+                .any(|n| n.memory_id.to_string() == memory_id)
+        );
+    }
+
+    // Rules: global preference is listed for the project.
+    let rules = c
+        .call("list_project_rules", json!({ "project": "shop-api" }))
+        .await;
+    assert!(
+        rules["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("pnpm"),
+        "{rules}"
+    );
+
+    // update_memory supersedes.
+    let updated = c
+        .call("update_memory", json!({ "memory_id": memory_id, "new_content": "Sesiones en Redis con TTL de 30 minutos.", "reason": "El equipo amplió el TTL" }))
+        .await;
+    assert_eq!(updated["isError"], false, "{updated}");
+    assert_eq!(
+        updated["structuredContent"]["previous_id"],
+        memory_id.as_str()
+    );
+
+    // Handoff relay between AIs.
+    let h = c.call("create_handoff", json!({ "summary": "Migrando auth a JWT; falta el refresh.", "open_files": ["src/auth.rs"], "project": "shop-api" })).await;
+    assert_eq!(h["isError"], false, "{h}");
+    let r = c
+        .call("resume_handoff", json!({ "project": "shop-api" }))
+        .await;
+    assert!(
+        r["content"][0]["text"].as_str().unwrap().contains("JWT"),
+        "{r}"
+    );
+
+    // Token Firewall blocks raw log dumps.
+    let log: String = (0..12)
+        .map(|i| format!("2026-11-25T10:00:{i:02}Z ERROR worker crashed id={i}\n"))
+        .collect();
+    let blocked = c
+        .call("save_memory", json!({ "content": log, "category": "note" }))
+        .await;
+    assert_eq!(blocked["isError"], true);
+    assert_eq!(blocked["structuredContent"]["kind"], "firewall_blocked");
+    assert_eq!(recorder.blocked.lock().unwrap().as_slice(), ["e2e-client"]);
+
+    // Read-only pauses writes but not reads.
+    daemon.set_read_only(true).await.unwrap();
+    let ro = c
+        .call(
+            "save_memory",
+            json!({ "content": "algo nuevo", "category": "note" }),
+        )
+        .await;
+    assert_eq!(ro["structuredContent"]["kind"], "read_only");
+    let still_reads = c.call("search_memory", json!({ "query": "Redis" })).await;
+    assert_eq!(still_reads["isError"], false);
+    daemon.set_read_only(false).await.unwrap();
+    assert!(!recorder.changes.lock().unwrap().is_empty());
+
+    // Unknown method -> JSON-RPC error.
+    let unknown = c.request("resources/list", json!({})).await;
+    assert_eq!(unknown["error"]["code"], -32601);
+
+    // ---- HTTP: streamable MCP + REST ----
+    let server = HttpServer::start(daemon.clone(), socket.token.clone(), 0)
+        .await
+        .unwrap();
+    let init_body = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "cursor" } } }).to_string();
+    let (status, head, body) = http(server.addr, "POST", "/mcp", &[], &init_body).await;
+    assert_eq!(status, 200, "{body}");
+    let sid = head
+        .lines()
+        .find_map(|l| l.strip_prefix("mcp-session-id: "))
+        .unwrap()
+        .trim()
+        .to_owned();
+    let list_body = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }).to_string();
+    let (status, _, body) = http(
+        server.addr,
+        "POST",
+        "/mcp",
+        &[("Mcp-Session-Id", &sid)],
+        &list_body,
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .len(),
+        7
+    );
+    let (status, _, _) = http(
+        server.addr,
+        "POST",
+        "/mcp",
+        &[("Origin", "https://evil.example")],
+        &init_body,
+    )
+    .await;
+    assert_eq!(status, 403, "DNS-rebinding protection");
+
+    let (status, _, _) = http(server.addr, "GET", "/api/v1/health", &[], "").await;
+    assert_eq!(status, 200);
+    let (status, _, _) = http(server.addr, "GET", "/api/v1/status", &[], "").await;
+    assert_eq!(status, 401);
+    let bearer = format!("Bearer {}", socket.token);
+    let (status, _, body) = http(
+        server.addr,
+        "GET",
+        "/api/v1/status",
+        &[("Authorization", &bearer)],
+        "",
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"running\":true"));
+    let (status, _, body) = http(server.addr, "GET", "/api/v1/openapi.json", &[], "").await;
+    assert_eq!(status, 200);
+    assert!(body.contains("/api/v1/search"));
+}

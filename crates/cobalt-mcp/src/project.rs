@@ -132,7 +132,7 @@ impl Daemon {
             if raw.eq_ignore_ascii_case("global") {
                 return Ok(Resolved::Global);
             }
-            if let Some(project) = self.store.find_project_by_name(raw).await? {
+            if let Some(project) = self.store().find_project_by_name(raw).await? {
                 return Ok(Resolved::Project {
                     project,
                     created: false,
@@ -143,7 +143,7 @@ impl Daemon {
             }
             // Unknown plain name: create it (AIs often name the project they are working on).
             let project = self
-                .store
+                .store()
                 .create_project(NewProject {
                     name: raw.to_owned(),
                     root_path: None,
@@ -167,7 +167,7 @@ impl Daemon {
     }
 
     async fn resolve_path(&self, path: &str) -> Result<Resolved> {
-        let existed = self.store.resolve_project_by_path(path, false).await?;
+        let existed = self.store().resolve_project_by_path(path, false).await?;
         if let Some(project) = existed {
             return Ok(Resolved::Project {
                 project,
@@ -175,7 +175,7 @@ impl Daemon {
             });
         }
         Ok(
-            match self.store.resolve_project_by_path(path, true).await? {
+            match self.store().resolve_project_by_path(path, true).await? {
                 Some(project) => Resolved::Project {
                     project,
                     created: true,

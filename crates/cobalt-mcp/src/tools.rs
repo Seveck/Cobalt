@@ -248,7 +248,7 @@ impl Daemon {
             latency_ms: 0,
             project_id: None,
         };
-        let store = self.store.clone();
+        let store = self.store().clone();
         tokio::spawn(async move {
             if let Err(err) = store.record_event(event).await {
                 tracing::warn!(%err, "failed to record firewall telemetry");
@@ -284,7 +284,7 @@ impl Daemon {
     ) -> Result<TelemetryLog> {
         let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
         let log = self
-            .store
+            .store()
             .record_event(NewTelemetryEvent {
                 client_name: ctx.client_name.clone(),
                 operation,
@@ -325,7 +325,7 @@ impl Daemon {
 
     async fn project_names(&self) -> Result<HashMap<Id, String>> {
         Ok(self
-            .store
+            .store()
             .list_projects(true)
             .await?
             .into_iter()
@@ -344,7 +344,7 @@ impl Daemon {
             let file_path = match m.source_doc_id {
                 Some(doc_id) => {
                     if let std::collections::hash_map::Entry::Vacant(e) = paths.entry(doc_id) {
-                        let doc = self.store.get_source_document(doc_id).await?;
+                        let doc = self.store().get_source_document(doc_id).await?;
                         e.insert(doc.map(|d| d.file_path));
                     }
                     paths.get(&doc_id).cloned().flatten()
@@ -390,7 +390,7 @@ impl Daemon {
                 )));
             }
         }
-        if let Some(doc) = self.store.find_source_document_by_path(path).await? {
+        if let Some(doc) = self.store().find_source_document_by_path(path).await? {
             return Ok(doc.id);
         }
         let (hash, total_tokens) = match tokio::fs::metadata(p).await {
@@ -405,7 +405,7 @@ impl Daemon {
             _ => (None, 0),
         };
         let doc = self
-            .store
+            .store()
             .upsert_source_document(NewSourceDocument {
                 project_id: resolved.project_id(),
                 file_path: path.to_owned(),
@@ -430,7 +430,7 @@ impl Daemon {
         self.guard_read(ctx)?;
         let resolved = self.resolve_project(args.project.as_deref(), ctx).await?;
         let response = self
-            .store
+            .store()
             .search(SearchRequest {
                 query: args.query.clone(),
                 scope: resolved.scope(),
@@ -502,7 +502,7 @@ impl Daemon {
         self.guard_read(ctx)?;
         let resolved = self.resolve_project(None, ctx).await?;
         let assets = self
-            .store
+            .store()
             .search_reusable(ReusableAssetQuery {
                 query: args.query.clone(),
                 source_type: args.source_type,
@@ -567,7 +567,7 @@ impl Daemon {
         };
         let outcome = {
             let _slot = self.write_slot().await;
-            self.store
+            self.store()
                 .save_memory(NewMemory {
                     content,
                     category: args.category,
@@ -628,7 +628,7 @@ impl Daemon {
         let started = Instant::now();
         self.guard_writable()?;
         let existing = self
-            .store
+            .store()
             .get_memory(args.memory_id)
             .await?
             .ok_or_else(|| CobaltError::NotFound(format!("memory {}", args.memory_id)))?;
@@ -641,7 +641,7 @@ impl Daemon {
         let reason = scrub(&args.reason).text;
         let outcome = {
             let _slot = self.write_slot().await;
-            self.store
+            self.store()
                 .update_memory(UpdateMemoryRequest {
                     memory_id: args.memory_id,
                     new_content: content,
@@ -713,7 +713,7 @@ impl Daemon {
             .collect();
         let handoff = {
             let _slot = self.write_slot().await;
-            self.store
+            self.store()
                 .create_handoff(NewHandoff {
                     project_id: resolved.project_id(),
                     source_client: ctx.client_name.clone(),
@@ -754,7 +754,7 @@ impl Daemon {
         self.guard_read(ctx)?;
         let resolved = self.resolve_project(args.project.as_deref(), ctx).await?;
         let handoff = self
-            .store
+            .store()
             .resume_handoff(resolved.project_id(), &ctx.client_name)
             .await?;
         let output = ResumeHandoffOutput { handoff };
@@ -783,8 +783,8 @@ impl Daemon {
         self.guard_read(ctx)?;
         let resolved = self.resolve_project(args.project.as_deref(), ctx).await?;
         let names = self.project_names().await?;
-        let laws = self.store.list_core_rules(resolved.project_id()).await?;
-        let prefs = self.store.list_preferences(resolved.project_id()).await?;
+        let laws = self.store().list_core_rules(resolved.project_id()).await?;
+        let prefs = self.store().list_preferences(resolved.project_id()).await?;
         let items = laws
             .iter()
             .chain(prefs.iter())

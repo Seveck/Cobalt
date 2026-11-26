@@ -43,11 +43,28 @@ fn socket_name(home: &Path) -> Result<Name<'static>> {
     #[cfg(not(windows))]
     {
         use interprocess::local_socket::{GenericFilePath, ToFsName};
-        home.join(DAEMON_SOCKET_FILE)
+        unix_socket_path(home)
             .to_fs_name::<GenericFilePath>()
             .map(|n| n.into_owned())
             .map_err(CobaltError::Io)
     }
+}
+
+/// Unix socket paths are limited to ~104-108 bytes. Very long homes fall back to a per-home
+/// socket in the system temp dir (access is still protected by the token).
+#[cfg(not(windows))]
+fn unix_socket_path(home: &Path) -> PathBuf {
+    let preferred = home.join(DAEMON_SOCKET_FILE);
+    if preferred.as_os_str().len() < 100 {
+        return preferred;
+    }
+    let hash = home
+        .to_string_lossy()
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+        });
+    std::env::temp_dir().join(format!("cobalt-{hash:016x}.sock"))
 }
 
 fn token_path(home: &Path) -> PathBuf {

@@ -22,19 +22,21 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 cobalt-core = { workspace = true, features = ["hardware", "engines"] }
 cobalt-store.workspace = true
+cobalt-mcp.workspace = true
+cobalt-embeddings.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset", "image-png"] }
 tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-single-instance = "2"
 
 [dev-dependencies]
-cobalt-embeddings = { path = "../crates/cobalt-embeddings" }
 tempfile = "3"
 tokio = { workspace = true }
 

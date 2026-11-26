@@ -31,3 +31,5 @@ workspace = true
 
 [dev-dependencies]
 tempfile = "3.27.0"
+cobalt-store.workspace = true
+cobalt-embeddings.workspace = true

@@ -41,11 +41,27 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [ ] [CODEX] Unificar dependencias con el workspace (reqwest 0.13, sha2 0.11) tras subir el MSRV a 1.95
 - [ ] [CODEX] Calibrar umbrales por modelo: con e5 dos notas no relacionadas ya dan coseno ≈ 0.78 (Check-Before-Write 0.85 / duplicados 0.90)
 
-## Fase 2 — Daemon, MCP, gobernanza y 3D polimórfico [PARALELO]
-- [ ] [CLAUDE] Single-Daemon + `--mcp-stdio`, MCP stdio/HTTP (7 herramientas), REST/WS + OpenAPI, Solo Lectura, Tray, `cobalt://mcp-activity`
-- [ ] [CODEX] Check-Before-Write, Leyes Nucleares, proyectos/reutilizables, Decay, Branches, Snapshots, duplicados, telemetría deduplicada, swap atómico
-- [ ] [GEMINI] Nodos como sprites planos orientados a cámara (`THREE.Points`, decisión de rendimiento, ver THEME_SPEC §6.1; objetivo 50k nodos a 30 FPS en Eco)
-- [ ] [GEMINI] 5 layouts + lerp, Dock de filtros, Modo Sináptico + HUD, Inspector, Depurador RAG, Time-Travel
+## Fase 2 — Daemon, MCP, gobernanza y 3D polimórfico [PARALELO] ✅
+### [CLAUDE] `cobalt-mcp` + `src-tauri`
+- [x] Single-Daemon: único escritor, cola de escrituras (`write_slot`/`pause_writes`), store intercambiable (activa la búsqueda al instalar el modelo sin reiniciar)
+- [x] 7 herramientas MCP con docstrings autónomos (+ overrides Pro), Scrubber → Firewall → store → telemetría con `clientInfo.name` → `cobalt://mcp-activity`
+- [x] Resolución de proyecto: argumento / MCP `roots/list` / cwd del puente / global
+- [x] Socket local autenticado (Unix socket / named pipe, token 0600) + puente `cobalt --mcp-stdio` con auto-arranque `--headless`
+- [x] MCP streamable HTTP (`/mcp`, sesiones) + SSE legado + REST `/api/v1` con bearer, OpenAPI/Swagger, WebSocket de eventos, protección de Origin
+- [x] Solo Lectura (tray + `Ctrl+Shift+M`, icono ámbar), bandeja, Nota rápida (`Alt+Space`), cerrar-a-bandeja, instancia única
+- [x] 29 comandos IPC de Fase 2 (+ `get_source_document`, `verify_source_document` por petición de Gemini, contrato v1.2.0)
+- [x] E2E `crates/cobalt-mcp/tests/e2e.rs` + prueba real del binario `--mcp-stdio` arrancando el daemon
+### [CODEX] `cobalt-store`, `cobalt-embeddings`
+- [x] `CobaltStore` completo: Check-Before-Write calibrado por modelo (e5 base 0.78), historial, cifrado, reglas, biblioteca, contexto web, decay, duplicados, ramas, snapshots, handoffs, telemetría deduplicada, temas, swap de motor con rollback
+- [x] Embeddings solo desde el catálogo verificado (sin descargas propias)
+### [GEMINI] `src/`
+- [x] Nodos como sprites (`THREE.Points`), índice espacial, 5 layouts + lerp, Dock de filtros, Modo Sináptico + HUD
+- [x] Inspector, Depurador RAG, Time-Travel, ramas, Limpiar Cerebro; todos los comandos Fase 2 por IPC real
+
+### Pendiente para Fase 3 (de esta integración)
+- [ ] [GEMINI] Usar `get_source_document`/`verify_source_document` reales en el Inspector
+- [ ] [CODEX] `find_import_collision` para `.cobalt-backup`; adaptadores Qdrant sidecar / LanceDB / Chroma
+- [ ] [CLAUDE] `swap_engine` IPC al cambiar de modelo con memorias existentes (hoy solo se activa en cerebro vacío)
 
 ## Fase 3 — Integración completa [PARALELO]
 - [ ] [CLAUDE] Conector 1-Click (Linux/Win/macOS + `.bak`), MCP Doctor, Theme Store sandboxed, cableado IPC completo

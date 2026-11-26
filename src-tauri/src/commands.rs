@@ -45,13 +45,31 @@ pub fn get_settings(state: State<'_, AppState>) -> CmdResult<AppSettings> {
 
 #[tauri::command]
 pub async fn update_settings(
+    app: AppHandle,
     state: State<'_, AppState>,
     args: AppSettings,
 ) -> CmdResult<AppSettings> {
+    let previous = state.config.get();
     let saved = state.config.update(args).await?;
     state
         .vault
         .set_auto_lock_minutes(saved.vault.auto_lock_minutes);
+    state.daemon.reload_settings();
+    if saved.read_only != state.daemon.is_read_only() {
+        state.daemon.set_read_only(saved.read_only).await?;
+    }
+    if saved.shortcuts != previous.shortcuts {
+        crate::desktop::register_shortcuts(&app, &saved);
+    }
+    if saved.vector_engine != previous.vector_engine
+        || saved.embedding_model_id != previous.embedding_model_id
+    {
+        // Switching models with existing memories requires re-embedding (swap_engine, Phase 3).
+        let (indexed, _) = state.memory_counts().await?;
+        if indexed == 0 || !state.activate_engine().await.unwrap_or(false) {
+            state.activate_engine().await?;
+        }
+    }
     Ok(saved)
 }
 
@@ -76,6 +94,9 @@ pub async fn install_engine(
         }
     });
     state.engines.install(&args, sink).await?;
+    if let Err(err) = state.activate_engine().await {
+        tracing::warn!(%err, "engine installed but retrieval not activated");
+    }
     engine_status_for(&state, args.engine, &args.model_id).await
 }
 

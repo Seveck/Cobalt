@@ -21,7 +21,8 @@
         "minWidth": 960,
         "minHeight": 600,
         "center": true,
-        "dragDropEnabled": true
+        "dragDropEnabled": true,
+        "visible": false
       },
       {
         "label": "quicknote",
@@ -51,7 +52,9 @@
       },
       "assetProtocol": {
         "enable": true,
-        "scope": ["$HOME/.cobalt/themes/**"]
+        "scope": [
+          "$HOME/.cobalt/themes/**"
+        ]
       }
     }
   },
@@ -69,8 +72,12 @@
       "icons/icon.ico"
     ],
     "linux": {
-      "deb": { "depends": [] },
-      "rpm": { "depends": [] }
+      "deb": {
+        "depends": []
+      },
+      "rpm": {
+        "depends": []
+      }
     }
   }
 }

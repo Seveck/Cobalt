@@ -52,7 +52,7 @@ pub enum DaemonEvent {
 }
 
 pub struct Daemon {
-    pub(crate) store: Arc<dyn CobaltStore>,
+    store: std::sync::RwLock<Arc<dyn CobaltStore>>,
     pub(crate) config: Arc<ConfigManager>,
     pub(crate) tokens: Arc<dyn TokenCounter>,
     pub(crate) firewall: TokenFirewall,
@@ -81,7 +81,7 @@ impl Daemon {
         Arc::new(Self {
             firewall: TokenFirewall::new(settings.firewall.clone(), tokens.clone()),
             read_only: AtomicBool::new(settings.read_only),
-            store,
+            store: std::sync::RwLock::new(store),
             config,
             tokens,
             home,
@@ -96,8 +96,16 @@ impl Daemon {
         })
     }
 
-    pub fn store(&self) -> &Arc<dyn CobaltStore> {
-        &self.store
+    /// Current store (cheap `Arc` clone).
+    pub fn store(&self) -> Arc<dyn CobaltStore> {
+        self.store.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    /// Swaps the store, e.g. once the embedding model has been installed. In-flight calls keep
+    /// using the previous instance until they finish.
+    pub async fn replace_store(&self, store: Arc<dyn CobaltStore>) {
+        let _pause = self.pause_writes().await;
+        *self.store.write().unwrap_or_else(|p| p.into_inner()) = store;
     }
 
     pub fn config(&self) -> &Arc<ConfigManager> {

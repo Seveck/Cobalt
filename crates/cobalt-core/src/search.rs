@@ -109,7 +109,8 @@ pub struct ReusableAssetQuery {
     #[serde(default)]
     pub exclude_current_project: bool,
     pub top_k: Option<u32>,
-    /// `true` for MCP calls: increments `reuse_count` and logs `operation = 'reuse'`.
+    /// `true` for MCP calls: increments `reuse_count` only. The caller (cobalt-mcp) records the
+    /// `reuse` telemetry with the real client identity, so it is never double counted.
     #[serde(default)]
     pub record_reuse: bool,
 }
