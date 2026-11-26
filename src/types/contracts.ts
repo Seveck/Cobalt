@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.5.0";
+export const CONTRACT_VERSION = "1.6.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -749,6 +749,8 @@ export interface CaptureSettings {
   auto_watch_projects: boolean;
   session_handoffs: boolean;
   git_commits: boolean;
+  /** Global pause of watcher, auto-watch and hook re-indexing. */
+  indexing_paused: boolean;
 }
 
 export interface AppSettings {
@@ -870,12 +872,28 @@ export interface IngestRequest {
   ocr: boolean;
 }
 
+export const INGEST_STAGES = {
+  scanning: "scanning",
+  reading: "reading",
+  embedding: "embedding",
+  saving: "saving",
+  /** Terminal: every job ends with exactly one of these. */
+  completed: "completed",
+  cancelled: "cancelled",
+  failed: "failed",
+} as const;
+
 export interface IngestProgress {
   job_id: Uuid;
   processed: number;
   total: number;
   current_path: string | null;
+  /** One of `INGEST_STAGES`. */
   stage: string;
+  /** Started by Cobalt itself (watcher, CLI hooks, auto-watch). */
+  background: boolean;
+  project_id: Uuid | null;
+  eta_seconds: number | null;
 }
 
 export interface IngestIssue {
@@ -1150,6 +1168,7 @@ export interface ListProjectsArgs { include_archived: boolean }
 export interface UpdateProjectArgs { id: Uuid; patch: ProjectPatch }
 export interface RelinkArgs { source_doc_id: Uuid; new_path: string }
 export interface SetWatchedArgs { source_doc_id: Uuid; watched: boolean }
+export interface SetProjectWatchedArgs { project_id: Uuid; watched: boolean }
 export interface DoctorFixArgs { check_id: string }
 export interface RemoveEngineArtifactsArgs { engine: EngineKind | null; model_id: string | null }
 export interface QuickNoteArgs { content: string; project_id: Uuid | null }
@@ -1218,6 +1237,8 @@ export interface IpcCommandMap {
   list_library: { args: LibraryFilter; result: ReusableAsset[] };
   relink_source_document: { args: RelinkArgs; result: SourceDocument };
   set_watched: { args: SetWatchedArgs; result: SourceDocument };
+  /** Watch / stop watching a project root (returns the new state). */
+  set_project_watched: { args: SetProjectWatchedArgs; result: boolean };
   promote_file_to_reusable: { args: PromoteFileRequest; result: Memory };
   get_telemetry_summary: { args: TelemetryRange; result: TelemetrySummary };
   query_telemetry: { args: TelemetryQuery; result: Page<TelemetryLog> };

@@ -213,6 +213,8 @@ pub struct CaptureSettings {
     pub session_handoffs: bool,
     /// Git `post-commit` hooks record each commit as a project memory.
     pub git_commits: bool,
+    /// Global pause: file watcher, auto-watch and hook re-indexing stop until resumed.
+    pub indexing_paused: bool,
 }
 
 impl Default for CaptureSettings {
@@ -221,6 +223,7 @@ impl Default for CaptureSettings {
             auto_watch_projects: true,
             session_handoffs: true,
             git_commits: true,
+            indexing_paused: false,
         }
     }
 }

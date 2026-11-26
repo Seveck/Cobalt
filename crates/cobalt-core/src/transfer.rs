@@ -34,6 +34,16 @@ fn default_true() -> bool {
     true
 }
 
+/// Non-terminal stages of `IngestProgress::stage`.
+pub const INGEST_STAGE_SCANNING: &str = "scanning";
+pub const INGEST_STAGE_READING: &str = "reading";
+pub const INGEST_STAGE_EMBEDDING: &str = "embedding";
+pub const INGEST_STAGE_SAVING: &str = "saving";
+/// Terminal stages: **every** job (UI-started, watcher, hooks) ends with exactly one of these.
+pub const INGEST_STAGE_COMPLETED: &str = "completed";
+pub const INGEST_STAGE_CANCELLED: &str = "cancelled";
+pub const INGEST_STAGE_FAILED: &str = "failed";
+
 /// Payload of `cobalt://ingest-progress`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IngestProgress {
@@ -41,7 +51,17 @@ pub struct IngestProgress {
     pub processed: u64,
     pub total: u64,
     pub current_path: Option<String>,
+    /// One of the `INGEST_STAGE_*` constants.
     pub stage: String,
+    /// `true` for jobs Cobalt starts by itself (file watcher, CLI hooks, auto-watch).
+    #[serde(default)]
+    pub background: bool,
+    /// Project the job belongs to, when known.
+    #[serde(default)]
+    pub project_id: Option<Id>,
+    /// Estimated seconds left (from the recent chunk throughput), when known.
+    #[serde(default)]
+    pub eta_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

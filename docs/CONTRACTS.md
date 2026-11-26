@@ -1,4 +1,8 @@
-# Cobalt — Frozen Contracts (v1.5.0)
+# Cobalt — Frozen Contracts (v1.6.0)
+
+> v1.6.0 (additive): every ingest job ends with a terminal stage (`completed|cancelled|failed`);
+> `IngestProgress.{background, project_id, eta_seconds}`; `CaptureSettings.indexing_paused`;
+> IPC `set_project_watched`.
 
 > v1.5.0 (additive): `AppSettings.user_display_name`, IPC `get_system_user_name`, layout
 > `project_islands` (each project as a separate flat island on a grid).

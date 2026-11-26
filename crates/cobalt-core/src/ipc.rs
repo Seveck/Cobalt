@@ -67,6 +67,7 @@ pub mod commands {
     pub const LIST_LIBRARY: &str = "list_library";
     pub const RELINK_SOURCE_DOCUMENT: &str = "relink_source_document";
     pub const SET_WATCHED: &str = "set_watched";
+    pub const SET_PROJECT_WATCHED: &str = "set_project_watched";
     pub const PROMOTE_FILE_TO_REUSABLE: &str = "promote_file_to_reusable";
     pub const GET_TELEMETRY_SUMMARY: &str = "get_telemetry_summary";
     pub const QUERY_TELEMETRY: &str = "query_telemetry";
@@ -216,4 +217,10 @@ pub struct McpToolDoc {
     pub name: String,
     pub default_description: String,
     pub override_description: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetProjectWatchedArgs {
+    pub project_id: Id,
+    pub watched: bool,
 }
