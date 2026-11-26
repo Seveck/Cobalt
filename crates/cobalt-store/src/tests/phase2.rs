@@ -1039,3 +1039,169 @@ async fn engine_swap_reuses_vectors_queues_writes_reembeds_and_rolls_back() {
             .is_encrypted
     );
 }
+
+#[tokio::test]
+async fn archive_similarity_and_usage_follow_phase_three_contract() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = calibrated_store(&dir).await;
+    let row = store
+        .save_memory(new_memory("original"))
+        .await
+        .unwrap()
+        .memory;
+    assert!(
+        store
+            .find_similar("semantic revision", None, 0.9)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let (matched, similarity) = store
+        .find_similar("semantic revision", None, 0.8)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(matched.id, row.id);
+    assert!((similarity - 0.8818).abs() < 0.001);
+
+    let item = ReturnedItem {
+        memory_id: row.id,
+        source_doc_id: None,
+        similarity_score: 1.0,
+        chunk_tokens: 4,
+        content_snapshot: Some(row.content.clone()),
+    };
+    for (client, operation, copies) in [
+        ("other", TelemetryOperation::Read, 2),
+        ("other", TelemetryOperation::Reuse, 1),
+        ("writer", TelemetryOperation::Write, 1),
+    ] {
+        store
+            .record_event(NewTelemetryEvent {
+                client_name: client.into(),
+                operation,
+                query_text: None,
+                returned_items: vec![item.clone(); copies],
+                injected_tokens: 0,
+                output_tokens_saved: 0,
+                latency_ms: 0,
+                project_id: None,
+            })
+            .await
+            .unwrap();
+    }
+    let usage = store.memory_usage_by_client(row.id).await.unwrap();
+    assert_eq!(usage.len(), 1);
+    assert_eq!(usage[0].client_name, "other");
+    assert_eq!(usage[0].uses, 2);
+    let archived = store
+        .archive_memory(row.id, "No longer applies")
+        .await
+        .unwrap();
+    assert_eq!(archived.status, MemoryStatus::Archived);
+    assert_eq!(
+        archived.version_reason.as_deref(),
+        Some("No longer applies")
+    );
+    assert!(
+        store
+            .find_similar("original", None, 0.9)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    store.restore_memories(&[row.id]).await.unwrap();
+    assert!(
+        store
+            .find_similar("original", None, 0.9)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    store
+        .patch_memory(
+            row.id,
+            MemoryPatch {
+                is_core_pin: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        store.archive_memory(row.id, "Obsolete").await,
+        Err(CobaltError::Conflict(_))
+    ));
+}
+
+#[cfg(feature = "lancedb")]
+#[tokio::test]
+async fn lancedb_swap_preserves_search_writes_and_reopens_published_generation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = calibrated_store(&dir).await;
+    let original = store
+        .save_memory(new_memory("original"))
+        .await
+        .unwrap()
+        .memory;
+    let spec = default_model_spec(HardwareTier::Eco);
+    let path = dir.path().join("local-lance");
+    let request = EngineSwapRequest {
+        target_engine: EngineKind::LanceDb,
+        target_model_id: spec.id,
+        external_endpoint: Some(path.to_str().unwrap().into()),
+    };
+    let report = store.swap_engine(request, Arc::new(|_| {})).await.unwrap();
+    assert_eq!((report.verified_count, report.reembedded), (1, 0));
+    assert_eq!(
+        store
+            .find_similar("original", None, 0.9)
+            .await
+            .unwrap()
+            .unwrap()
+            .0
+            .id,
+        original.id
+    );
+    let next = store
+        .save_memory(new_memory("unrelated"))
+        .await
+        .unwrap()
+        .memory;
+    assert_eq!(
+        store
+            .find_similar("unrelated", None, 0.9)
+            .await
+            .unwrap()
+            .unwrap()
+            .0
+            .id,
+        next.id
+    );
+    store.delete_memory(original.id).await.unwrap();
+    let mut spec = default_model_spec(HardwareTier::Eco);
+    spec.dimensions = 2;
+    drop(store);
+    let store = SqliteStore::open_at(dir.path().join("cobalt.db"))
+        .await
+        .unwrap()
+        .with_external_index(
+            path.to_str().unwrap(),
+            None,
+            Arc::new(CalibratedEmbedderMock(spec)),
+            Arc::new(TiktokenCounter::new(TokenEncoding::Cl100kBase)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .find_similar("unrelated", None, 0.9)
+            .await
+            .unwrap()
+            .unwrap()
+            .0
+            .id,
+        next.id
+    );
+    assert!(store.get_memory(original.id).await.unwrap().is_none());
+}

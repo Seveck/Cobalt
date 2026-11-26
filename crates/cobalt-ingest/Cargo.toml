@@ -9,6 +9,20 @@ publish.workspace = true
 
 [dependencies]
 cobalt-core.workspace = true
+cobalt-store = { path = "../cobalt-store" }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+hex = "0.4"
+sha2 = "0.11"
+lopdf = { version = "0.40", default-features = false }
+notify = "8"
+tempfile = "3"
+zip = { version = "9", default-features = false, features = ["deflate-flate2", "zstd"] }
+
+[dev-dependencies]
+cobalt-embeddings = { path = "../cobalt-embeddings" }
 
 [lints]
 workspace = true

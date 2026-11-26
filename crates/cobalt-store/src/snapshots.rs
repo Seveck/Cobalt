@@ -281,16 +281,27 @@ impl SnapshotRepository for SqliteStore {
                     },
                     |(_, vector)| vector.clone(),
                 );
-                let (stage, staged_db) = blocking(move || {
-                    let stage = StagedIndex::new(retrieval.index.clone(), &vectors, &probe)?;
+                let (stage, staged_db, retrieval) = blocking(move || {
+                    let stage =
+                        StagedIndex::new(retrieval.index.clone(), &vectors, &probe, &staged_db)?;
                     stage.populate(&staged_db, &retrieval, &vectors, &probe)?;
+                    let retrieval = stage.installed_retrieval((*retrieval).clone());
                     save_engine_settings(&staged_db, &retrieval)?;
-                    Ok((stage, staged_db))
+                    Ok((stage, staged_db, retrieval))
                 })
                 .await?;
+                let restored_store = store.clone();
                 store
                     .db
-                    .write_exclusive(move |conn| stage.commit(|| backup(&staged_db, conn)))
+                    .write_exclusive(move |conn| {
+                        let mut state = restored_store
+                            .retrieval
+                            .write()
+                            .map_err(|_| CobaltError::Internal("retrieval lock poisoned".into()))?;
+                        stage.commit(|| backup(&staged_db, conn))?;
+                        *state = Some(std::sync::Arc::new(retrieval));
+                        Ok(())
+                    })
                     .await?;
             } else {
                 store

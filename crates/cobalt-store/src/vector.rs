@@ -507,6 +507,8 @@ fn engine_error(err: impl std::fmt::Display) -> CobaltError {
 pub(crate) enum Index {
     SqliteVec(SqliteVec),
     Usearch(Usearch),
+    #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+    External(crate::ExternalVectorStore),
 }
 
 impl From<SqliteVec> for Index {
@@ -526,6 +528,8 @@ impl Index {
         match self {
             Self::SqliteVec(_) => EngineKind::SqliteVec,
             Self::Usearch(_) => EngineKind::Usearch,
+            #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+            Self::External(index) => index.kind(),
         }
     }
 
@@ -538,6 +542,8 @@ impl Index {
                 Ok(())
             }
             Self::Usearch(index) => index.edit(conn, &[], ids),
+            #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+            Self::External(index) => index.remove(ids),
         }
     }
 
@@ -565,6 +571,8 @@ impl Index {
                     })
                     .collect()
             }
+            #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+            Self::External(index) => index.vectors(ids),
             Self::Usearch(index) => {
                 let _lock = index.db.index_io().read().map_err(engine_error)?;
                 let view = index.open_index(true)?;
@@ -585,6 +593,8 @@ impl Index {
         match self {
             Self::SqliteVec(index) => index.dimensions,
             Self::Usearch(index) => index.dimensions,
+            #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+            Self::External(index) => index.dimensions(),
         }
     }
 
@@ -593,6 +603,8 @@ impl Index {
         match self {
             Self::SqliteVec(_) => SqliteVec::replace(conn, id, embedding),
             Self::Usearch(index) => index.edit(conn, &[(id, embedding)], &[]),
+            #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+            Self::External(index) => index.insert(conn, id, embedding),
         }
     }
 
@@ -610,6 +622,8 @@ impl Index {
         match self {
             Self::SqliteVec(_) => SqliteVec::scoped(conn, query, top_k, scope),
             Self::Usearch(index) => index.scoped(conn, query, top_k, scope),
+            #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+            Self::External(index) => index.scoped(conn, query, top_k, scope),
         }
     }
 }

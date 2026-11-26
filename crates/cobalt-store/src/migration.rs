@@ -6,11 +6,13 @@ use cobalt_core::engine::{EngineSwapProgress, EngineSwapReport, EngineSwapReques
 use cobalt_core::enums::{EngineKind, EngineSwapPhase};
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::{Id, new_id, now};
+#[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+use cobalt_core::traits::VectorStore;
 use cobalt_core::traits::{Embedder, EngineMigrator, ProgressSink};
 use cobalt_embeddings::{FastembedEmbedder, TiktokenCounter};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
-use crate::db::{blocking, sql_error};
+use crate::db::sql_error;
 use crate::memory::{
     add_semantic_edges, embed_memory, exact_match, project_embedding, required_memory,
     semantic_match,
@@ -90,6 +92,21 @@ pub(crate) fn edit_transaction<T>(
             Ok(result)
         });
     }
+    #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+    if let Some(retrieval) = retrieval
+        && let Index::External(target) = &retrieval.index
+    {
+        let staged = target.begin();
+        let shadow = Retrieval {
+            index: Index::External(staged.clone()),
+            ..retrieval.clone()
+        };
+        let result = edit(&tx, Some(&shadow))?;
+        return staged.commit(|| {
+            tx.commit().map_err(sql_error)?;
+            Ok(result)
+        });
+    }
     let result = edit(&tx, retrieval)?;
     tx.commit().map_err(sql_error)?;
     Ok(result)
@@ -154,11 +171,27 @@ pub(crate) async fn prepare_vectors(
 pub(crate) struct StagedIndex {
     index: Index,
     external: Option<(Usearch, Usearch, tempfile::TempDir)>,
+    #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+    generation: Option<crate::external::StagingGeneration>,
 }
 
 impl StagedIndex {
-    pub(crate) fn new(target: Index, vectors: &[(Id, Vec<f32>)], probe: &[f32]) -> Result<Self> {
+    pub(crate) fn new(
+        target: Index,
+        vectors: &[(Id, Vec<f32>)],
+        probe: &[f32],
+        _conn: &Connection,
+    ) -> Result<Self> {
         checked_vector(probe, target.dimensions())?;
+        #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+        if let Index::External(index) = &target {
+            let index = index.stage(_conn, vectors, probe)?;
+            return Ok(Self {
+                generation: Some(crate::external::StagingGeneration::new(index.clone())),
+                index: Index::External(index),
+                external: None,
+            });
+        }
         if let Index::Usearch(target) = target {
             let dir = tempfile::tempdir()?;
             let staged = target.with_file(dir.path().join("index.usearch"));
@@ -179,11 +212,15 @@ impl StagedIndex {
             Ok(Self {
                 index: staged.clone().into(),
                 external: Some((target, staged, dir)),
+                #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+                generation: None,
             })
         } else {
             Ok(Self {
                 index: target,
                 external: None,
+                #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+                generation: None,
             })
         }
     }
@@ -226,6 +263,11 @@ impl StagedIndex {
                 conn.execute("DROP TABLE IF EXISTS vec_memories", [])
                     .map_err(sql_error)?;
             }
+            #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+            Index::External(_) => {
+                conn.execute("DROP TABLE IF EXISTS vec_memories", [])
+                    .map_err(sql_error)?;
+            }
         }
         let mut positions = conn
             .prepare("UPDATE memories SET pos_x = ?2, pos_y = ?3, pos_z = ?4 WHERE id = ?1")
@@ -255,7 +297,23 @@ impl StagedIndex {
         Ok(())
     }
 
+    pub(crate) fn installed_retrieval(&self, mut retrieval: Retrieval) -> Retrieval {
+        #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+        if self.generation.is_some() {
+            retrieval.index = self.index.clone();
+        }
+        // Keep the configured USearch handle, which points to the published file.
+        let _ = &mut retrieval;
+        retrieval
+    }
+
     pub(crate) fn commit<T>(&self, work: impl FnOnce() -> Result<T>) -> Result<T> {
+        #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+        if let Some(generation) = &self.generation {
+            let result = work()?;
+            generation.publish();
+            return Ok(result);
+        }
         match &self.external {
             Some((target, staged, _)) => install_index(target, staged, work),
             None => work(),
@@ -281,6 +339,18 @@ pub(crate) fn save_engine_settings(conn: &Connection, retrieval: &Retrieval) -> 
     ] {
         conn.execute(UPSERT_CONFIG, params![key, value, updated])
             .map_err(sql_error)?;
+    }
+    #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+    if let Index::External(index) = &retrieval.index {
+        conn.execute(
+            UPSERT_CONFIG,
+            params![
+                "external_vector_generation",
+                serde_json::to_string(index.name())?,
+                updated,
+            ],
+        )
+        .map_err(sql_error)?;
     }
     Ok(())
 }
@@ -312,7 +382,7 @@ impl EngineMigrator for SqliteStore {
         req: EngineSwapRequest,
         progress: ProgressSink<EngineSwapProgress>,
     ) -> Result<EngineSwapReport> {
-        self.run_swap(req, None, progress).await
+        self.run_swap(req, None, None, progress).await
     }
 }
 
@@ -324,13 +394,81 @@ impl SqliteStore {
         embedder: Arc<dyn Embedder>,
         progress: ProgressSink<EngineSwapProgress>,
     ) -> Result<EngineSwapReport> {
-        self.run_swap(req, Some(embedder), progress).await
+        self.run_swap(req, Some(embedder), None, progress).await
+    }
+
+    /// Switch to an external endpoint using a runtime credential provided by the engine manager.
+    #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+    pub async fn swap_engine_with_api_key(
+        &self,
+        req: EngineSwapRequest,
+        embedder: Option<Arc<dyn Embedder>>,
+        api_key: String,
+        progress: ProgressSink<EngineSwapProgress>,
+    ) -> Result<EngineSwapReport> {
+        self.run_swap(req, embedder, Some(api_key), progress).await
+    }
+
+    /// Reattaches the published generation after restarting the daemon.
+    #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+    pub async fn with_external_index(
+        self,
+        endpoint: &str,
+        api_key: Option<&str>,
+        embedder: Arc<dyn Embedder>,
+        tokens: Arc<dyn cobalt_core::traits::TokenCounter>,
+    ) -> Result<Self> {
+        use cobalt_core::traits::ConfigRepository;
+        let _gate = self.engine_gate.clone().write_owned().await;
+        let settings = self.load_settings().await?;
+        let name = self
+            .get_raw("external_vector_generation")
+            .await?
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .ok_or_else(|| engine_error("no published external vector generation"))?;
+        if settings.embedding_model_id != embedder.spec().id {
+            return Err(engine_error(
+                "configured embedding model does not match external generation",
+            ));
+        }
+        let index = crate::ExternalVectorStore::open(
+            settings.vector_engine,
+            endpoint,
+            &name,
+            embedder.spec().dimensions as usize,
+            api_key,
+        )
+        .await?;
+        index.health_check().await?;
+        let expected = self
+            .db
+            .read(|conn| {
+                conn.query_row(
+                    "SELECT count(*) FROM memories WHERE is_encrypted = 0",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(sql_error)
+            })
+            .await?;
+        if index.count().await? != expected as u64 {
+            return Err(engine_error(
+                "external index count differs from SQLite; rebuild the index",
+            ));
+        }
+        self.set_retrieval(Retrieval {
+            index: Index::External(index),
+            embedder,
+            tokens,
+        })?;
+        Ok(self)
     }
 
     async fn run_swap(
         &self,
         req: EngineSwapRequest,
         embedder: Option<Arc<dyn Embedder>>,
+        api_key: Option<String>,
         callback: ProgressSink<EngineSwapProgress>,
     ) -> Result<EngineSwapReport> {
         let store = self.clone();
@@ -347,7 +485,7 @@ impl SqliteStore {
             let maintenance = store.db.maintenance().await;
             progress.emit(&store, EngineSwapPhase::QueueingWrites, None);
             let result = store
-                .stage_swap(req, embedder, &mut progress, started_at)
+                .stage_swap(req, embedder, api_key, &mut progress, started_at)
                 .await;
             match &result {
                 Ok(_) => progress.emit(&store, EngineSwapPhase::Draining, None),
@@ -378,6 +516,7 @@ impl SqliteStore {
         &self,
         req: EngineSwapRequest,
         embedder: Option<Arc<dyn Embedder>>,
+        api_key: Option<String>,
         progress: &mut SwapProgress,
         started_at: cobalt_core::ids::Timestamp,
     ) -> Result<EngineSwapReport> {
@@ -399,6 +538,8 @@ impl SqliteStore {
             ));
         }
         let dims = embedder.spec().dimensions as usize;
+        #[cfg(not(any(feature = "qdrant", feature = "chroma", feature = "lancedb")))]
+        let _ = api_key;
         let index: Index = match req.target_engine {
             EngineKind::SqliteVec => SqliteVec::handle(self, dims).into(),
             EngineKind::Usearch => Usearch::handle(
@@ -408,6 +549,25 @@ impl SqliteStore {
                 dims,
             )?
             .into(),
+            #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+            engine => {
+                let endpoint = req.external_endpoint.as_deref().ok_or_else(|| {
+                    CobaltError::InvalidInput(format!(
+                        "an external endpoint or local path is required for {engine}"
+                    ))
+                })?;
+                Index::External(
+                    crate::ExternalVectorStore::open(
+                        engine,
+                        endpoint,
+                        &format!("cobalt-bootstrap-{dims}"),
+                        dims,
+                        api_key.as_deref(),
+                    )
+                    .await?,
+                )
+            }
+            #[cfg(not(any(feature = "qdrant", feature = "chroma", feature = "lancedb")))]
             engine => {
                 return Err(engine_error(format!(
                     "no {engine} vector adapter is installed"
@@ -458,14 +618,16 @@ impl SqliteStore {
         let verified_count = vectors.len() as u64;
         progress.emit(self, EngineSwapPhase::Verifying, None);
         let stage_index = target.index.clone();
-        let (stage, vectors, probe) = blocking(move || {
-            Ok((
-                StagedIndex::new(stage_index, &vectors, &probe)?,
-                vectors,
-                probe,
-            ))
-        })
-        .await?;
+        let (stage, vectors, probe) = self
+            .db
+            .read(move |conn| {
+                Ok((
+                    StagedIndex::new(stage_index, &vectors, &probe, conn)?,
+                    vectors,
+                    probe,
+                ))
+            })
+            .await?;
         let from_engine = current
             .as_ref()
             .map_or(settings.vector_engine, |current| current.index.kind());
@@ -495,6 +657,7 @@ impl SqliteStore {
             .write_exclusive(move |conn| {
                 let tx = conn.transaction().map_err(sql_error)?;
                 stage.populate(&tx, &target, &vectors, &probe)?;
+                let target = stage.installed_retrieval(target);
                 save_engine_settings(&tx, &target)?;
                 on_swapping(EngineSwapProgress {
                     queued_writes: store.queued_writes(),

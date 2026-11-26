@@ -7,6 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+qdrant = ["dep:reqwest"]
+chroma = ["dep:reqwest"]
+lancedb = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema", "dep:futures-util"]
+
 [dependencies]
 cobalt-core.workspace = true
 cobalt-embeddings = { path = "../cobalt-embeddings" }
@@ -21,6 +26,12 @@ sqlite-vec = "0.1.9"
 tempfile = "3"
 tokio.workspace = true
 usearch = { version = "2.26", default-features = false }
+
+reqwest = { version = "0.13", optional = true, default-features = false, features = ["json", "rustls"] }
+lancedb = { version = "0.30", optional = true, default-features = false }
+arrow-array = { version = "58", optional = true }
+arrow-schema = { version = "58", optional = true }
+futures-util = { version = "0.3", optional = true }
 
 [lints]
 workspace = true
