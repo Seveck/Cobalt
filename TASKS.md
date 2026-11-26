@@ -76,6 +76,13 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [ ] [CLAUDE] **Limpieza total de datos de ejemplo (obligatorio antes de v1.0):** eliminar `src/lib/backendMock.ts`, el grafo simulado (~300 nodos), proyectos/telemetría/temas ficticios y el badge MOCK; verificar que una instalación nueva arranca con el cerebro vacío (0 memorias, 0 proyectos) y sin datos precargados
 - [ ] [CLAUDE] E2E completo, empaquetado `.AppImage/.deb/.rpm`, `.msi/.exe`, `.dmg`, `README.md`, reporte v1.0
 
+## Propuestas pendientes de decisión (auditoría de problemáticas, 2026-11-25)
+- [ ] Búsqueda que sigue el grafo (vecinos a 1 salto) + arista `depends_on` (punto 5)
+- [ ] Detector de contradicciones al guardar (`possible_conflicts`) y sección "Contradicciones" en Limpiar Cerebro (punto 6)
+- [ ] Defensa contra inyección de instrucciones: memorias entregadas como datos + cuarentena heurística al guardar/importar (punto 8a)
+- [ ] Permisos por agente (lectura / escritura / sin acceso) en Conectores (punto 8b)
+- [ ] Ahorro en dinero (precio por modelo configurable) y tiempo estimado en el dashboard (punto 9)
+
 ## Mocks activos
 - `src/lib/backendMock.ts` [GEMINI]: dentro de Tauri sirve solo comandos de Fases 2/3 aún no entregados (`get_graph`, `list_branches`, `list_library`, `get_telemetry_summary`, `list_connectors`, `list_installed_themes`, `get_theme_manifest`, `get_read_only`, `set_read_only`, `get_daemon_status`) con badge **MOCK** visible; fuera de Tauri sirve todo (vista previa en navegador). Se retira en Fases 2–3.
 
