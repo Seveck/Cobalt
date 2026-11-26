@@ -1,12 +1,14 @@
 import { useTranslation } from "react-i18next";
+import { isTauri } from "@/lib/ipc";
 
 interface MockBadgeProps {
   className?: string;
 }
 
-/** Small dev badge displayed whenever data or backend calls are served by `backendMock`. */
+/** Browser-preview only badge; never rendered inside Tauri. */
 export function MockBadge({ className = "" }: MockBadgeProps) {
   const { t } = useTranslation();
+  if (isTauri()) return null;
   return (
     <span
       title={t("shell.mockTooltip")}

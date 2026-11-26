@@ -7,6 +7,7 @@ export type NavSection =
   | "library"
   | "telemetry"
   | "connectors"
+  | "tools"
   | "store"
   | "settings";
 
