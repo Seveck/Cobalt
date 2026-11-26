@@ -274,6 +274,7 @@ pub fn run() {
             commands_admin::submit_quick_note,
             commands_ingest::ingest_paths,
             commands_ingest::cancel_ingest,
+            commands_ingest::set_project_watched,
             commands_ingest::import_past_life,
             commands_ingest::promote_file_to_reusable,
             commands_ingest::export_capsule,

@@ -15,11 +15,24 @@ use cobalt_core::transfer::{
     CapsuleManifest, ImportReport, IngestProgress, IngestReport, IngestRequest,
     PastLifeImportRequest, PromoteFileRequest,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::AppState;
 
 type CmdResult<T> = Result<T, CobaltError>;
+
+/// Progress of jobs Cobalt starts by itself (hooks, auto-watch): flagged as background.
+fn background_sink(
+    app: &AppHandle,
+    project_id: Option<cobalt_core::Id>,
+) -> ProgressSink<IngestProgress> {
+    let app = app.clone();
+    Arc::new(move |mut p: IngestProgress| {
+        p.background = true;
+        p.project_id = p.project_id.or(project_id);
+        let _ = app.emit(EVENT_INGEST_PROGRESS, &p);
+    })
+}
 
 fn progress_sink(app: &AppHandle) -> ProgressSink<IngestProgress> {
     let app = app.clone();
@@ -209,9 +222,19 @@ pub async fn auto_watch_project(
     state: &AppState,
     project: &cobalt_core::model::Project,
 ) -> CmdResult<()> {
-    if !state.config.get().capture.auto_watch_projects {
+    let capture = state.config.get().capture;
+    if !capture.auto_watch_projects || capture.indexing_paused {
         return Ok(());
     }
+    watch_project_root(app, state, project).await
+}
+
+/// Indexes and watches a project root unless it is already watched.
+pub async fn watch_project_root(
+    app: &AppHandle,
+    state: &AppState,
+    project: &cobalt_core::model::Project,
+) -> CmdResult<()> {
     let Some(root) = project.root_path.clone() else {
         return Ok(());
     };
@@ -238,4 +261,45 @@ pub async fn auto_watch_project(
     }
     bulk_changed(state, "cobalt-capture");
     Ok(())
+}
+
+/// Starts or stops watching a project root (Tools > Projects switch).
+#[tauri::command]
+pub async fn set_project_watched(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: cobalt_core::ipc::SetProjectWatchedArgs,
+) -> CmdResult<bool> {
+    let project = state
+        .store()
+        .get_project(args.project_id)
+        .await?
+        .ok_or_else(|| CobaltError::NotFound(format!("project {}", args.project_id)))?;
+    let root = project
+        .root_path
+        .clone()
+        .ok_or_else(|| CobaltError::InvalidInput("the project has no root folder".into()))?;
+    let doc = state.store().find_source_document_by_path(&root).await?;
+    if args.watched {
+        match doc {
+            Some(d) if d.is_watched => {}
+            Some(d) => {
+                state.store().set_watched(d.id, true).await?;
+            }
+            None => {
+                // First time: index it in the background and keep it watched.
+                let app2 = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = app2.state::<AppState>();
+                    if let Err(err) = watch_project_root(&app2, &state, &project).await {
+                        tracing::warn!(%err, "project indexing failed");
+                    }
+                });
+            }
+        }
+    } else if let Some(d) = doc {
+        state.store().set_watched(d.id, false).await?;
+    }
+    state.restart_watcher().await;
+    Ok(args.watched)
 }

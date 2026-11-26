@@ -58,6 +58,10 @@ pub async fn update_settings(
     if saved.read_only != state.daemon.is_read_only() {
         state.daemon.set_read_only(saved.read_only).await?;
     }
+    if saved.capture.indexing_paused != previous.capture.indexing_paused {
+        // Global pause: stop or resume the watcher right away.
+        state.restart_watcher().await;
+    }
     if saved.shortcuts != previous.shortcuts {
         crate::desktop::register_shortcuts(&app, &saved);
     }
@@ -224,9 +228,9 @@ fn system_user_name() -> Option<String> {
                 .map(|l| l.split(':').collect::<Vec<_>>())
                 .find(|f| f.first() == Some(&user.as_str()))
                 .and_then(|f| f.get(4).and_then(|g| clean(g)))
-            {
-                return Some(gecos);
-            }
+        {
+            return Some(gecos);
+        }
     }
     #[cfg(windows)]
     if let Ok(out) = std::process::Command::new("powershell")
