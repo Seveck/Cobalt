@@ -81,6 +81,19 @@
   },
   "onboarding": {
     "badge": "First-run setup",
+    "stepsLabel": "Setup steps",
+    "hardwareStepLabel": "Hardware & engine",
+    "nameStep": {
+      "stepLabel": "Your name",
+      "title": "What's your name?",
+      "subtitle": "Cobalt uses your name for a calm welcome greeting when you open the app. It's optional and stays only on this computer.",
+      "inputLabel": "Display name (optional)",
+      "placeholder": "e.g. Alex Rivera",
+      "previewWithName": "Cobalt will greet you as \"Hello, {{name}}\".",
+      "optionalHint": "Optional — leave blank if you prefer a greeting without a name.",
+      "skip": "Skip",
+      "continue": "Continue"
+    },
     "title": "Prepare your local second brain",
     "headline": "We detected {{ram}} GB of RAM and {{cores}} cores. We recommend {{tier}} Mode…",
     "detectedHardware": "Detected hardware",
@@ -165,7 +178,8 @@
       "brain": "Brain",
       "neural_net": "Neural Net",
       "knowledge_tree": "Tree",
-      "project_clusters": "Clusters",
+      "project_clusters": "Projects (spheres)",
+      "project_islands": "Project islands",
       "custom_mesh": "Custom"
     },
     "clusterMetric": {
@@ -379,6 +393,10 @@
     "title": "Settings",
     "subtitle": "Configure language, hardware profile, vector engine and embedding model.",
     "generalTitle": "General",
+    "displayNameLabel": "Your name",
+    "displayNameHint": "Used for the welcome greeting when you open Cobalt. Leave blank to hide it.",
+    "displayNamePlaceholder": "Optional…",
+    "saveName": "Save",
     "languageLabel": "Interface language",
     "languageHint": "Persisted immediately to local configuration.",
     "proModeTitle": "Pro Mode",
@@ -811,6 +829,43 @@
     "placeholder": "Type a thought, reminder or rule and press Enter…",
     "hint": "Enter to save · Esc to close",
     "saved": "Saved to Cobalt"
+  },
+  "welcome": {
+    "ariaLabel": "Welcome summary",
+    "period": {
+      "morning": "Good morning",
+      "afternoon": "Good afternoon",
+      "evening": "Good evening"
+    },
+    "greetingWithName": "Hello, {{name}}",
+    "greetingNoName": "Hello",
+    "brainFact": "{{memories}} memories in your brain · {{projects}} projects",
+    "tokensFact": "{{total}} tokens saved ({{today}} today)",
+    "noAisConnected": "No AIs connected right now",
+    "oneAiConnected": "1 AI connected now ({{name}})",
+    "manyAisConnected": "{{count}} AIs connected now ({{names}})",
+    "noRecentActivity": "No recent AI activity yet",
+    "openTelemetry": "View savings & activity",
+    "timeAgo": {
+      "justNow": "just now",
+      "minutes": "{{count}} min ago",
+      "hours": "{{count}} h ago",
+      "days": "{{count}} d ago"
+    },
+    "activity": {
+      "read": "{{client}} checked your memory {{ago}}",
+      "readInProject": "{{client}} checked {{project}} {{ago}}",
+      "write": "{{client}} saved something {{ago}}",
+      "writeInProject": "{{client}} saved something in {{project}} {{ago}}",
+      "update": "{{client}} updated a memory {{ago}}",
+      "updateInProject": "{{client}} updated something in {{project}} {{ago}}",
+      "reuse": "{{client}} reused a saved item {{ago}}",
+      "reuseInProject": "{{client}} reused an item from {{project}} {{ago}}",
+      "handoff": "{{client}} saved a session handoff {{ago}}",
+      "handoffInProject": "{{client}} saved a handoff in {{project}} {{ago}}",
+      "blocked_firewall": "Cobalt paused a large write from {{client}} {{ago}}",
+      "blocked_firewallInProject": "Cobalt paused a large write from {{client}} in {{project}} {{ago}}"
+    }
   },
   "ingest": {
     "regionLabel": "Import activity",

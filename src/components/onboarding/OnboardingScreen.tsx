@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
+  ArrowRight,
   Check,
   Cpu,
   Download,
@@ -9,11 +10,13 @@ import {
   Layers,
   Monitor,
   SlidersHorizontal,
+  User,
 } from "lucide-react";
 import { SUPPORTED_LANGUAGES } from "@/i18n";
-import { isCommandMocked } from "@/lib/backend";
+import { backendCall, isCommandMocked } from "@/lib/backend";
 import {
   estimateDownloadBytes,
+  extractFirstName,
   formatBytes,
   formatRamGb,
   isEngineModelInstalled,
@@ -32,9 +35,12 @@ import {
 import { DownloadProgressBar } from "./DownloadProgressBar";
 import { HardwareConfigForm } from "./HardwareConfigForm";
 
+type OnboardingStep = "name" | "hardware";
+
 export function OnboardingScreen() {
   const { t, i18n } = useTranslation();
   const langLabelId = useId();
+  const nameInputId = useId();
   const profile = useHardwareStore((s) => s.profile);
   const models = useHardwareStore((s) => s.models);
   const engineStatus = useHardwareStore((s) => s.engineStatus);
@@ -60,6 +66,10 @@ export function OnboardingScreen() {
 
   const canGoBack = settings.onboarding_completed && showOnboardingOverride;
 
+  const [step, setStep] = useState<OnboardingStep>("name");
+  const [displayName, setDisplayName] = useState<string>(settings.user_display_name ?? "");
+  const nameEditedRef = useRef(false);
+
   const [customizing, setCustomizing] = useState(false);
   const [selectedTier, setSelectedTier] = useState<HardwareTier>(
     () => profile?.recommendation.tier ?? settings.hardware_tier,
@@ -72,6 +82,31 @@ export function OnboardingScreen() {
   );
   const [proMode, setProMode] = useState(settings.pro_mode);
   const selectionSyncedRef = useRef(profile !== null);
+
+  useEffect(() => {
+    const savedName = settings.user_display_name?.trim() ?? "";
+    if (savedName.length > 0) {
+      if (!nameEditedRef.current) {
+        setDisplayName(savedName);
+      }
+      return;
+    }
+    let cancelled = false;
+    void backendCall("get_system_user_name")
+      .then((sysName) => {
+        if (cancelled || nameEditedRef.current) return;
+        const trimmed = sysName?.trim() ?? "";
+        if (trimmed.length > 0) {
+          setDisplayName(trimmed);
+        }
+      })
+      .catch(() => {
+        // Optional OS account lookup; silently ignore failures.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.user_display_name]);
 
   useEffect(() => {
     if (!profile || selectionSyncedRef.current) return;
@@ -155,6 +190,20 @@ export function OnboardingScreen() {
     defaultValue: t("onboarding.reason.default"),
   });
 
+  const normalizedDisplayName = displayName.trim() || null;
+  const firstNamePreview = extractFirstName(normalizedDisplayName);
+
+  const handleNameStepSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    setStep("hardware");
+  };
+
+  const handleSkipName = () => {
+    nameEditedRef.current = true;
+    setDisplayName("");
+    setStep("hardware");
+  };
+
   const handlePrimaryAction = async (
     tierToApply: HardwareTier,
     engineToApply: EngineKind,
@@ -164,6 +213,7 @@ export function OnboardingScreen() {
     if (isAlreadyInstalled) {
       await patchSettings({
         onboarding_completed: true,
+        user_display_name: normalizedDisplayName,
         hardware_tier: tierToApply,
         vector_engine: engineToApply,
         embedding_model_id: modelToApply,
@@ -180,6 +230,7 @@ export function OnboardingScreen() {
     if (result) {
       await patchSettings({
         onboarding_completed: true,
+        user_display_name: normalizedDisplayName,
         hardware_tier: tierToApply,
         vector_engine: engineToApply,
         embedding_model_id: modelToApply,
@@ -250,216 +301,344 @@ export function OnboardingScreen() {
           </div>
         </header>
 
-        {/* Editorial title & detected hardware spec sheet */}
-        <section className="border-b border-rule px-6 py-6">
-          <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
-            {t("onboarding.title")}
-          </h1>
-
-          {profile && (
-            <>
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-bone sm:text-base">
-                {t("onboarding.headline", {
-                  ram: formatRamGb(profile.total_ram_bytes),
-                  cores: profile.logical_cores,
-                  tier: t(`tiers.${recommendedTier}`),
-                })}
-              </p>
-              <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-bone-muted sm:text-sm">
-                {translatedReason}
-              </p>
-
-              {/* Hairline-divided hardware spec strip */}
-              <div className="mt-6">
-                <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
-                  01 — {t("onboarding.detectedHardware")}
-                </div>
-                <div className="grid grid-cols-1 divide-y divide-rule border border-rule bg-void sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-                  <div className="p-3.5">
-                    <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-                      <Cpu size={12} className="text-cobalt-ink" aria-hidden />
-                      {t("onboarding.cpu")}
-                    </div>
-                    <div className="mt-1.5 truncate text-xs font-medium text-bone">
-                      {profile.cpu_brand}
-                    </div>
-                    <div className="mt-0.5 font-mono text-[11px] tabular-nums text-bone-muted">
-                      {profile.physical_cores !== null
-                        ? t("onboarding.coresWithPhysical", {
-                            physical: profile.physical_cores,
-                            logical: profile.logical_cores,
-                          })
-                        : t("onboarding.cores", { count: profile.logical_cores })}
-                    </div>
-                  </div>
-
-                  <div className="p-3.5">
-                    <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-                      <HardDrive size={12} className="text-cobalt-ink" aria-hidden />
-                      {t("onboarding.ram")}
-                    </div>
-                    <div className="mt-1.5 font-mono text-xs font-medium tabular-nums text-bone">
-                      {formatRamGb(profile.total_ram_bytes)} GB
-                    </div>
-                    <div className="mt-0.5 text-[11px] tabular-nums text-bone-muted">
-                      {t("onboarding.ramAvailable", {
-                        available: formatRamGb(profile.available_ram_bytes),
-                        total: formatRamGb(profile.total_ram_bytes),
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="p-3.5">
-                    <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-                      <Monitor size={12} className="text-cobalt-ink" aria-hidden />
-                      {t("onboarding.gpu")}
-                    </div>
-                    <div className="mt-1.5 truncate text-xs font-medium text-bone">
-                      {primaryGpu ? primaryGpu.name : t("onboarding.noGpu")}
-                    </div>
-                    <div className="mt-0.5 font-mono text-[11px] text-bone-muted">
-                      {profile.os} / {profile.arch}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </section>
-
-        {/* Recommended stack ledger OR custom configuration */}
-        <section className="border-b border-rule px-6 py-5">
-          {!customizing ? (
-            <div>
-              <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
-                02 — {t("onboarding.recommendedStack")}
-              </div>
-              <div className="grid grid-cols-1 divide-y divide-rule border border-rule bg-void sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-                <div className="p-3.5">
-                  <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-                    {t("onboarding.tier")}
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-1.5 text-sm font-semibold text-cobalt-ink">
-                    <Layers size={14} aria-hidden />
-                    {t(`tiers.${recommendedTier}`)}
-                  </div>
-                </div>
-                <div className="p-3.5">
-                  <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-                    {t("onboarding.engine")}
-                  </div>
-                  <div className="mt-1.5 text-sm font-medium text-bone">
-                    {t(`engines.${recommendedEngine}`)}
-                  </div>
-                </div>
-                <div className="p-3.5">
-                  <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-                    {t("onboarding.model")}
-                  </div>
-                  <div className="mt-1.5 truncate font-mono text-xs font-medium text-bone">
-                    {recommendedModel}
-                  </div>
-                </div>
-                <div className="p-3.5">
-                  <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-                    {t("onboarding.downloadSize")}
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-1.5 font-mono text-sm font-semibold tabular-nums text-verdigris">
-                    {isAlreadyInstalled ? (
-                      <>
-                        <Check size={14} className="shrink-0" aria-hidden />
-                        <span>{t("onboarding.alreadyInstalled")}</span>
-                      </>
-                    ) : (
-                      formatBytes(exactDownloadBytes)
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <HardwareConfigForm
-              tier={selectedTier}
-              engine={selectedEngine}
-              modelId={selectedModelId}
-              proMode={proMode}
-              models={models}
-              profile={profile}
-              engineStatus={engineStatus}
-              disabled={isInstalling || saving}
-              onTierChange={setSelectedTier}
-              onEngineChange={setSelectedEngine}
-              onModelChange={setSelectedModelId}
-              onProModeChange={setProMode}
-            />
-          )}
-        </section>
-
-        {/* Live download progress */}
-        {(downloadProgress || isInstalling || error) && (
-          <div className="border-b border-rule bg-void px-6 py-4">
-            <DownloadProgressBar
-              progress={downloadProgress}
-              isInstalling={isInstalling}
-              isCancelling={isCancelling}
-              error={error}
-              onCancel={() => void cancelDownload()}
-            />
-          </div>
-        )}
-
-        {/* Primary action footer */}
-        <footer className="flex flex-wrap items-center justify-between gap-3 bg-surface-2 px-6 py-4">
+        {/* Step progress strip */}
+        <nav
+          aria-label={t("onboarding.stepsLabel")}
+          className="flex items-center gap-2 border-b border-rule bg-surface-2/60 px-6 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em]"
+        >
           <button
             type="button"
             disabled={isInstalling || saving}
-            onClick={() => setCustomizing((v) => !v)}
-            className="inline-flex items-center gap-2 rounded-[2px] border border-rule-strong bg-surface px-4 py-2 text-xs font-medium text-bone transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
+            onClick={() => setStep("name")}
+            className={`inline-flex items-center gap-1.5 transition-colors disabled:opacity-60 ${
+              step === "name" ? "font-semibold text-cobalt-ink" : "text-bone-muted hover:text-bone"
+            }`}
           >
-            <SlidersHorizontal size={14} aria-hidden />
-            {customizing ? t("onboarding.hideCustomize") : t("onboarding.customize")}
+            <span
+              className={`inline-flex h-4 w-4 items-center justify-center rounded-[2px] border text-[9px] ${
+                step === "name"
+                  ? "border-cobalt-rule bg-cobalt-wash text-cobalt-ink"
+                  : "border-verdigris-rule bg-verdigris-wash text-verdigris"
+              }`}
+            >
+              {step === "hardware" ? <Check size={9} aria-hidden /> : "1"}
+            </span>
+            <span>{t("onboarding.nameStep.stepLabel")}</span>
           </button>
+
+          <span className="h-px w-6 bg-rule-strong" aria-hidden />
 
           <button
             type="button"
-            disabled={isInstalling || saving || !profile}
-            onClick={() => void handlePrimaryAction(activeTier, activeEngine, activeModel)}
-            className="inline-flex items-center gap-2 rounded-[2px] border border-cobalt-rule bg-cobalt px-5 py-2 text-xs font-semibold tracking-wide text-bone transition-colors hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
+            disabled={isInstalling || saving}
+            onClick={() => setStep("hardware")}
+            className={`inline-flex items-center gap-1.5 transition-colors disabled:opacity-60 ${
+              step === "hardware"
+                ? "font-semibold text-cobalt-ink"
+                : "text-bone-subtle hover:text-bone"
+            }`}
           >
-            {isInstalling ? (
-              <>
-                <Download size={14} aria-hidden />
-                {t("onboarding.installing")}
-              </>
-            ) : isAlreadyInstalled ? (
-              <>
-                <Check size={14} aria-hidden />
-                <span>{t("onboarding.apply")}</span>
-              </>
-            ) : error ? (
-              <>
-                <Download size={14} aria-hidden />
-                {t("onboarding.retry")}
-              </>
-            ) : customizing ? (
-              <>
-                <Check size={14} aria-hidden />
-                <span>{t("onboarding.installCustom")}</span>
-                <span className="font-mono tabular-nums opacity-85">
-                  ({formatBytes(exactDownloadBytes)})
-                </span>
-              </>
-            ) : (
-              <>
-                <Download size={14} aria-hidden />
-                <span>{t("onboarding.acceptAndInstall")}</span>
-                <span className="font-mono tabular-nums opacity-85">
-                  ({formatBytes(exactDownloadBytes)})
-                </span>
-              </>
-            )}
+            <span
+              className={`inline-flex h-4 w-4 items-center justify-center rounded-[2px] border text-[9px] ${
+                step === "hardware"
+                  ? "border-cobalt-rule bg-cobalt-wash text-cobalt-ink"
+                  : "border-rule bg-void text-bone-subtle"
+              }`}
+            >
+              2
+            </span>
+            <span>{t("onboarding.hardwareStepLabel")}</span>
           </button>
-        </footer>
+        </nav>
+
+        {step === "name" ? (
+          <form onSubmit={handleNameStepSubmit}>
+            <section className="border-b border-rule px-6 py-8 sm:py-10">
+              <div className="max-w-xl">
+                <div className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cobalt-ink">
+                  <User size={12} aria-hidden />
+                  <span>01 — {t("onboarding.nameStep.stepLabel")}</span>
+                </div>
+
+                <h1 className="mt-2 font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+                  {t("onboarding.nameStep.title")}
+                </h1>
+                <p className="mt-2.5 text-sm leading-relaxed text-bone-muted">
+                  {t("onboarding.nameStep.subtitle")}
+                </p>
+
+                <div className="mt-6">
+                  <label
+                    htmlFor={nameInputId}
+                    className="block font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle"
+                  >
+                    {t("onboarding.nameStep.inputLabel")}
+                  </label>
+                  <input
+                    id={nameInputId}
+                    type="text"
+                    autoFocus
+                    maxLength={80}
+                    value={displayName}
+                    onChange={(e) => {
+                      nameEditedRef.current = true;
+                      setDisplayName(e.target.value);
+                    }}
+                    placeholder={t("onboarding.nameStep.placeholder")}
+                    className="mt-2 h-11 w-full rounded-[2px] border border-rule-strong bg-void px-3.5 text-base text-bone placeholder:text-bone-subtle focus:border-cobalt-ink focus:outline-none"
+                  />
+                  <p className="mt-2 text-xs text-bone-subtle">
+                    {firstNamePreview
+                      ? t("onboarding.nameStep.previewWithName", { name: firstNamePreview })
+                      : t("onboarding.nameStep.optionalHint")}
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <footer className="flex flex-wrap items-center justify-between gap-3 bg-surface-2 px-6 py-4">
+              <button
+                type="button"
+                onClick={handleSkipName}
+                className="inline-flex items-center gap-2 rounded-[2px] border border-rule-strong bg-surface px-4 py-2 text-xs font-medium text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 hover:text-bone focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
+              >
+                {t("onboarding.nameStep.skip")}
+              </button>
+
+              <button
+                type="submit"
+                className="inline-flex items-center gap-2 rounded-[2px] border border-cobalt-rule bg-cobalt px-5 py-2 text-xs font-semibold tracking-wide text-bone transition-colors hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
+              >
+                <span>{t("onboarding.nameStep.continue")}</span>
+                <ArrowRight size={14} aria-hidden />
+              </button>
+            </footer>
+          </form>
+        ) : (
+          <>
+            {/* Editorial title & detected hardware spec sheet */}
+            <section className="border-b border-rule px-6 py-6">
+              <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+                {t("onboarding.title")}
+              </h1>
+
+              {profile && (
+                <>
+                  <p className="mt-3 max-w-2xl text-sm leading-relaxed text-bone sm:text-base">
+                    {t("onboarding.headline", {
+                      ram: formatRamGb(profile.total_ram_bytes),
+                      cores: profile.logical_cores,
+                      tier: t(`tiers.${recommendedTier}`),
+                    })}
+                  </p>
+                  <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-bone-muted sm:text-sm">
+                    {translatedReason}
+                  </p>
+
+                  {/* Hairline-divided hardware spec strip */}
+                  <div className="mt-6">
+                    <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
+                      01 — {t("onboarding.detectedHardware")}
+                    </div>
+                    <div className="grid grid-cols-1 divide-y divide-rule border border-rule bg-void sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                      <div className="p-3.5">
+                        <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                          <Cpu size={12} className="text-cobalt-ink" aria-hidden />
+                          {t("onboarding.cpu")}
+                        </div>
+                        <div className="mt-1.5 truncate text-xs font-medium text-bone">
+                          {profile.cpu_brand}
+                        </div>
+                        <div className="mt-0.5 font-mono text-[11px] tabular-nums text-bone-muted">
+                          {profile.physical_cores !== null
+                            ? t("onboarding.coresWithPhysical", {
+                                physical: profile.physical_cores,
+                                logical: profile.logical_cores,
+                              })
+                            : t("onboarding.cores", { count: profile.logical_cores })}
+                        </div>
+                      </div>
+
+                      <div className="p-3.5">
+                        <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                          <HardDrive size={12} className="text-cobalt-ink" aria-hidden />
+                          {t("onboarding.ram")}
+                        </div>
+                        <div className="mt-1.5 font-mono text-xs font-medium tabular-nums text-bone">
+                          {formatRamGb(profile.total_ram_bytes)} GB
+                        </div>
+                        <div className="mt-0.5 text-[11px] tabular-nums text-bone-muted">
+                          {t("onboarding.ramAvailable", {
+                            available: formatRamGb(profile.available_ram_bytes),
+                            total: formatRamGb(profile.total_ram_bytes),
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="p-3.5">
+                        <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                          <Monitor size={12} className="text-cobalt-ink" aria-hidden />
+                          {t("onboarding.gpu")}
+                        </div>
+                        <div className="mt-1.5 truncate text-xs font-medium text-bone">
+                          {primaryGpu ? primaryGpu.name : t("onboarding.noGpu")}
+                        </div>
+                        <div className="mt-0.5 font-mono text-[11px] text-bone-muted">
+                          {profile.os} / {profile.arch}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+
+            {/* Recommended stack ledger OR custom configuration */}
+            <section className="border-b border-rule px-6 py-5">
+              {!customizing ? (
+                <div>
+                  <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
+                    02 — {t("onboarding.recommendedStack")}
+                  </div>
+                  <div className="grid grid-cols-1 divide-y divide-rule border border-rule bg-void sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+                    <div className="p-3.5">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                        {t("onboarding.tier")}
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-1.5 text-sm font-semibold text-cobalt-ink">
+                        <Layers size={14} aria-hidden />
+                        {t(`tiers.${recommendedTier}`)}
+                      </div>
+                    </div>
+                    <div className="p-3.5">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                        {t("onboarding.engine")}
+                      </div>
+                      <div className="mt-1.5 text-sm font-medium text-bone">
+                        {t(`engines.${recommendedEngine}`)}
+                      </div>
+                    </div>
+                    <div className="p-3.5">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                        {t("onboarding.model")}
+                      </div>
+                      <div className="mt-1.5 truncate font-mono text-xs font-medium text-bone">
+                        {recommendedModel}
+                      </div>
+                    </div>
+                    <div className="p-3.5">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                        {t("onboarding.downloadSize")}
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-1.5 font-mono text-sm font-semibold tabular-nums text-verdigris">
+                        {isAlreadyInstalled ? (
+                          <>
+                            <Check size={14} className="shrink-0" aria-hidden />
+                            <span>{t("onboarding.alreadyInstalled")}</span>
+                          </>
+                        ) : (
+                          formatBytes(exactDownloadBytes)
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <HardwareConfigForm
+                  tier={selectedTier}
+                  engine={selectedEngine}
+                  modelId={selectedModelId}
+                  proMode={proMode}
+                  models={models}
+                  profile={profile}
+                  engineStatus={engineStatus}
+                  disabled={isInstalling || saving}
+                  onTierChange={setSelectedTier}
+                  onEngineChange={setSelectedEngine}
+                  onModelChange={setSelectedModelId}
+                  onProModeChange={setProMode}
+                />
+              )}
+            </section>
+
+            {/* Live download progress */}
+            {(downloadProgress || isInstalling || error) && (
+              <div className="border-b border-rule bg-void px-6 py-4">
+                <DownloadProgressBar
+                  progress={downloadProgress}
+                  isInstalling={isInstalling}
+                  isCancelling={isCancelling}
+                  error={error}
+                  onCancel={() => void cancelDownload()}
+                />
+              </div>
+            )}
+
+            {/* Primary action footer */}
+            <footer className="flex flex-wrap items-center justify-between gap-3 bg-surface-2 px-6 py-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isInstalling || saving}
+                  onClick={() => setStep("name")}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface px-3 py-2 text-xs font-medium text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 hover:text-bone focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
+                >
+                  <ArrowLeft size={13} aria-hidden />
+                  <span>{t("onboarding.back")}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isInstalling || saving}
+                  onClick={() => setCustomizing((v) => !v)}
+                  className="inline-flex items-center gap-2 rounded-[2px] border border-rule-strong bg-surface px-4 py-2 text-xs font-medium text-bone transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
+                >
+                  <SlidersHorizontal size={14} aria-hidden />
+                  {customizing ? t("onboarding.hideCustomize") : t("onboarding.customize")}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                disabled={isInstalling || saving || !profile}
+                onClick={() => void handlePrimaryAction(activeTier, activeEngine, activeModel)}
+                className="inline-flex items-center gap-2 rounded-[2px] border border-cobalt-rule bg-cobalt px-5 py-2 text-xs font-semibold tracking-wide text-bone transition-colors hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
+              >
+                {isInstalling ? (
+                  <>
+                    <Download size={14} aria-hidden />
+                    {t("onboarding.installing")}
+                  </>
+                ) : isAlreadyInstalled ? (
+                  <>
+                    <Check size={14} aria-hidden />
+                    <span>{t("onboarding.apply")}</span>
+                  </>
+                ) : error ? (
+                  <>
+                    <Download size={14} aria-hidden />
+                    {t("onboarding.retry")}
+                  </>
+                ) : customizing ? (
+                  <>
+                    <Check size={14} aria-hidden />
+                    <span>{t("onboarding.installCustom")}</span>
+                    <span className="font-mono tabular-nums opacity-85">
+                      ({formatBytes(exactDownloadBytes)})
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Download size={14} aria-hidden />
+                    <span>{t("onboarding.acceptAndInstall")}</span>
+                    <span className="font-mono tabular-nums opacity-85">
+                      ({formatBytes(exactDownloadBytes)})
+                    </span>
+                  </>
+                )}
+              </button>
+            </footer>
+          </>
+        )}
       </div>
     </div>
   );

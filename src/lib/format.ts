@@ -139,6 +139,7 @@ export function estimateDownloadBytes(
 export function createDefaultSettings(): AppSettings {
   return {
     onboarding_completed: false,
+    user_display_name: null,
     hardware_tier: "eco",
     vector_engine: DEFAULT_ENGINE_BY_TIER.eco,
     embedding_model_id: DEFAULT_MODEL_BY_TIER.eco,
@@ -274,4 +275,33 @@ export function sourcePathMatchesTouched(
     if (normDoc.endsWith(`/${clean}`) || clean.endsWith(`/${normDoc}`)) return true;
   }
   return false;
+}
+
+/** Extract the user's first name for calm greetings (returns `null` when blank). */
+export function extractFirstName(fullName: string | null | undefined): string | null {
+  if (!fullName) return null;
+  const trimmed = fullName.trim();
+  if (!trimmed) return null;
+  const first = trimmed.split(/\s+/)[0];
+  return first && first.length > 0 ? first : null;
+}
+
+export type DayPeriod = "morning" | "afternoon" | "evening";
+
+/** Classify a local hour (0..23) into morning / afternoon / evening. */
+export function getDayPeriod(date: Date = new Date()): DayPeriod {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 12) return "morning";
+  if (hour >= 12 && hour < 20) return "afternoon";
+  return "evening";
+}
+
+/** Format an integer token count with locale separators. */
+export function formatTokenCount(count: number, language?: string): string {
+  const safe = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
+  try {
+    return safe.toLocaleString(language === "es" ? "es-ES" : "en-US");
+  } catch {
+    return String(safe);
+  }
 }

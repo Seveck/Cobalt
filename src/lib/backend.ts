@@ -11,6 +11,7 @@ type ResultOf<C extends IpcCommand> = IpcCommandMap[C]["result"];
  */
 export const PHASE1_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>([
   "app_info",
+  "get_system_user_name",
   "get_hardware_profile",
   "get_settings",
   "update_settings",

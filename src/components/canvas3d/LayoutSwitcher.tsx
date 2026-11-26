@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Boxes, Brain, GitFork, Layers, Sparkles } from "lucide-react";
+import { Boxes, Brain, GitFork, LayoutGrid, Layers, Sparkles } from "lucide-react";
 import type { ClusterSizeMetric, LayoutType } from "@/types/contracts";
 import { BUILTIN_LAYOUT_TYPES, type BuiltinLayoutType } from "./layouts";
 
@@ -16,6 +16,7 @@ const LAYOUT_ICONS: Record<BuiltinLayoutType, typeof Sparkles> = {
   neural_net: Layers,
   knowledge_tree: GitFork,
   project_clusters: Boxes,
+  project_islands: LayoutGrid,
 };
 
 export function LayoutSwitcher({

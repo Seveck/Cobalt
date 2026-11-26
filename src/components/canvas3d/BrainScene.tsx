@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, type ComponentRef } from "react";
+import { useTranslation } from "react-i18next";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
@@ -14,6 +15,12 @@ import type {
   Uuid,
   VisualFilters,
 } from "@/types/contracts";
+import {
+  buildIslandRimsGeometry,
+  buildIslandSlabsGeometry,
+  computeIslandsCameraFraming,
+  createIslandLabelSprite,
+} from "./islandVisuals";
 import { resolveLayoutFn } from "./layouts";
 import { createNodePointMaterial } from "./pointShader";
 import { SpatialHashGrid } from "./spatialIndex";
@@ -222,12 +229,23 @@ export function BrainScene({
   onSelectNode,
   onContainersChange,
 }: BrainSceneProps) {
+  const { t, i18n } = useTranslation();
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null);
   const camera = useThree((state) => state.camera);
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
 
+  const isProjectIslands = activeLayout === "project_islands";
   const maxFps = hardwareTier === "eco" ? 30 : hardwareTier === "balanced" ? 60 : null;
+
+  // Fast O(1) lookup from memory_id -> project_id for cross-island edge filtering
+  const nodeProjectMap = useMemo(() => {
+    const map = new Map<Uuid, Uuid | null>();
+    for (const node of graph.nodes) {
+      map.set(node.id, node.project_id);
+    }
+    return map;
+  }, [graph.nodes]);
 
   // Map project_id -> color_hex for project_clusters coloring
   const projectColorMap = useMemo(() => {
@@ -412,8 +430,33 @@ export function BrainScene({
     selectedNodeId,
   ]);
 
-  // Apply camera defaults & explicit reset signal
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+
+  const islandFraming = useMemo(() => {
+    if (!isProjectIslands) return null;
+    const containers = layoutResult.projectContainers ?? [];
+    const aspect = sizeRef.current.width / Math.max(1, sizeRef.current.height);
+    return computeIslandsCameraFraming(containers, manifest.camera.fov, aspect);
+  }, [isProjectIslands, layoutResult.projectContainers, manifest.camera.fov]);
+
+  // Apply camera defaults, island overview framing, & explicit reset signal
   useEffect(() => {
+    if (isProjectIslands && islandFraming) {
+      const [px, py, pz] = islandFraming.position;
+      const [tx, ty, tz] = islandFraming.target;
+      camera.position.set(px, py, pz);
+      if (camera instanceof THREE.PerspectiveCamera) {
+        camera.fov = manifest.camera.fov;
+        camera.updateProjectionMatrix();
+      }
+      if (controlsRef.current) {
+        controlsRef.current.target.set(tx, ty, tz);
+        controlsRef.current.update();
+      }
+      return;
+    }
+
     const [px, py, pz] = manifest.camera.position;
     const [tx, ty, tz] = manifest.camera.target;
     camera.position.set(px, py, pz);
@@ -425,7 +468,7 @@ export function BrainScene({
       controlsRef.current.target.set(tx, ty, tz);
       controlsRef.current.update();
     }
-  }, [camera, manifest.camera, resetSignal]);
+  }, [activeLayout, camera, isProjectIslands, islandFraming, manifest.camera, resetSignal]);
 
   // Keep latest callbacks/nodes in refs for zero-rebind DOM pointer listeners
   const latestNodesRef = useRef(graph.nodes);
@@ -628,13 +671,22 @@ export function BrainScene({
 
     const coords: number[] = [];
     for (const edge of graph.edges) {
-      if (
-        effectiveMode === "hover_only" &&
-        edge.source_id !== focusId &&
-        edge.target_id !== focusId
-      ) {
+      const touchesFocus =
+        focusId !== null && (edge.source_id === focusId || edge.target_id === focusId);
+
+      if (effectiveMode === "hover_only" && !touchesFocus) {
         continue;
       }
+
+      // In `project_islands`, edges crossing between different islands appear ONLY on hover/selection
+      if (isProjectIslands) {
+        const srcProj = nodeProjectMap.get(edge.source_id) ?? null;
+        const dstProj = nodeProjectMap.get(edge.target_id) ?? null;
+        if (srcProj !== dstProj && !touchesFocus) {
+          continue;
+        }
+      }
+
       const from = layoutResult.nodePositions[edge.source_id];
       const to = layoutResult.nodePositions[edge.target_id];
       if (!from || !to) continue;
@@ -649,8 +701,10 @@ export function BrainScene({
     graph.edges,
     hardwareTier,
     hoveredNodeId,
+    isProjectIslands,
     layoutResult.nodePositions,
     manifest.layout_params.semantic_edges_mode,
+    nodeProjectMap,
     selectedNodeId,
   ]);
 
@@ -724,8 +778,11 @@ export function BrainScene({
 
   // Project container wireframe shells (`project_clusters` layout using `projects.color_hex`)
   const containerShellsGeometry = useMemo(
-    () => buildContainerShellsGeometry(layoutResult.projectContainers ?? []),
-    [layoutResult.projectContainers],
+    () =>
+      activeLayout === "project_clusters"
+        ? buildContainerShellsGeometry(layoutResult.projectContainers ?? [])
+        : null,
+    [activeLayout, layoutResult.projectContainers],
   );
 
   const containerShellsMaterial = useMemo(
@@ -750,10 +807,101 @@ export function BrainScene({
     };
   }, [containerShellsMaterial]);
 
+  // Flat island slabs, rims, and big floating project labels (`project_islands` layout)
+  const islandSlabsGeometry = useMemo(
+    () =>
+      isProjectIslands
+        ? buildIslandSlabsGeometry(layoutResult.projectContainers ?? [])
+        : null,
+    [isProjectIslands, layoutResult.projectContainers],
+  );
+
+  const islandSlabsMaterial = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.78,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      islandSlabsGeometry?.dispose();
+    };
+  }, [islandSlabsGeometry]);
+
+  useEffect(() => {
+    return () => {
+      islandSlabsMaterial.dispose();
+    };
+  }, [islandSlabsMaterial]);
+
+  const islandRimsGeometry = useMemo(
+    () =>
+      isProjectIslands
+        ? buildIslandRimsGeometry(layoutResult.projectContainers ?? [])
+        : null,
+    [isProjectIslands, layoutResult.projectContainers],
+  );
+
+  const islandRimsMaterial = useMemo(
+    () =>
+      new THREE.LineBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.86,
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      islandRimsGeometry?.dispose();
+    };
+  }, [islandRimsGeometry]);
+
+  useEffect(() => {
+    return () => {
+      islandRimsMaterial.dispose();
+    };
+  }, [islandRimsMaterial]);
+
+  const islandLabels = useMemo(() => {
+    if (!isProjectIslands) return [];
+    const containers = layoutResult.projectContainers ?? [];
+    return containers.map((container) => {
+      const displayName =
+        container.projectId === null ? t("brain.globalScope") : container.label;
+      const countText = t("brain.nodesCount", { count: container.vectorCount });
+      return createIslandLabelSprite(container, displayName, countText);
+    });
+  }, [i18n.resolvedLanguage, isProjectIslands, layoutResult.projectContainers, t]);
+
+  useEffect(() => {
+    return () => {
+      for (const lbl of islandLabels) {
+        lbl.material.dispose();
+        lbl.texture.dispose();
+      }
+    };
+  }, [islandLabels]);
+
   return (
     <>
       <FrameRateController maxFps={maxFps} />
       <color attach="background" args={[manifest.palette.background]} />
+
+      {islandSlabsGeometry && (
+        <mesh geometry={islandSlabsGeometry} material={islandSlabsMaterial} />
+      )}
+
+      {islandRimsGeometry && (
+        <lineSegments geometry={islandRimsGeometry} material={islandRimsMaterial} />
+      )}
 
       {/* Camera-facing point-sprite nodes (single draw call, zero scene lighting) */}
       <points
@@ -774,13 +922,22 @@ export function BrainScene({
         <lineSegments geometry={semanticEdgeGeometry} material={semanticEdgeMaterial} />
       )}
 
+      {islandLabels.map((lbl) => (
+        <sprite
+          key={lbl.id}
+          position={lbl.position}
+          scale={lbl.scale}
+          material={lbl.material}
+        />
+      ))}
+
       <OrbitControls
         ref={controlsRef}
         makeDefault
         enableDamping
         dampingFactor={0.08}
         minDistance={14}
-        maxDistance={380}
+        maxDistance={Math.max(380, islandFraming?.maxDistance ?? 380)}
         autoRotate={manifest.camera.auto_rotate}
         autoRotateSpeed={manifest.camera.auto_rotate_speed}
       />

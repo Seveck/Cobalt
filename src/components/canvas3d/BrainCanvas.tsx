@@ -389,7 +389,7 @@ export function BrainCanvas() {
                 position: manifest.camera.position,
                 fov: manifest.camera.fov,
                 near: 0.1,
-                far: 1500,
+                far: 3000,
               }}
               gl={{
                 antialias: !isEco,

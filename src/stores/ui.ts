@@ -19,12 +19,14 @@ export interface UiState {
   sidebarCollapsed: boolean;
   appInfo: AppInfo | null;
   showOnboardingOverride: boolean;
+  welcomeDismissed: boolean;
   globalMockMode: boolean;
   setActiveNav: (nav: NavSection) => void;
   setToolsTab: (tab: ToolsTab) => void;
   openToolsTab: (tab: ToolsTab) => void;
   toggleSidebar: () => void;
   setShowOnboardingOverride: (open: boolean) => void;
+  dismissWelcome: () => void;
   loadAppInfo: () => Promise<void>;
 }
 
@@ -34,12 +36,14 @@ export const useUiStore = create<UiState>((set) => ({
   sidebarCollapsed: false,
   appInfo: null,
   showOnboardingOverride: false,
+  welcomeDismissed: false,
   globalMockMode: isGlobalMockMode(),
   setActiveNav: (activeNav) => set({ activeNav }),
   setToolsTab: (toolsTab) => set({ toolsTab }),
   openToolsTab: (toolsTab) => set({ activeNav: "tools", toolsTab }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setShowOnboardingOverride: (showOnboardingOverride) => set({ showOnboardingOverride }),
+  dismissWelcome: () => set({ welcomeDismissed: true }),
   loadAppInfo: async () => {
     try {
       const appInfo = await backendCall("app_info");
