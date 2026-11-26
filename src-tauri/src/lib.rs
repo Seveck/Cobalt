@@ -6,6 +6,7 @@
 
 mod commands;
 mod commands_admin;
+mod commands_ingest;
 mod commands_memory;
 mod desktop;
 mod doctor;
@@ -60,6 +61,23 @@ impl EventSink for TauriSink {
             read_only,
             lang.unwrap_or(cobalt_core::enums::Language::En),
         );
+    }
+
+    fn agent_archived(&self, client_name: &str, preview: &str, other_agents: usize) {
+        let body = if other_agents > 0 {
+            format!(
+                "{client_name} archivó una memoria que usan {other_agents} IA(s) más. Puedes restaurarla en Cobalt.\n«{preview}»"
+            )
+        } else {
+            format!("{client_name} archivó una memoria. Puedes restaurarla en Cobalt.\n«{preview}»")
+        };
+        let _ = self
+            .app
+            .notification()
+            .builder()
+            .title("Cobalt")
+            .body(body)
+            .show();
     }
 
     fn firewall_blocked(&self, client_name: &str, detail: &str) {
@@ -210,6 +228,13 @@ pub fn run() {
             commands_admin::remove_engine_artifacts,
             commands_admin::build_web_context,
             commands_admin::submit_quick_note,
+            commands_ingest::ingest_paths,
+            commands_ingest::import_past_life,
+            commands_ingest::promote_file_to_reusable,
+            commands_ingest::export_capsule,
+            commands_ingest::import_capsule,
+            commands_ingest::export_backup,
+            commands_ingest::import_backup,
         ])
         .run(tauri::generate_context!());
 

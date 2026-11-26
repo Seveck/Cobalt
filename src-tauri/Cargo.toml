@@ -21,7 +21,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 cobalt-core = { workspace = true, features = ["hardware", "engines"] }
-cobalt-store.workspace = true
+cobalt-store = { workspace = true, features = ["qdrant", "chroma"] }
+cobalt-ingest.workspace = true
 cobalt-mcp.workspace = true
 cobalt-embeddings.workspace = true
 tokio.workspace = true
@@ -47,6 +48,11 @@ tauri-plugin-single-instance = "2"
 [dev-dependencies]
 tempfile = "3"
 tokio = { workspace = true }
+
+[features]
+default = []
+# LanceDB connector (heavy Arrow dependency tree; opt-in at build time).
+lancedb = ["cobalt-store/lancedb"]
 
 [lints]
 workspace = true

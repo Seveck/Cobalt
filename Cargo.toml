@@ -23,6 +23,7 @@ cobalt-core = { path = "crates/cobalt-core" }
 cobalt-store = { path = "crates/cobalt-store" }
 cobalt-mcp = { path = "crates/cobalt-mcp" }
 cobalt-embeddings = { path = "crates/cobalt-embeddings" }
+cobalt-ingest = { path = "crates/cobalt-ingest" }
 # Add the other internal crates here when a consumer needs them (cargo warns on unused ones).
 
 serde = { version = "1", features = ["derive"] }

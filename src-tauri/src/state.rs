@@ -14,11 +14,15 @@ use cobalt_core::paths::{DATABASE_FILE, cobalt_home};
 use cobalt_core::traits::{CobaltStore, Embedder, TokenCounter};
 use cobalt_core::vault::Vault;
 use cobalt_embeddings::{FastembedEmbedder, TiktokenCounter};
+use cobalt_ingest::IngestService;
 use cobalt_mcp::http::HttpServer;
 use cobalt_mcp::socket::SocketServer;
 use cobalt_mcp::{Daemon, EventSink};
 use cobalt_store::SqliteStore;
 use tokio::sync::{Mutex, OnceCell};
+
+/// `app_config` key holding the endpoint of a remote vector engine (Qdrant remote / Chroma).
+pub const EXTERNAL_ENDPOINT_KEY: &str = "external_vector_endpoint";
 
 pub struct AppState {
     pub home: PathBuf,
@@ -30,6 +34,9 @@ pub struct AppState {
     base_store: SqliteStore,
     /// `(engine, model)` the live store was built with, if retrieval is active.
     active_engine: Mutex<Option<(EngineKind, String)>>,
+    /// Concrete retrieval store (engine swaps and identity-preserving imports need it).
+    active_sqlite: std::sync::RwLock<Option<Arc<SqliteStore>>>,
+    ingest: std::sync::RwLock<Option<Arc<IngestService>>>,
     hardware: OnceCell<HardwareProfile>,
     servers: Mutex<Servers>,
 }
@@ -69,6 +76,8 @@ impl AppState {
             daemon,
             base_store,
             active_engine: Mutex::new(None),
+            active_sqlite: std::sync::RwLock::new(None),
+            ingest: std::sync::RwLock::new(None),
             hardware: OnceCell::new(),
             servers: Mutex::new(Servers::default()),
         };
@@ -83,8 +92,9 @@ impl AppState {
         self.daemon.store()
     }
 
-    /// Builds the retrieval store for the configured engine/model if the model is installed
-    /// and swaps it into the daemon. Returns `true` when retrieval is active afterwards.
+    /// Builds the retrieval store for the configured engine/model if the model is installed,
+    /// swaps it into the daemon, (re)creates the ingest service and starts the file watcher.
+    /// Returns `true` when retrieval is active afterwards.
     pub async fn activate_engine(&self) -> Result<bool> {
         let settings = self.config.get();
         let wanted = (settings.vector_engine, settings.embedding_model_id.clone());
@@ -97,29 +107,90 @@ impl AppState {
         }
         let embedder: Arc<dyn Embedder> = Arc::new(FastembedEmbedder::from_catalog(&wanted.1)?);
         let tokens: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new(settings.token_encoding));
+        let base = self.base_store.clone();
         let store = match wanted.0 {
-            EngineKind::SqliteVec => {
-                self.base_store
-                    .clone()
-                    .with_sqlite_vec(embedder, tokens)
+            EngineKind::SqliteVec => base.with_sqlite_vec(embedder, tokens.clone()).await?,
+            EngineKind::Usearch => base.with_usearch(embedder, tokens.clone()).await?,
+            EngineKind::QdrantSidecar => {
+                let (endpoint, api_key) = self.engines.ensure_sidecar().await?;
+                base.with_external_index(&endpoint, Some(&api_key), embedder, tokens.clone())
                     .await?
             }
-            EngineKind::Usearch => {
-                self.base_store
-                    .clone()
-                    .with_usearch(embedder, tokens)
+            EngineKind::QdrantRemote | EngineKind::ChromaDb => {
+                let endpoint = self.external_endpoint().await?;
+                base.with_external_index(&endpoint, None, embedder, tokens.clone())
                     .await?
             }
-            other => {
-                return Err(CobaltError::Unsupported(format!(
-                    "{other} is connected in Phase 3; choose sqlite_vec or usearch"
-                )));
+            EngineKind::LanceDb => {
+                return Err(CobaltError::Unsupported(
+                    "LanceDB is available in builds with the `lancedb` feature".into(),
+                ));
             }
         };
-        self.daemon.replace_store(Arc::new(store)).await;
+        let store = Arc::new(store);
+        self.daemon.replace_store(store.clone()).await;
+        let ingest = Arc::new(IngestService::with_sqlite_store(store.clone(), tokens));
+        let previous = self
+            .ingest
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .replace(ingest.clone());
+        if let Some(old) = previous {
+            let _ = cobalt_core::traits::IngestService::stop_watcher(old.as_ref()).await;
+        }
+        if let Err(err) = cobalt_core::traits::IngestService::start_watcher(ingest.as_ref()).await {
+            tracing::warn!(%err, "file watcher not started");
+        }
+        *self
+            .active_sqlite
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = Some(store);
         tracing::info!(engine = %wanted.0, model = %wanted.1, "retrieval engine active");
         *active = Some(wanted);
         Ok(true)
+    }
+
+    /// Forces the next `activate_engine` to rebuild (after an engine swap).
+    pub async fn invalidate_engine(&self) {
+        *self.active_engine.lock().await = None;
+    }
+
+    /// Endpoint of a remote engine (Qdrant remote / Chroma), stored in `app_config`.
+    pub async fn external_endpoint(&self) -> Result<String> {
+        use cobalt_core::traits::ConfigRepository;
+        self.base_store
+            .get_raw(EXTERNAL_ENDPOINT_KEY)
+            .await?
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .ok_or_else(|| {
+                CobaltError::InvalidInput("no endpoint configured for the external engine".into())
+            })
+    }
+
+    pub async fn set_external_endpoint(&self, endpoint: &str) -> Result<()> {
+        use cobalt_core::traits::ConfigRepository;
+        self.base_store
+            .set_raw(
+                EXTERNAL_ENDPOINT_KEY,
+                serde_json::Value::String(endpoint.into()),
+            )
+            .await
+    }
+
+    pub fn active_sqlite(&self) -> Result<Arc<SqliteStore>> {
+        self.active_sqlite
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+            .ok_or_else(|| CobaltError::Engine("install the embedding model first".into()))
+    }
+
+    pub fn ingest(&self) -> Result<Arc<IngestService>> {
+        self.ingest
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+            .ok_or_else(|| CobaltError::Engine("install the embedding model first".into()))
     }
 
     /// Starts the local socket (stdio bridges) and, if enabled, the HTTP server.

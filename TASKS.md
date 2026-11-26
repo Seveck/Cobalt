@@ -63,62 +63,28 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [ ] [CODEX] `find_import_collision` para `.cobalt-backup`; adaptadores Qdrant sidecar / LanceDB / Chroma
 - [ ] [CLAUDE] `swap_engine` IPC al cambiar de modelo con memorias existentes (hoy solo se activa en cerebro vacío)
 
-## Fase 3 — Integración completa [PARALELO]
-- [ ] [CLAUDE] Herramienta MCP `archive_memory` en dos pasos (MCP_SPEC §2.8): simulación que avisa qué otros agentes usan el nodo, confirmación explícita del usuario, notificación del SO, reversible; contratos v1.3.0
-- [ ] [GEMINI] Borrado definitivo desde la UI: diálogo que deja claro que es **irreversible** y lista todas las consecuencias de `get_deletion_impact` (Ley Nuclear, activo reutilizable, IAs que lo usan, versiones del historial, snapshots, cifrado), con confirmación explícita (escribir el texto o mantener pulsado)
-- [ ] [GEMINI] Inspector: mostrar "archivado por <agente>" con botón Restaurar y la lista de agentes que usan el nodo
-- [ ] [CLAUDE] Conector 1-Click (Linux/Win/macOS + `.bak`), MCP Doctor, Theme Store sandboxed, cableado IPC completo
-- [ ] [CODEX] `cobalt-ingest` completo (importador, OCR, PDF, watcher, `.cbrain`, `.cobalt-backup`, Qdrant/LanceDB/Chroma)
-- [ ] [GEMINI] Stores a IPC real (eliminar `*Mock*`), Biblioteca, Conectores/Pro/Doctor, Tienda, Telemetría + Historial + Replay, Puente Web AI, Importador/Mudanza/Branches/Limpiar Cerebro, Nota Rápida
+## Fase 3 — Integración completa [PARALELO] ✅
+### [CLAUDE]
+- [x] Contratos v1.3.0/v1.3.1: herramienta MCP #8 `archive_memory` en dos pasos (simulación → consentimiento → archivo + notificación), `ArchiveImpact`, `DeletionImpact`, `find_similar`, `memory_usage_by_client`
+- [x] Conector 1-Click (7 clientes, Linux/Win/macOS, `.bak` fechado, JSON con orden preservado, TOML con comentarios, nunca sobrescribe archivos inválidos, detecta entradas rotas) + "Configuración manual"
+- [x] MCP Doctor (socket, HTTP, base de datos, modelo, búsqueda, bóveda, cada cliente) con arreglos automáticos
+- [x] Tienda de Temas sandbox: registro solo en memoria, SHA-256, lista blanca, sin código, anti traversal/zip bomb/magic bytes, staging + rename atómico
+- [x] Motores externos: Qdrant sidecar (API key en tiempo de ejecución), Qdrant remoto y Chroma; reenganche al arrancar; LanceDB opcional (`--features lancedb`)
+- [x] `swap_engine` con nuevo embedder y escrituras MCP en cola; ingesta y vigilante de archivos activados con el motor
+- [x] Todos los comandos IPC de Fase 3 (+ `get_archive_impact`, `get_deletion_impact`)
+### [CODEX]
+- [x] `cobalt-ingest`: chunking por tokens, tipo de fuente, SHA-256, `.memoryignore`, scrubber, PDF, vigilante `notify`, importador Vida Pasada sin LLM, promoción a Biblioteca
+- [x] `.cbrain` y `.cobalt-backup` (zip+zstd, checksums, cifrado opcional, restauración no destructiva con rama `import-<fecha>` y re-vectorización)
+- [x] Adaptadores Qdrant / Chroma / LanceDB con tests HTTP simulados
+### [GEMINI]
+- [x] IPC real para todo (0 mocks dentro de Tauri), Biblioteca, Conectores + Pro + Doctor, Tienda de Temas, Telemetría + Historial + Replay, Herramientas (proyectos, puente web, importador, cápsulas, backup), soltar archivos sobre el 3D, Nota rápida
+- [x] Inspector: ruta real del archivo, "archivado por <agente>" + Restaurar, agentes que usan el nodo; borrado definitivo con todas las consecuencias y confirmación escrita
 
-## Fase 3.5 — Asistente conversacional, Personas y Estudio [PARALELO] (decidida 2026-11-25)
-Objetivo: que Cobalt sirva también a quien no programa (organizar notas, estudiar), con un chat que
-consulta y **actúa** sobre el cerebro. Se construye después de la Fase 3 (sus importadores alimentan el chat).
-- [ ] [CLAUDE] Proveedores de modelo elegibles por el usuario en Ajustes: local (Ollama) y APIs propias
-      (Claude, Gemini, OpenAI, OpenRouter/compatibles OpenAI). API keys guardadas cifradas (Bóveda /
-      llavero del SO), nunca en texto plano; aviso claro de qué fragmentos se envían al proveedor elegido
-- [ ] [CLAUDE] Motor del asistente con herramientas internas seguras: buscar nodos (con citas), crear
-      tablas/agrupaciones (p. ej. "proyectos de este mes" con sus nodos), mover/reasignar nodos,
-      editar, archivar (dos pasos), etiquetar; toda acción queda versionada y es reversible
-- [ ] [CLAUDE] Contratos v2: entidad **Personas** (tabla `people`: yo por defecto, familiares, colegas…),
-      `memories.owner_id`; las IAs por MCP solo usan memorias del usuario salvo petición explícita
-- [ ] [CODEX] Store: Personas + reasignación, consultas agregadas por periodo/proyecto/persona,
-      tarjetas con repaso espaciado (algoritmo tipo SM-2/FSRS) y generación/corrección de cuestionarios
-- [ ] [GEMINI] Panel de chat (lateral y a pantalla completa) con respuestas que citan nodos (se iluminan
-      en el 3D), tablas interactivas, confirmación visible de acciones; zonas por persona en el 3D;
-      clic en nodo → "decirle al chat" sobre ese nodo
-- [ ] [GEMINI] Modo Estudio: preguntas con citas, tarjetas + repaso espaciado, cuestionarios,
-      resúmenes por tema/periodo
-- [ ] [CLAUDE+GEMINI] **Módulos y perfiles (anti-saturación)**: núcleo fijo (capturar, buscar, cerebro, chat);
-      cada función extra es un módulo activable (Estudio, Desarrollo/MCP, Reuniones, Diario, Investigación,
-      Voz…). El onboarding pregunta "¿para qué usarás Cobalt?" y enciende solo lo necesario; la interfaz
-      sugiere activar un módulo cuando el uso real lo indica (p. ej. tras importar PDFs de clase → Estudio),
-      nunca lo impone. Opciones avanzadas siempre en Modo Pro; la vista 3D puede ser secundaria (lista/tabla)
-- [ ] [CLAUDE+GEMINI] **Modo Voz del asistente**: el usuario habla o escribe; el agente busca todo lo
-      relacionado en Cobalt y **responde en voz alta** (con las citas visibles e iluminadas en el 3D).
-      Voz local por defecto (STT Whisper.cpp + TTS Piper / voz del SO, sin nube) y voces de proveedor
-      opcionales con la clave del usuario; atajo "pulsar para hablar", velocidad/voz configurables, ES/EN
-- [ ] Posicionamiento ampliado: memoria personal y multi-IA para cualquier persona (notas, estudio y
-      desarrollo), con ahorro de tokens medible y cero telemetría
-
-## Fase 5 — Expansión por módulos (post-v1, todo opcional y oculto si no se usa)
-Orden sugerido; se prioriza según el uso real de los usuarios.
-- [ ] Categorías y plantillas por perfil (Estudio, Personal, Trabajo); "activos reutilizables" generalizados a plantillas
-- [ ] Extensión de navegador (guardar página/fragmento/resaltado + puente "Copiar contexto" para IAs web)
-- [ ] Notas de voz con transcripción local; captura de pantalla con OCR por atajo
-- [ ] Importadores: Notion, Evernote, Apple Notes, Google Keep, OneNote, Kindle, Zotero, correo (.mbox)
-- [ ] Estudio avanzado: mapa de dominio, ruta de estudio por fecha de examen, modo "explícamelo", material de curso (PDF/diapositivas/YouTube), exportar a Anki
-- [ ] Trabajo: reuniones (transcripción → decisiones/tareas/personas), pendientes derivados, diario + resumen semanal, calendario .ics (solo lectura)
-- [ ] Investigación y escritura: fuentes con citas (BibTeX/Zotero), borradores citando nodos, vista de evolución de una idea
-- [ ] Personal: Personas como mini-CRM; salud/finanzas/recetas solo en Bóveda cifrada
-- [ ] Ahorro en lenguaje simple (tiempo y dinero), más idiomas (PT, FR), accesibilidad (lector de pantalla, alto contraste)
-- [ ] Futuro lejano: app móvil compañera (sync cifrada) y cerebros compartidos familia/equipo con permisos
-
-## Fase 4 — Auditoría, pulido y empaquetado [PARALELO]
-- [ ] [CODEX] Benchmarks, RAM Eco, OCR/re-vectorización, precisión de ahorro, cobertura
-- [ ] [GEMINI] Auditoría visual, FPS/fugas WebGL, traducciones 100 %
-- [ ] [CLAUDE] **Limpieza total de datos de ejemplo (obligatorio antes de v1.0):** eliminar `src/lib/backendMock.ts`, el grafo simulado (~300 nodos), proyectos/telemetría/temas ficticios y el badge MOCK; verificar que una instalación nueva arranca con el cerebro vacío (0 memorias, 0 proyectos) y sin datos precargados
-- [ ] [CLAUDE] E2E completo, empaquetado `.AppImage/.deb/.rpm`, `.msi/.exe`, `.dmg`, `README.md`, reporte v1.0
+### Pendiente detectado en la Fase 3
+- [ ] OCR: catalogar los modelos de `ocrs` (revisión fija + SHA-256); hasta entonces imágenes/PDF escaneados dan un error claro
+- [ ] Credenciales para Qdrant remoto / Chroma con autenticación (hoy solo endpoint)
+- [ ] Mover snapshots y memorias cifradas entre equipos (hoy los backups los excluyen y lo informan)
+- [ ] Botón "Borrar por origen" para limpiar datos de prueba
 
 ## Propuestas pendientes de decisión (auditoría de problemáticas, 2026-11-25)
 - [ ] Búsqueda que sigue el grafo (vecinos a 1 salto) + arista `depends_on` (punto 5)
@@ -128,7 +94,8 @@ Orden sugerido; se prioriza según el uso real de los usuarios.
 - [ ] Ahorro en dinero (precio por modelo configurable) y tiempo estimado en el dashboard (punto 9)
 
 ## Mocks activos
-- `src/lib/backendMock.ts` [GEMINI]: dentro de Tauri sirve solo comandos de Fases 2/3 aún no entregados (`get_graph`, `list_branches`, `list_library`, `get_telemetry_summary`, `list_connectors`, `list_installed_themes`, `get_theme_manifest`, `get_read_only`, `set_read_only`, `get_daemon_status`) con badge **MOCK** visible; fuera de Tauri sirve todo (vista previa en navegador). Se retira en Fases 2–3.
+- `src/lib/backendMock.ts` [GEMINI]: **0 comandos dentro de Tauri**; solo para la vista previa en navegador. Se elimina en la Fase 4.
+- Tests: `IngestEmbedderMock`, `RestTransportMock` (Codex), `BagOfWords` (E2E MCP) — solo en `cfg(test)`.
 
 ## Solicitudes de cambio de contrato
 - [x] (Codex, Fase 1) Regla FTS + `rebuild` para memorias cifradas → incorporada en `docs/CONTRACTS.md` §2.

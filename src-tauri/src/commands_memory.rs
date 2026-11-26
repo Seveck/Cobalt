@@ -381,7 +381,10 @@ pub async fn get_deletion_impact(
     args: IdArgs,
 ) -> CmdResult<cobalt_core::model::DeletionImpact> {
     let store = state.store();
-    let m = store.get_memory(args.id).await?.ok_or_else(|| not_found(args.id))?;
+    let m = store
+        .get_memory(args.id)
+        .await?
+        .ok_or_else(|| not_found(args.id))?;
     let used_by = store.memory_usage_by_client(args.id).await?;
     let history_versions = store
         .memory_history(args.id)
@@ -416,7 +419,11 @@ pub async fn get_deletion_impact(
     }
     Ok(cobalt_core::model::DeletionImpact {
         memory_id: m.id,
-        preview: if m.is_encrypted { String::new() } else { m.content.chars().take(160).collect() },
+        preview: if m.is_encrypted {
+            String::new()
+        } else {
+            m.content.chars().take(160).collect()
+        },
         is_core_pin: m.is_core_pin,
         is_reusable: m.is_reusable,
         reuse_count: m.reuse_count,

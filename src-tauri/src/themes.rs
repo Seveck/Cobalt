@@ -64,7 +64,11 @@ pub fn search(index: &RegistryIndex, query: Option<&str>) -> Vec<RegistryEntry> 
             q.is_empty()
                 || t.name.to_lowercase().contains(&q)
                 || t.author.to_lowercase().contains(&q)
-                || t.description.as_deref().unwrap_or_default().to_lowercase().contains(&q)
+                || t.description
+                    .as_deref()
+                    .unwrap_or_default()
+                    .to_lowercase()
+                    .contains(&q)
         })
         .cloned()
         .collect()
@@ -73,7 +77,9 @@ pub fn search(index: &RegistryIndex, query: Option<&str>) -> Vec<RegistryEntry> 
 /// Downloads a registry package into memory and verifies size + digest.
 pub async fn download_package(client: &reqwest::Client, entry: &RegistryEntry) -> Result<Vec<u8>> {
     if !entry.download_url.starts_with("https://") {
-        return Err(CobaltError::Sandbox("theme packages must be served over HTTPS".into()));
+        return Err(CobaltError::Sandbox(
+            "theme packages must be served over HTTPS".into(),
+        ));
     }
     let bytes = client
         .get(&entry.download_url)
@@ -90,7 +96,9 @@ pub async fn download_package(client: &reqwest::Client, entry: &RegistryEntry) -
     }
     let digest = hex::encode(Sha256::digest(&bytes));
     if !digest.eq_ignore_ascii_case(&entry.sha256) {
-        return Err(CobaltError::Integrity("theme package SHA-256 mismatch".into()));
+        return Err(CobaltError::Integrity(
+            "theme package SHA-256 mismatch".into(),
+        ));
     }
     Ok(bytes.to_vec())
 }
@@ -99,23 +107,36 @@ fn sandbox(msg: impl Into<String>) -> CobaltError {
     CobaltError::Sandbox(msg.into())
 }
 
+/// One validated file of a theme package: `(relative path, bytes)`.
+pub type ThemeFile = (String, Vec<u8>);
+
 /// Validates one archive path against the whitelist. Returns the normalized relative path.
 pub fn validate_entry_path(raw: &str) -> Result<String> {
     if raw.is_empty() || raw.contains('\\') || raw.contains('\0') || raw.contains(':') {
         return Err(sandbox(format!("illegal path '{raw}'")));
     }
     let path = Path::new(raw);
-    if path.is_absolute() || path.components().any(|c| !matches!(c, Component::Normal(_))) {
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+    {
         return Err(sandbox(format!("path traversal in '{raw}'")));
     }
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     if THEME_FORBIDDEN_EXTENSIONS.contains(&ext.as_str()) {
         return Err(sandbox(format!("forbidden file type '{raw}'")));
     }
     let valid_name = |stem: &str| {
         !stem.is_empty()
             && stem.len() <= 64
-            && stem.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-' || b == b'.')
+            && stem.bytes().all(|b| {
+                b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-' || b == b'.'
+            })
             && stem.as_bytes()[0].is_ascii_alphanumeric()
     };
     let parts: Vec<&str> = raw.split('/').collect();
@@ -125,11 +146,17 @@ pub fn validate_entry_path(raw: &str) -> Result<String> {
         [dir, file] if *dir == THEME_MESHES_DIR => file.ends_with(".glb") && valid_name(file),
         _ => false,
     };
-    if ok { Ok(raw.to_owned()) } else { Err(sandbox(format!("'{raw}' is not allowed in a theme"))) }
+    if ok {
+        Ok(raw.to_owned())
+    } else {
+        Err(sandbox(format!("'{raw}' is not allowed in a theme")))
+    }
 }
 
 fn validate_magic(name: &str, data: &[u8]) -> Result<()> {
-    if name == THEME_PREVIEW_FILE && !(data.len() > 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP") {
+    if name == THEME_PREVIEW_FILE
+        && !(data.len() > 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP")
+    {
         return Err(sandbox("preview.webp is not a WebP image"));
     }
     if name.ends_with(".glb") && !(data.len() > 8 && &data[0..4] == b"glTF" && data[4] == 2) {
@@ -152,7 +179,7 @@ fn per_file_limit(name: &str) -> u64 {
 
 /// Validates the whole package in memory and returns `(manifest, files)`. Sizes are counted
 /// while decompressing (headers are never trusted).
-pub fn unpack(package: &[u8]) -> Result<(ThemeManifest, Vec<(String, Vec<u8>)>)> {
+pub fn unpack(package: &[u8]) -> Result<(ThemeManifest, Vec<ThemeFile>)> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(package))
         .map_err(|e| sandbox(format!("not a valid .cobalt-theme archive: {e}")))?;
     if archive.len() > THEME_MAX_ENTRIES {
@@ -162,8 +189,12 @@ pub fn unpack(package: &[u8]) -> Result<(ThemeManifest, Vec<(String, Vec<u8>)>)>
     let mut files = Vec::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| sandbox(e.to_string()))?;
+        let raw_name = entry
+            .name()
+            .map_err(|e| sandbox(e.to_string()))?
+            .into_owned();
         if entry.is_dir() {
-            let dir = entry.name().trim_end_matches('/');
+            let dir = raw_name.trim_end_matches('/');
             if dir != THEME_SHADERS_DIR && dir != THEME_MESHES_DIR {
                 return Err(sandbox(format!("directory '{dir}' is not allowed")));
             }
@@ -172,7 +203,7 @@ pub fn unpack(package: &[u8]) -> Result<(ThemeManifest, Vec<(String, Vec<u8>)>)>
         if entry.is_symlink() {
             return Err(sandbox("symlinks are not allowed"));
         }
-        let name = validate_entry_path(entry.name())?;
+        let name = validate_entry_path(&raw_name)?;
         let limit = per_file_limit(&name).min(THEME_MAX_UNPACKED_BYTES - total);
         let compressed = entry.compressed_size().max(1);
         let mut data = Vec::new();
@@ -208,26 +239,43 @@ fn validate_manifest(m: &ThemeManifest, files: &[(String, Vec<u8>)]) -> Result<(
     let id_ok = m.id.len() >= 2
         && m.id.len() <= 64
         && m.id.as_bytes()[0].is_ascii_alphanumeric()
-        && m.id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        && m.id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
     if !id_ok {
-        return Err(CobaltError::InvalidInput(format!("invalid theme id '{}'", m.id)));
+        return Err(CobaltError::InvalidInput(format!(
+            "invalid theme id '{}'",
+            m.id
+        )));
     }
     if m.id == cobalt_core::config::BUILTIN_THEME_ID {
-        return Err(CobaltError::Conflict("the built-in theme id is reserved".into()));
+        return Err(CobaltError::Conflict(
+            "the built-in theme id is reserved".into(),
+        ));
     }
     let has = |p: &str| files.iter().any(|(n, _)| n == p);
     let s = &m.shaders;
-    for path in [&s.node_vertex, &s.node_fragment, &s.edge_vertex, &s.edge_fragment, &s.background_fragment]
-        .into_iter()
-        .flatten()
+    for path in [
+        &s.node_vertex,
+        &s.node_fragment,
+        &s.edge_vertex,
+        &s.edge_fragment,
+        &s.background_fragment,
+    ]
+    .into_iter()
+    .flatten()
     {
         if !path.starts_with("shaders/") || !has(path) {
-            return Err(CobaltError::InvalidInput(format!("shader '{path}' missing from package")));
+            return Err(CobaltError::InvalidInput(format!(
+                "shader '{path}' missing from package"
+            )));
         }
     }
     match (&m.layout_type, &m.mesh_path) {
         (LayoutType::CustomMesh, Some(p)) if p.starts_with("meshes/") && has(p) => Ok(()),
-        (LayoutType::CustomMesh, _) => Err(CobaltError::InvalidInput("custom_mesh requires mesh_path".into())),
+        (LayoutType::CustomMesh, _) => Err(CobaltError::InvalidInput(
+            "custom_mesh requires mesh_path".into(),
+        )),
         (_, Some(p)) if !has(p) => Err(CobaltError::InvalidInput(format!("mesh '{p}' missing"))),
         _ => Ok(()),
     }
@@ -302,7 +350,9 @@ pub fn read_manifest(themes_dir: &Path, id: &str) -> Result<ThemeManifest> {
 
 pub fn uninstall(themes_dir: &Path, id: &str) -> Result<PathBuf> {
     if id == cobalt_core::config::BUILTIN_THEME_ID {
-        return Err(CobaltError::Conflict("the built-in theme cannot be uninstalled".into()));
+        return Err(CobaltError::Conflict(
+            "the built-in theme cannot be uninstalled".into(),
+        ));
     }
     if id.contains('/') || id.contains('\\') || id.contains("..") || id.is_empty() {
         return Err(sandbox("invalid theme id"));
@@ -327,7 +377,9 @@ mod tests {
     }
 
     fn manifest(id: &str) -> String {
-        format!(r#"{{"id":"{id}","name":"Nebula","author":"Ana","version":"1.0.0","hardware_tier":"balanced","layout_type":"galaxy","shaders":{{"node_fragment":"shaders/node.glsl"}}}}"#)
+        format!(
+            r#"{{"id":"{id}","name":"Nebula","author":"Ana","version":"1.0.0","hardware_tier":"balanced","layout_type":"galaxy","shaders":{{"node_fragment":"shaders/node.glsl"}}}}"#
+        )
     }
 
     fn package(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
@@ -335,7 +387,8 @@ mod tests {
         {
             let mut zw = zip::ZipWriter::new(&mut buf);
             for (name, data) in entries {
-                zw.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+                zw.start_file(*name, zip::write::SimpleFileOptions::default())
+                    .unwrap();
                 zw.write_all(data).unwrap();
             }
             zw.finish().unwrap();
@@ -357,7 +410,12 @@ mod tests {
         let installed = install_package(dir.path(), &package(&good())).unwrap();
         assert_eq!(installed.id, "nebula");
         assert!(dir.path().join("nebula/shaders/node.glsl").is_file());
-        assert!(std::fs::read_dir(dir.path()).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().starts_with(".staging")));
+        assert!(std::fs::read_dir(dir.path()).unwrap().all(|e| {
+            !e.unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".staging")
+        }));
         assert_eq!(read_manifest(dir.path(), "nebula").unwrap().name, "Nebula");
         uninstall(dir.path(), "nebula").unwrap();
         assert!(!dir.path().join("nebula").exists());
@@ -367,12 +425,24 @@ mod tests {
 
     #[test]
     fn rejects_code_traversal_and_unknown_files() {
-        for bad in ["theme.js", "shaders/x.js", "../evil.glsl", "/abs/manifest.json", "other/file.glsl", "shaders/a.wasm", "index.html", "C:/x.glsl"] {
+        for bad in [
+            "theme.js",
+            "shaders/x.js",
+            "../evil.glsl",
+            "/abs/manifest.json",
+            "other/file.glsl",
+            "shaders/a.wasm",
+            "index.html",
+            "C:/x.glsl",
+        ] {
             assert!(validate_entry_path(bad).is_err(), "{bad}");
         }
         let mut pkg = good();
         pkg.push(("payload.js", b"alert(1)".to_vec()));
-        assert!(matches!(unpack(&package(&pkg)), Err(CobaltError::Sandbox(_))));
+        assert!(matches!(
+            unpack(&package(&pkg)),
+            Err(CobaltError::Sandbox(_))
+        ));
     }
 
     #[test]
@@ -381,7 +451,10 @@ mod tests {
         pkg[1].1 = b"<svg onload=alert(1)>".to_vec();
         assert!(unpack(&package(&pkg)).is_err());
 
-        let pkg = vec![("manifest.json", manifest("nebula").into_bytes()), ("preview.webp", webp())];
+        let pkg = vec![
+            ("manifest.json", manifest("nebula").into_bytes()),
+            ("preview.webp", webp()),
+        ];
         assert!(unpack(&package(&pkg)).is_err(), "declared shader missing");
 
         let mut pkg = good();
@@ -390,7 +463,10 @@ mod tests {
 
         let mut pkg = good();
         pkg[2].1 = vec![b' '; 200 * 1024]; // highly compressible, ratio > 100
-        assert!(matches!(unpack(&package(&pkg)), Err(CobaltError::Sandbox(_))));
+        assert!(matches!(
+            unpack(&package(&pkg)),
+            Err(CobaltError::Sandbox(_))
+        ));
     }
 
     #[test]

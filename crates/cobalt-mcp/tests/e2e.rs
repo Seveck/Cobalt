@@ -61,6 +61,7 @@ struct Recorder {
     activity: Mutex<Vec<McpActivity>>,
     changes: Mutex<Vec<MemoryChanged>>,
     blocked: Mutex<Vec<String>>,
+    archived: Mutex<Vec<(String, usize)>>,
 }
 
 impl EventSink for Recorder {
@@ -73,6 +74,12 @@ impl EventSink for Recorder {
     fn read_only_changed(&self, _: bool) {}
     fn firewall_blocked(&self, client: &str, _: &str) {
         self.blocked.lock().unwrap().push(client.to_owned());
+    }
+    fn agent_archived(&self, client: &str, _: &str, others: usize) {
+        self.archived
+            .lock()
+            .unwrap()
+            .push((client.to_owned(), others));
     }
 }
 
@@ -191,7 +198,7 @@ async fn mcp_end_to_end_over_socket_and_http() {
         .await;
 
     let tools = c.request("tools/list", json!({})).await;
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 7);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 8);
 
     // save_memory: secret redacted, project auto-created by name.
     let saved = c
@@ -306,6 +313,57 @@ async fn mcp_end_to_end_over_socket_and_http() {
     daemon.set_read_only(false).await.unwrap();
     assert!(!recorder.changes.lock().unwrap().is_empty());
 
+    // archive_memory: dry run first, confirm only after it; the user is notified.
+    let target = c.call("save_memory", json!({ "content": "Nota temporal sobre el logo viejo azul", "category": "note", "project": "shop-api" })).await;
+    let target_id = target["structuredContent"]["memory_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let early = c
+        .call(
+            "archive_memory",
+            json!({ "memory_id": target_id, "reason": "obsoleta", "confirm": true }),
+        )
+        .await;
+    assert_eq!(
+        early["structuredContent"]["kind"], "conflict",
+        "confirm without dry run must fail"
+    );
+    let dry = c
+        .call(
+            "archive_memory",
+            json!({ "memory_id": target_id, "reason": "obsoleta" }),
+        )
+        .await;
+    assert_eq!(dry["structuredContent"]["archived"], false, "{dry}");
+    assert!(
+        dry["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("DRY RUN")
+    );
+    let done = c
+        .call(
+            "archive_memory",
+            json!({ "memory_id": target_id, "reason": "obsoleta", "confirm": true }),
+        )
+        .await;
+    assert_eq!(done["structuredContent"]["archived"], true, "{done}");
+    assert_eq!(recorder.archived.lock().unwrap().len(), 1);
+    let gone = c
+        .call(
+            "search_memory",
+            json!({ "query": "logo viejo azul", "project": "shop-api" }),
+        )
+        .await;
+    assert!(
+        gone["structuredContent"]["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["id"] != target_id.as_str())
+    );
+
     // Unknown method -> JSON-RPC error.
     let unknown = c.request("resources/list", json!({})).await;
     assert_eq!(unknown["error"]["code"], -32601);
@@ -338,7 +396,7 @@ async fn mcp_end_to_end_over_socket_and_http() {
             .as_array()
             .unwrap()
             .len(),
-        7
+        8
     );
     let (status, _, _) = http(
         server.addr,
