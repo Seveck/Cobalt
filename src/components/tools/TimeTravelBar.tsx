@@ -108,7 +108,7 @@ export function TimeTravelBar({ onClose }: TimeTravelBarProps) {
   };
 
   return (
-    <div className="pointer-events-auto w-full max-w-4xl rounded-[2px] border border-rule-strong bg-surface/96 p-3 shadow-[0_14px_36px_rgba(0,0,0,0.72)] backdrop-blur-sm">
+    <div className="pointer-events-auto w-full max-w-4xl rounded-[2px] border border-rule-strong bg-surface p-3 shadow-[0_14px_36px_rgba(0,0,0,0.72)]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rule pb-2">
         <div className="flex items-center gap-2">
           <Clock size={13} className="text-cobalt-ink" aria-hidden />

@@ -52,7 +52,7 @@ export function SynapticHud() {
   const opColor = OPERATION_COLORS[latestActivity.operation];
 
   return (
-    <div className="pointer-events-auto w-80 max-w-[90vw] rounded-[2px] border border-rule-strong bg-surface/95 shadow-[0_12px_32px_rgba(0,0,0,0.72)] backdrop-blur-sm">
+    <div className="pointer-events-auto w-80 max-w-[90vw] rounded-[2px] border border-rule-strong bg-surface shadow-[0_12px_32px_rgba(0,0,0,0.72)]">
       {/* Compact live pill header */}
       <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
         <div className="flex min-w-0 items-center gap-2">

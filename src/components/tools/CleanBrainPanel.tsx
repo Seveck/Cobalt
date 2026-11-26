@@ -80,7 +80,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
   };
 
   return (
-    <aside className="flex h-full w-full max-w-[440px] flex-col border-l border-rule-strong bg-surface/98 text-bone shadow-[-12px_0_32px_rgba(0,0,0,0.65)] backdrop-blur-sm">
+    <aside className="flex h-full w-full max-w-[440px] flex-col border-l border-rule-strong bg-surface text-bone shadow-[-12px_0_32px_rgba(0,0,0,0.65)]">
       <div className="flex items-center justify-between gap-2 border-b border-rule px-4 py-3">
         <div>
           <div className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-cobalt-ink">

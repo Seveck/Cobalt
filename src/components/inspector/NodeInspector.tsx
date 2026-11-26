@@ -338,7 +338,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
   const verifyIsMocked = Boolean(memory?.source_doc_id) && isCommandMocked("verify_source_document");
 
   return (
-    <aside className="flex h-full w-full max-w-[420px] flex-col border-l border-rule-strong bg-surface/98 text-bone shadow-[-12px_0_32px_rgba(0,0,0,0.65)] backdrop-blur-sm">
+    <aside className="flex h-full w-full max-w-[420px] flex-col border-l border-rule-strong bg-surface text-bone shadow-[-12px_0_32px_rgba(0,0,0,0.65)]">
       {/* Drawer Header */}
       <div className="flex items-center justify-between gap-2 border-b border-rule px-4 py-3">
         <div className="min-w-0">
