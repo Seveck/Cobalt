@@ -64,6 +64,8 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [ ] [CLAUDE] `swap_engine` IPC al cambiar de modelo con memorias existentes (hoy solo se activa en cerebro vacío)
 
 ## Fase 3 — Integración completa [PARALELO]
+- [ ] [CLAUDE] Herramienta MCP `archive_memory` en dos pasos (MCP_SPEC §2.8): simulación que avisa qué otros agentes usan el nodo, confirmación explícita del usuario, notificación del SO, reversible; contratos v1.3.0
+- [ ] [GEMINI] Inspector: mostrar "archivado por <agente>" con botón Restaurar y la lista de agentes que usan el nodo
 - [ ] [CLAUDE] Conector 1-Click (Linux/Win/macOS + `.bak`), MCP Doctor, Theme Store sandboxed, cableado IPC completo
 - [ ] [CODEX] `cobalt-ingest` completo (importador, OCR, PDF, watcher, `.cbrain`, `.cobalt-backup`, Qdrant/LanceDB/Chroma)
 - [ ] [GEMINI] Stores a IPC real (eliminar `*Mock*`), Biblioteca, Conectores/Pro/Doctor, Tienda, Telemetría + Historial + Replay, Puente Web AI, Importador/Mudanza/Branches/Limpiar Cerebro, Nota Rápida

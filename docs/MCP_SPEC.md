@@ -172,6 +172,30 @@ Output: `ResumeHandoffOutput`. Telemetry `operation = 'handoff'`.
 Output: `ListProjectRulesOutput { project, core_laws[], preferences[] }` (compact). Telemetry
 `operation = 'read'`.
 
+### 2.8 `archive_memory` (planned — Phase 3, contract v1.3.0)
+
+Agents can never hard-delete. This is the only removal tool, and it is reversible.
+
+**Docstring**
+> Archive a memory that is wrong or no longer useful, removing it from searches (reversible by the user in Cobalt). Memories are SHARED by all the user's AI tools: another agent may depend on this one. ALWAYS call first with confirm=false to see who uses it, then tell the user plainly that other agents may rely on it and that archiving could hurt their work, and only call again with confirm=true if the user explicitly agrees. Prefer update_memory when the memory is outdated rather than wrong. Nuclear Laws cannot be archived.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "memory_id": { "type": "string", "format": "uuid" },
+    "reason": { "type": "string", "minLength": 1, "description": "Why it should be archived (shown to the user)." },
+    "confirm": { "type": "boolean", "default": false, "description": "false = dry run that returns usage; true = archive (only after the user agreed)." }
+  },
+  "required": ["memory_id", "reason"],
+  "additionalProperties": false
+}
+```
+
+- `confirm=false` (dry run): nothing changes. Returns `ArchiveImpact`: memory preview, `hit_count`, `reuse_count`, `is_reusable`, last access, and the **other clients** that read or reused it (from `telemetry_logs.returned_items_json`, excluding the caller) with counts and last date. Text rendering starts with a warning such as: *"⚠ Used by cursor (12×, last 2 days ago) and gemini-cli (3×). Archiving it may hurt those agents. Ask the user before confirming."*
+- `confirm=true`: requires a dry run for the same `memory_id` by the same client in the last 10 minutes (else `conflict`); archives (`status = 'archived'`) with `version_reason = "archived by <client>: <reason>"`, emits `memory-changed` + a red pulse, and shows a discreet OS notification to the user ("<client> archived a memory used by N other agents — restore in Cobalt").
+- Blocked in Read-Only mode and for Nuclear Laws (`conflict`); goes through the Token Firewall write rate limit; telemetry `operation = 'update'`.
+
 ## 3. Errors
 
 Tool failures return `isError: true` with text `"<kind>: <message>"` and
