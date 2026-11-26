@@ -14,6 +14,7 @@ export interface ThemeState {
   manifest: ThemeManifest;
   activeLayout: LayoutType;
   clusterSizeMetric: ClusterSizeMetric;
+  showConnections: boolean;
   installedThemes: InstalledTheme[];
   loading: boolean;
   error: string | null;
@@ -21,6 +22,8 @@ export interface ThemeState {
   setActiveTheme: (themeId: string) => Promise<boolean>;
   setActiveLayout: (layout: LayoutType) => void;
   setClusterSizeMetric: (metric: ClusterSizeMetric) => void;
+  setShowConnections: (show: boolean) => void;
+  toggleShowConnections: () => void;
   loadInstalledThemes: () => Promise<InstalledTheme[]>;
 }
 
@@ -29,6 +32,7 @@ export const useThemeStore = create<ThemeState>((set) => ({
   manifest: MINIMAL_THEME_MANIFEST,
   activeLayout: MINIMAL_THEME_MANIFEST.layout_type,
   clusterSizeMetric: "vectors",
+  showConnections: false,
   installedThemes: [],
   loading: false,
   error: null,
@@ -69,6 +73,8 @@ export const useThemeStore = create<ThemeState>((set) => ({
 
   setActiveLayout: (activeLayout) => set({ activeLayout }),
   setClusterSizeMetric: (clusterSizeMetric) => set({ clusterSizeMetric }),
+  setShowConnections: (showConnections) => set({ showConnections }),
+  toggleShowConnections: () => set((state) => ({ showConnections: !state.showConnections })),
 
   loadInstalledThemes: async () => {
     set({ loading: true, error: null, isMockData: isCommandMocked("list_installed_themes") });

@@ -16,6 +16,7 @@ import {
   Radio,
   RotateCcw,
   SearchCode,
+  Share2,
   Shield,
   Sparkles,
   Upload,
@@ -91,8 +92,10 @@ export function BrainCanvas() {
   const manifest = useThemeStore((s) => s.manifest);
   const activeLayout = useThemeStore((s) => s.activeLayout);
   const clusterSizeMetric = useThemeStore((s) => s.clusterSizeMetric);
+  const showConnections = useThemeStore((s) => s.showConnections);
   const setActiveLayout = useThemeStore((s) => s.setActiveLayout);
   const setClusterSizeMetric = useThemeStore((s) => s.setClusterSizeMetric);
+  const toggleShowConnections = useThemeStore((s) => s.toggleShowConnections);
 
   const hardwareTier = useSettingsStore((s) => s.settings.hardware_tier);
   const readOnly = useSettingsStore((s) => s.settings.read_only);
@@ -295,6 +298,21 @@ export function BrainCanvas() {
               onSelectSizeMetric={setClusterSizeMetric}
             />
 
+            <button
+              type="button"
+              onClick={toggleShowConnections}
+              aria-pressed={showConnections}
+              title={t("brain.showConnectionsHint")}
+              className={`inline-flex items-center gap-1.5 rounded-[2px] border px-2 py-1 font-mono text-[11px] transition-colors ${
+                showConnections
+                  ? "border-cobalt-rule bg-cobalt-wash font-semibold text-cobalt-ink"
+                  : "border-rule-strong bg-surface/95 text-bone-muted hover:bg-surface-2 hover:text-bone"
+              }`}
+            >
+              <Share2 size={12} aria-hidden />
+              <span>{t("brain.showConnections")}</span>
+            </button>
+
             <div className="inline-flex items-center gap-1 rounded-[2px] border border-rule-strong bg-surface/95 p-0.5">
               <button
                 type="button"
@@ -401,6 +419,7 @@ export function BrainCanvas() {
                 manifest={manifest}
                 activeLayout={activeLayout}
                 clusterSizeMetric={clusterSizeMetric}
+                showConnections={showConnections}
                 hardwareTier={hardwareTier}
                 filters={filters}
                 searchQuery={searchQuery}

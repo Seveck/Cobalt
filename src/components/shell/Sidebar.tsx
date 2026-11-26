@@ -18,7 +18,7 @@ import {
   type NavSection,
 } from "@/stores";
 import { Select, type SelectOption } from "@/components/ui";
-import { CONTRACT_VERSION, type Language } from "@/types/contracts";
+import type { Language } from "@/types/contracts";
 import { CobaltMark } from "./CobaltMark";
 import { MockBadge } from "./MockBadge";
 
@@ -42,7 +42,6 @@ export function Sidebar() {
   const langLabelId = useId();
   const activeNav = useUiStore((s) => s.activeNav);
   const setActiveNav = useUiStore((s) => s.setActiveNav);
-  const appInfo = useUiStore((s) => s.appInfo);
   const globalMockMode = useUiStore((s) => s.globalMockMode);
 
   const settings = useSettingsStore((s) => s.settings);
@@ -146,11 +145,6 @@ export function Sidebar() {
             menuClassName="w-40"
             onChange={(nextLang) => void setLanguage(nextLang)}
           />
-        </div>
-
-        <div className="space-y-0.5 border-t border-rule pt-2.5 font-mono text-[10px] text-bone-subtle">
-          {appInfo && <div>{t("shell.version", { version: appInfo.version })}</div>}
-          <div>{t("shell.contract", { version: CONTRACT_VERSION })}</div>
         </div>
       </div>
     </aside>

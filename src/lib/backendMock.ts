@@ -83,6 +83,7 @@ import {
   type SearchRequest,
   type SearchResponse,
   type SetMemoryEncryptedArgs,
+  type SetProjectWatchedArgs,
   type SetReadOnlyArgs,
   type SetWatchedArgs,
   type Snapshot,
@@ -2205,6 +2206,25 @@ export async function callBackendMock<C extends IpcCommand>(
       doc.updated_at = new Date().toISOString();
       return { ...doc } as ResultOf<C>;
     }
+    case "set_project_watched": {
+      assertWritable(command);
+      const { project_id, watched } = args as SetProjectWatchedArgs;
+      const project = state.projects.find((p) => p.id === project_id);
+      if (!project) {
+        throw new IpcError(command, {
+          kind: "not_found",
+          message: `Project ${project_id} not found`,
+        });
+      }
+      const now = new Date().toISOString();
+      for (const doc of state.sourceDocs.values()) {
+        if (doc.project_id === project_id) {
+          doc.is_watched = watched;
+          doc.updated_at = now;
+        }
+      }
+      return watched as ResultOf<C>;
+    }
     case "promote_file_to_reusable": {
       assertWritable(command);
       const req = args as PromoteFileRequest;
@@ -2685,6 +2705,9 @@ export async function callBackendMock<C extends IpcCommand>(
           total,
           current_path: req.paths[0] ?? null,
           stage: "scanning",
+          background: false,
+          project_id: req.project_id,
+          eta_seconds: total > 2 ? Math.ceil(total * 0.5) : null,
         });
         await sleep(160);
 
@@ -2696,17 +2719,24 @@ export async function callBackendMock<C extends IpcCommand>(
               total,
               current_path: req.paths[i] ?? null,
               stage: "cancelled",
+              background: false,
+              project_id: req.project_id,
+              eta_seconds: null,
             });
             break;
           }
 
           const currentPath = req.paths[i] ?? null;
+          const remaining = Math.max(0, total - i);
           emitMockEvent("cobalt://ingest-progress", {
             job_id: jobId,
             processed: i,
             total,
             current_path: currentPath,
             stage: "reading",
+            background: false,
+            project_id: req.project_id,
+            eta_seconds: remaining > 0 ? Math.ceil(remaining * 0.5) : null,
           });
           await sleep(220);
 
@@ -2717,6 +2747,9 @@ export async function callBackendMock<C extends IpcCommand>(
               total,
               current_path: currentPath,
               stage: "cancelled",
+              background: false,
+              project_id: req.project_id,
+              eta_seconds: null,
             });
             break;
           }
@@ -2727,6 +2760,9 @@ export async function callBackendMock<C extends IpcCommand>(
             total,
             current_path: currentPath,
             stage: "embedding",
+            background: false,
+            project_id: req.project_id,
+            eta_seconds: Math.max(0, total - (i + 1)) > 0 ? Math.ceil((total - (i + 1)) * 0.5) : null,
           });
           await sleep(260);
 
@@ -2752,6 +2788,9 @@ export async function callBackendMock<C extends IpcCommand>(
             total,
             current_path: req.paths[req.paths.length - 1] ?? null,
             stage: "completed",
+            background: false,
+            project_id: req.project_id,
+            eta_seconds: null,
           });
         }
 
@@ -2799,6 +2838,9 @@ export async function callBackendMock<C extends IpcCommand>(
           total: 2,
           current_path: req.path,
           stage: "parsing",
+          background: false,
+          project_id: req.project_id,
+          eta_seconds: 1,
         });
         await sleep(260);
         if (cancelledMockIngestJobs.has(jobId)) {
@@ -2808,6 +2850,9 @@ export async function callBackendMock<C extends IpcCommand>(
             total: 2,
             current_path: req.path,
             stage: "cancelled",
+            background: false,
+            project_id: req.project_id,
+            eta_seconds: null,
           });
           const partial: IngestReport = {
             documents_created: 0,
@@ -2828,6 +2873,9 @@ export async function callBackendMock<C extends IpcCommand>(
           total: 2,
           current_path: req.path,
           stage: "embedding",
+          background: false,
+          project_id: req.project_id,
+          eta_seconds: 1,
         });
         await sleep(260);
         const wasCancelled = cancelledMockIngestJobs.has(jobId);
@@ -2837,6 +2885,9 @@ export async function callBackendMock<C extends IpcCommand>(
           total: 2,
           current_path: req.path,
           stage: wasCancelled ? "cancelled" : "completed",
+          background: false,
+          project_id: req.project_id,
+          eta_seconds: null,
         });
         const report: IngestReport = {
           documents_created: wasCancelled ? 0 : 1,

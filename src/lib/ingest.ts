@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { IngestIssue, IngestReport } from "@/types/contracts";
+import { INGEST_STAGES, type IngestIssue, type IngestReport } from "@/types/contracts";
 
 export type IngestStageKey =
   | "starting"
@@ -14,6 +14,8 @@ export type IngestStageKey =
   | "indexing"
   | "saving"
   | "importing"
+  | "pausing"
+  | "paused"
   | "cancelling"
   | "cancelled"
   | "completed"
@@ -62,10 +64,41 @@ export function formatElapsed(elapsedMs: number): string {
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
+/** Format backend `eta_seconds` as plain-language remaining time (e.g. `quedan ~3 min` / `~3 min left`). */
+export function formatIngestEta(
+  etaSeconds: number | null | undefined,
+  t: TFunction,
+): string | null {
+  if (etaSeconds == null || !Number.isFinite(etaSeconds) || etaSeconds <= 0) {
+    return null;
+  }
+  if (etaSeconds < 60) {
+    return t("ingest.etaLessThanMin");
+  }
+  if (etaSeconds < 3600) {
+    const minutes = Math.max(1, Math.round(etaSeconds / 60));
+    return t("ingest.etaMinutes", { count: minutes });
+  }
+  const hours = Math.floor(etaSeconds / 3600);
+  const minutes = Math.round((etaSeconds % 3600) / 60);
+  if (minutes === 0) {
+    return t("ingest.etaHours", { hours });
+  }
+  return t("ingest.etaHoursMinutes", { hours, minutes });
+}
+
 /** Map a raw backend `IngestProgress.stage` string to a known i18n stage key. */
 export function resolveIngestStageKey(stage: string): IngestStageKey | null {
   const raw = stage.trim().toLowerCase();
   if (!raw) return null;
+
+  if (raw === INGEST_STAGES.scanning) return "scanning";
+  if (raw === INGEST_STAGES.reading) return "reading";
+  if (raw === INGEST_STAGES.embedding) return "embedding";
+  if (raw === INGEST_STAGES.saving) return "saving";
+  if (raw === INGEST_STAGES.completed) return "completed";
+  if (raw === INGEST_STAGES.cancelled) return "cancelled";
+  if (raw === INGEST_STAGES.failed) return "failed";
 
   if (raw === "starting" || raw === "init" || raw === "initializing" || raw === "preparing") {
     return "starting";
@@ -87,6 +120,8 @@ export function resolveIngestStageKey(stage: string): IngestStageKey | null {
     return "saving";
   }
   if (raw.startsWith("import")) return "importing";
+  if (raw === "pausing") return "pausing";
+  if (raw === "paused") return "paused";
   if (raw === "cancelling" || raw === "canceling" || raw === "stopping") return "cancelling";
   if (raw === "cancelled" || raw === "canceled" || raw === "stopped" || raw === "aborted") {
     return "cancelled";
@@ -99,12 +134,12 @@ export function resolveIngestStageKey(stage: string): IngestStageKey | null {
   return null;
 }
 
-/** Detect whether a backend stage string signals a terminal job state. */
+/** Detect whether a backend stage string signals a terminal job state (`INGEST_STAGES`). */
 export function isTerminalIngestStage(stage: string): "completed" | "cancelled" | "failed" | null {
   const key = resolveIngestStageKey(stage);
-  if (key === "completed") return "completed";
-  if (key === "cancelled") return "cancelled";
-  if (key === "failed") return "failed";
+  if (key === INGEST_STAGES.completed) return "completed";
+  if (key === INGEST_STAGES.cancelled) return "cancelled";
+  if (key === INGEST_STAGES.failed) return "failed";
   return null;
 }
 

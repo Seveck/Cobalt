@@ -155,6 +155,8 @@
     "balancedFpsCap": "Balanced · 60 FPS cap",
     "fpsUncapped": "Ultra · Uncapped FPS",
     "resetCamera": "Reset camera",
+    "showConnections": "Show connections",
+    "showConnectionsHint": "Show all real connections between your memories (always visible on hover or selection)",
     "hoverHint": "Drag to orbit · Scroll to zoom · Click a node to inspect",
     "corePin": "Nuclear Law",
     "reusable": "Reusable",
@@ -405,6 +407,8 @@
     "readOnlyDesc": "Prevents AI tools from writing or modifying your memories.",
     "captureTitle": "Automatic capture",
     "captureSubtitle": "Keep your memory automatically up to date as you work with your files and AI assistants.",
+    "captureIndexingPausedTitle": "Pause indexing",
+    "captureIndexingPausedDesc": "Temporarily pauses automatic folder watching and background re-indexing until you resume.",
     "captureAutoWatchTitle": "Watch projects automatically",
     "captureAutoWatchDesc": "When you import a folder or an AI works inside a project, Cobalt keeps its files indexed and up to date in the background.",
     "captureSessionHandoffsTitle": "Automatic session handoffs",
@@ -423,7 +427,10 @@
     "hardwareTitle": "Hardware summary & onboarding",
     "rerunOnboarding": "Welcome wizard",
     "rerunOnboardingDesc": "Re-open the initial hardware detection and setup screen.",
-    "rerunButton": "Open onboarding"
+    "rerunButton": "Open onboarding",
+    "aboutTitle": "About",
+    "aboutAppVersion": "Cobalt version",
+    "aboutContractVersion": "Contract version"
   },
   "library": {
     "title": "Reusable Library",
@@ -735,7 +742,12 @@
       "createdNotice": "Project created.",
       "updatedNotice": "Project updated.",
       "archivedNotice": "Project archived.",
-      "restoredNotice": "Project restored."
+      "restoredNotice": "Project restored.",
+      "watchProject": "Watch this project",
+      "watchProjectHint": "Automatically keeps files in this folder indexed as they change",
+      "watchNeedsFolder": "Link a folder to this project first to watch for changes",
+      "watchEnabledNotice": "Watching enabled for \"{{name}}\".",
+      "watchDisabledNotice": "Watching disabled for \"{{name}}\"."
     },
     "webBridge": {
       "title": "Web AI Bridge",
@@ -874,8 +886,21 @@
     "finishedBadge": "{{count}} finished",
     "calculatingTotal": "Counting files…",
     "recentFinishedTitle": "Recent imports",
+    "indexingPausedBanner": "Automatic indexing paused",
+    "etaLessThanMin": "< 1 min left",
+    "etaMinutes": "~{{count}} min left",
+    "etaHours": "~{{hours}} h left",
+    "etaHoursMinutes": "~{{hours}} h {{minutes}} min left",
+    "background": {
+      "sectionTitle": "Automatic background updates",
+      "keepingUpToDate": "Keeping up to date",
+      "upToDate": "Up to date",
+      "fileOne": "1 file",
+      "fileMany": "{{count}} files"
+    },
     "status": {
       "running": "Importing",
+      "paused": "Paused",
       "completed": "Completed",
       "cancelled": "Stopped",
       "failed": "Failed"
@@ -893,6 +918,8 @@
       "indexing": "Organizing in memory…",
       "saving": "Saving memories…",
       "importing": "Importing items…",
+      "pausing": "Pausing…",
+      "paused": "Paused",
       "cancelling": "Stopping import…",
       "cancelled": "Import stopped",
       "completed": "Import complete",
@@ -904,6 +931,8 @@
       "unchanged": "{{count}} unchanged",
       "skippedWithReason": "{{count}} skipped ({{reason}})",
       "errors": "{{count}} error(s)",
+      "pausedPartial": "Paused after {{processed}} of {{total}} files (unchanged files will be skipped on resume)",
+      "pausedGeneric": "Paused (unchanged files will be skipped on resume)",
       "stoppedPartial": "Stopped after {{processed}} of {{total}} files",
       "stoppedNoFiles": "Import was stopped before finishing",
       "processedCount": "{{processed}} of {{total}} files processed"
@@ -917,6 +946,13 @@
       "default": "ignored, binary, or over 2 MB"
     },
     "actions": {
+      "pause": "Pause",
+      "pausing": "Pausing…",
+      "resume": "Resume",
+      "pauseIndexing": "Pause indexing",
+      "resumeIndexing": "Resume",
+      "pauseIndexingHint": "Pause background watching and automatic re-indexing",
+      "resumeIndexingHint": "Resume background watching and automatic re-indexing",
       "stopping": "Stopping…",
       "showDetails": "Expand import details",
       "hideDetails": "Collapse import details",
