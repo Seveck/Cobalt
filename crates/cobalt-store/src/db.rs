@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use cobalt_core::error::{CobaltError, Result};
@@ -15,6 +16,8 @@ pub(crate) struct Database(Arc<Connections>);
 
 struct Connections {
     writer: Mutex<Connection>,
+    maintenance: Arc<tokio::sync::RwLock<()>>,
+    queued: AtomicUsize,
     write_slot: Arc<Semaphore>,
     readers: Mutex<Vec<Connection>>,
     read_slots: Arc<Semaphore>,
@@ -77,6 +80,8 @@ impl Database {
                 .map_err(sql_error)?;
             Ok(Self(Arc::new(Connections {
                 writer: Mutex::new(writer),
+                maintenance: Arc::default(),
+                queued: AtomicUsize::new(0),
                 write_slot: Arc::new(Semaphore::new(1)),
                 readers: Mutex::new(readers),
                 read_slots: Arc::new(Semaphore::new(READERS)),
@@ -121,7 +126,29 @@ impl Database {
         .await
     }
 
+    pub(crate) async fn maintenance(&self) -> tokio::sync::OwnedRwLockWriteGuard<()> {
+        self.0.maintenance.clone().write_owned().await
+    }
+
+    pub(crate) fn queued_writes(&self) -> u64 {
+        self.0.queued.load(Ordering::Relaxed) as u64
+    }
+
     pub(crate) async fn write<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&mut Connection) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let pending = PendingWrite::new(&self.0.queued);
+        let gate = self.0.maintenance.clone().read_owned().await;
+        drop(pending);
+        self.write_exclusive(move |conn| {
+            let _gate = gate;
+            work(conn)
+        })
+        .await
+    }
+
+    pub(crate) async fn write_exclusive<T: Send + 'static>(
         &self,
         work: impl FnOnce(&mut Connection) -> Result<T> + Send + 'static,
     ) -> Result<T> {
@@ -138,6 +165,21 @@ impl Database {
             work(&mut writer)
         })
         .await
+    }
+}
+
+pub(crate) struct PendingWrite<'a>(&'a AtomicUsize);
+
+impl<'a> PendingWrite<'a> {
+    pub(crate) fn new(count: &'a AtomicUsize) -> Self {
+        count.fetch_add(1, Ordering::Relaxed);
+        Self(count)
+    }
+}
+
+impl Drop for PendingWrite<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -201,8 +243,8 @@ fn migrate(conn: &mut Connection) -> Result<()> {
         }
         SCHEMA_VERSION => {}
         _ => {
-            return Err(CobaltError::Unsupported(format!(
-                "SQLite schema version {version}"
+            return Err(CobaltError::Integrity(format!(
+                "SQLite schema version {version} is incompatible with version {SCHEMA_VERSION}"
             )));
         }
     }
