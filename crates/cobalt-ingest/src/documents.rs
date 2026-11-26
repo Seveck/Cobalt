@@ -1016,8 +1016,10 @@ impl Context {
                 )
                 .collect();
             let cancellation = run.cancellation.clone();
-            run.progress.stage(INGEST_STAGE_EMBEDDING);
-            run.progress.start_chunks(chunks.len());
+            if !chunks.is_empty() {
+                run.progress.stage(INGEST_STAGE_EMBEDDING);
+                run.progress.start_chunks(chunks.len());
+            }
             let progress = run.progress.clone();
             let change = store
                 .replace_watched_file_with_progress(
@@ -1165,9 +1167,9 @@ impl Context {
             };
             pending.push(new);
         }
-        run.progress.start_chunks(pending.len());
         if !pending.is_empty() {
             run.progress.stage(INGEST_STAGE_EMBEDDING);
+            run.progress.start_chunks(pending.len());
         }
         let batch_size = if self.sqlite.is_some() {
             DOCUMENT_EMBED_BATCH

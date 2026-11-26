@@ -386,6 +386,73 @@ fn assert_job_terminal(
 }
 
 #[tokio::test]
+async fn reports_each_chunk_of_the_current_file_before_eta_is_available() {
+    let dir = tempfile::tempdir().unwrap();
+    let (calls, mut embeddings) = mpsc::unbounded_channel();
+    let (store, _, tokens) = setup_with_embedder_gate(dir.path(), "test", Some(calls)).await;
+    let mut ingest = IngestService::new(store, tokens.clone());
+    Arc::get_mut(&mut ingest.inner).unwrap().global_ignore = Some(dir.path().join("ignore-config"));
+    let file = dir.path().join("notes.md");
+    let text = "astronomy apple bronze cactus diamond eagle forest guitar harp iron jelly kitten lemon moon nest ocean piano quartz ribbon star tulip umbrella violet wolf xylophone yarn zebra autumn baker coffee dragon elbow flower glass horse island";
+    std::fs::write(&file, text).unwrap();
+    let total = chunks(tokens.as_ref(), text, 16, 4, &Cancellation::default())
+        .unwrap()
+        .len() as u64;
+    assert!((3..5).contains(&total));
+    let (send, mut progress) = mpsc::unbounded_channel();
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let (result, ()) = tokio::join!(
+            ingest.ingest_paths(req(&file), Arc::new(move |event| send.send(event).unwrap())),
+            async {
+                let initial = progress.recv().await.unwrap();
+                assert_eq!(initial.stage, INGEST_STAGE_SCANNING);
+                assert_eq!(
+                    (initial.file_chunks_done, initial.file_chunks_total),
+                    (None, None)
+                );
+
+                for done in 0..=total {
+                    let event = loop {
+                        let event = progress.recv().await.unwrap();
+                        assert!(!is_terminal(&event));
+                        if event.file_chunks_done == Some(done) {
+                            break event;
+                        }
+                    };
+                    assert_eq!(event.file_chunks_total, Some(total));
+                    assert_eq!(event.eta_seconds, None);
+                    if done < total {
+                        let (count, release) = embeddings.recv().await.unwrap();
+                        assert_eq!(count, 1);
+                        if done == 0 {
+                            let heartbeat = progress.recv().await.unwrap();
+                            assert_eq!(heartbeat, event);
+                        }
+                        release.send(()).unwrap();
+                    }
+                }
+
+                let terminal = loop {
+                    let event = progress.recv().await.unwrap();
+                    if is_terminal(&event) {
+                        break event;
+                    }
+                };
+                assert_eq!(terminal.stage, INGEST_STAGE_COMPLETED);
+                assert_eq!(
+                    (terminal.file_chunks_done, terminal.file_chunks_total),
+                    (None, None)
+                );
+            }
+        );
+        assert!(result.unwrap().errors.is_empty());
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
 async fn batches_embeddings_and_emits_eta_before_the_job_finishes() {
     let dir = tempfile::tempdir().unwrap();
     let (calls, mut embeddings) = mpsc::unbounded_channel();
@@ -1065,20 +1132,42 @@ async fn stopping_watcher_stops_active_reconciliation_between_chunks() {
 
     tokio::time::timeout(Duration::from_secs(10), async {
         let (_, in_flight) = embeddings.recv().await.unwrap();
+        let initial = updates.recv().await.unwrap();
+        assert_eq!(initial.stage, INGEST_STAGE_SCANNING);
+        let embedding = loop {
+            let event = updates.recv().await.unwrap();
+            assert!(!is_terminal(&event));
+            if event.stage == INGEST_STAGE_EMBEDDING {
+                break event;
+            }
+        };
+        assert!(embedding.background);
+        assert_eq!(embedding.job_id, initial.job_id);
+        assert_eq!((embedding.processed, embedding.total), (0, 1));
+        assert_eq!(embedding.file_chunks_done, Some(0));
+        assert!(embedding.file_chunks_total.is_some_and(|total| total > 0));
         let (stopped, ()) = tokio::join!(
             biased;
             ingest.stop_watcher(),
             async { in_flight.send(()).unwrap() },
         );
         stopped.unwrap();
+        let terminal = loop {
+            let event = updates.recv().await.unwrap();
+            assert_eq!(event.job_id, initial.job_id);
+            if is_terminal(&event) {
+                break event;
+            }
+        };
+        assert_eq!(terminal.stage, INGEST_STAGE_CANCELLED);
+        assert_eq!(
+            (terminal.file_chunks_done, terminal.file_chunks_total),
+            (None, None)
+        );
     })
     .await
     .unwrap();
 
-    assert_eq!(
-        watcher_job(&mut updates).await.last().unwrap().stage,
-        INGEST_STAGE_CANCELLED
-    );
     assert!(updates.try_recv().is_err());
     assert!(embeddings.try_recv().is_err());
     let doc = store

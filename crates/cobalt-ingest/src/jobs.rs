@@ -78,6 +78,8 @@ impl Jobs {
             project_id,
             background: parent.is_some(),
             eta_seconds: None,
+            file_chunks_done: None,
+            file_chunks_total: None,
         });
         let mut job = Job {
             jobs: self,
@@ -143,6 +145,8 @@ impl Job<'_> {
             let mut event = self.receiver.borrow().clone();
             stage.clone_into(&mut event.stage);
             event.eta_seconds = None;
+            event.file_chunks_done = None;
+            event.file_chunks_total = None;
             sink(event);
         }
     }
@@ -196,6 +200,8 @@ impl Progress {
             let path = scrub(&path.to_string_lossy()).text;
             sender.send_modify(|progress| {
                 progress.current_path = Some(path);
+                progress.file_chunks_done = None;
+                progress.file_chunks_total = None;
                 if self.track_files {
                     progress.processed = processed;
                     progress.total = total;
@@ -223,12 +229,16 @@ impl Progress {
     }
 
     pub(crate) fn start_chunks(&self, count: usize) {
-        if self.sender.is_some() && count != 0 {
+        if let Some(sender) = &self.sender {
             let mut rate = self.rate.lock().unwrap_or_else(PoisonError::into_inner);
             rate.files += 1;
             rate.chunks += count;
             rate.remaining = count;
             rate.started.get_or_insert_with(Instant::now);
+            sender.send_modify(|event| {
+                event.file_chunks_done = Some(0);
+                event.file_chunks_total = Some(count as u64);
+            });
         }
     }
 
@@ -247,16 +257,19 @@ impl Progress {
                 rate.samples.pop_front();
             }
             let recent: usize = rate.samples.iter().map(|(_, count)| count).sum();
-            if recent >= 5 {
-                let elapsed = now.duration_since(rate.samples[0].0).as_secs_f64();
-                sender.send_modify(|event| {
+            sender.send_modify(|event| {
+                if let Some(done) = &mut event.file_chunks_done {
+                    *done += count as u64;
+                }
+                if recent >= 5 {
+                    let elapsed = now.duration_since(rate.samples[0].0).as_secs_f64();
                     let remaining_files = event.total.saturating_sub(event.processed + 1);
                     let chunks_per_file = rate.chunks as f64 / rate.files as f64;
                     let remaining =
                         rate.remaining as f64 + remaining_files as f64 * chunks_per_file;
                     event.eta_seconds = Some((elapsed * remaining / recent as f64).ceil() as u64);
-                });
-            }
+                }
+            });
         }
     }
 }
@@ -266,13 +279,25 @@ async fn emit_progress(
     progress: Option<ProgressSink<IngestProgress>>,
 ) {
     let Some(progress) = progress else { return };
-    let initial = updates.borrow_and_update().clone();
-    progress(initial);
-    let mut last_event = Instant::now();
-    while updates.changed().await.is_ok() {
-        sleep_until(last_event + PROGRESS_INTERVAL).await;
+    loop {
         let latest = updates.borrow_and_update().clone();
-        last_event = Instant::now();
+        let embedding = latest.stage == INGEST_STAGE_EMBEDDING
+            && matches!(
+                (latest.file_chunks_done, latest.file_chunks_total),
+                (Some(done), Some(total)) if done < total
+            );
         progress(latest);
+        let next_event = Instant::now() + PROGRESS_INTERVAL;
+        // Publish periodically even while an embedding batch is still in flight.
+        tokio::select! {
+            biased;
+            result = updates.changed() => {
+                if result.is_err() {
+                    break;
+                }
+                sleep_until(next_event).await;
+            }
+            () = sleep_until(next_event), if embedding => {}
+        }
     }
 }
