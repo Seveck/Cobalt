@@ -98,6 +98,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] Indexación en segundo plano (2026-11-26, contratos v1.6.0): todo trabajo (UI, vigilante, hooks) termina con `completed`/`cancelled`/`failed` (arregla los 72 trabajos "atascados"); ráfagas del vigilante agrupadas en un trabajo por proyecto; archivos con mismo SHA-256 omitidos; documentación antes que código; ETA; guardado por lotes de 24 fragmentos
 - [x] Pausa global de indexación (`capture.indexing_paused`, también detiene el vigilante), Pausar/Reanudar por trabajo, interruptor "Vigilar este proyecto"; trabajos de fondo agrupados en una fila por proyecto con tiempo restante
 - [x] Grafo: sin líneas decorativas en `brain`/`project_clusters`, botón "Mostrar conexiones" (aristas reales); versión y contratos movidos a Ajustes → Acerca de
+- [ ] [CLAUDE] Bug (2026-11-26): `cobalt --mcp-stdio` no se reconecta si el daemon se reinicia (p. ej. recompilación de `tauri dev` o auto-actualización); el cliente ve "Connection closed". Arreglo: reconectar (lanzando el daemon si falta) y reenviar en silencio el `initialize`/`notifications/initialized` guardado, descartando su respuesta; test E2E reiniciando el daemon
 - [ ] Pendiente: hooks de Antigravity (`agy`, vía plugin `hooks.json`; formato por verificar) y de Cursor/Windsurf/Cline (sin sistema de hooks: solo instrucciones); los hooks apuntan al binario actual (reinstalar al instalar la versión final)
 
 ## Fase 3.5 — Asistente conversacional, Personas y Estudio [PARALELO] (decidida 2026-11-25)
