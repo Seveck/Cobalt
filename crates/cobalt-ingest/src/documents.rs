@@ -1,12 +1,13 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::sync::Arc;
 
 use cobalt_core::config::AppSettings;
 use cobalt_core::enums::{MemoryCategory, MemoryStatus, PastLifeSource, SourceType, WriteAction};
 use cobalt_core::error::{CobaltError, Result};
-use cobalt_core::ids::{Id, new_id};
+use cobalt_core::ids::Id;
 use cobalt_core::memoryignore::MemoryIgnore;
 use cobalt_core::model::{GraphQuery, Memory, MemoryPatch, NewMemory, NewSourceDocument};
 use cobalt_core::scrubber::scrub;
@@ -16,11 +17,14 @@ use cobalt_core::transfer::{
 };
 use sha2::{Digest, Sha256};
 
+use crate::jobs::{Cancellation, Progress, emit_progress};
 use crate::{Context, blocking, past_life};
 
 pub(crate) const INGEST_CLIENT: &str = "cobalt-ingest";
 const PAST_LIFE_CLIENT: &str = "cobalt-past-life";
 pub(crate) const MAX_DOCUMENT_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_FOLDER_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const SNIFF_BYTES: usize = 8 * 1024;
 
 pub(crate) fn digest(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
@@ -74,6 +78,7 @@ pub(crate) fn chunks(
     mut text: &str,
     max: usize,
     overlap: usize,
+    cancellation: &Cancellation,
 ) -> Result<Vec<String>> {
     if max == 0 {
         return Err(CobaltError::InvalidInput(
@@ -83,6 +88,7 @@ pub(crate) fn chunks(
     let mut result = Vec::new();
     text = text.trim();
     while !text.is_empty() {
+        cancellation.check()?;
         let mut window = text.len().min(max.saturating_mul(32));
         while !text.is_char_boundary(window) {
             window -= 1;
@@ -114,96 +120,213 @@ pub(crate) fn chunks(
     Ok(result)
 }
 
+#[derive(Default)]
+struct IgnoreMatchers {
+    roots: HashMap<PathBuf, MemoryIgnore>,
+    nested: HashMap<PathBuf, Option<MemoryIgnore>>,
+}
+
+impl IgnoreMatchers {
+    fn ignored(
+        &mut self,
+        path: &Path,
+        is_dir: bool,
+        project_root: Option<&Path>,
+        global: Option<&Path>,
+    ) -> Result<bool> {
+        let mut ancestors: Vec<_> = path.ancestors().skip(1).collect();
+        ancestors.reverse();
+        let default_root = ancestors.first().copied().unwrap_or(path);
+        let root = project_root
+            .filter(|root| path.starts_with(root))
+            .unwrap_or(default_root);
+        if !self.roots.contains_key(root) {
+            self.roots
+                .insert(root.to_owned(), MemoryIgnore::for_root(root, global)?);
+        }
+        if self.roots[root].is_ignored(path, is_dir) {
+            return Ok(true);
+        }
+        for ancestor in ancestors {
+            if ancestor == root || !ancestor.starts_with(root) {
+                continue;
+            }
+            if !self.nested.contains_key(ancestor) {
+                let matcher = ancestor
+                    .join(cobalt_core::paths::MEMORY_IGNORE_FILE)
+                    .is_file()
+                    .then(|| MemoryIgnore::for_root(ancestor, None))
+                    .transpose()?;
+                self.nested.insert(ancestor.to_owned(), matcher);
+            }
+            if self.nested[ancestor]
+                .as_ref()
+                .is_some_and(|matcher| matcher.is_ignored(path, is_dir))
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
 pub(crate) fn ignored(
     path: &Path,
     is_dir: bool,
     project_root: Option<&Path>,
     global: Option<&Path>,
 ) -> Result<bool> {
-    let mut ancestors: Vec<_> = path
-        .parent()
-        .into_iter()
-        .flat_map(Path::ancestors)
-        .collect();
-    ancestors.reverse();
-    let default_root = ancestors.first().copied().unwrap_or(path);
-    let project_root = project_root.filter(|root| path.starts_with(root));
-    let root = project_root.unwrap_or(default_root);
-    // Evaluate nested rule files as independent roots after the project/global rule set.
-    if MemoryIgnore::for_root(root, global)?.is_ignored(path, is_dir) {
-        return Ok(true);
-    }
-    for ancestor in ancestors {
-        if ancestor != root
-            && ancestor.starts_with(root)
-            && ancestor
-                .join(cobalt_core::paths::MEMORY_IGNORE_FILE)
-                .is_file()
-            && MemoryIgnore::for_root(ancestor, None)?.is_ignored(path, is_dir)
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    IgnoreMatchers::default().ignored(path, is_dir, project_root, global)
 }
 
 #[derive(Default)]
 struct Paths {
-    files: BTreeSet<PathBuf>,
+    files: BTreeMap<PathBuf, bool>,
     directories: BTreeSet<PathBuf>,
     issues: Vec<IngestIssue>,
-    ignored: u64,
+    skipped: u64,
 }
 
 fn collect(
     paths: Vec<String>,
     root: Option<&Path>,
     global: Option<&Path>,
-    source: Option<PastLifeSource>,
+    run: &IngestRun,
 ) -> Paths {
+    let source = run.source;
     let mut result = Paths::default();
     let mut pending: Vec<_> = paths
         .into_iter()
         .map(|path| (PathBuf::from(path), true))
         .collect();
-    let mut visited = HashSet::new();
-    while let Some((path, explicit)) = pending.pop() {
+    let mut visited_directories = HashSet::new();
+    let mut visited_skips = HashSet::new();
+    let mut ignores = IgnoreMatchers::default();
+    while let Some((path, direct)) = pending.pop() {
+        if run.cancellation.check().is_err() {
+            break;
+        }
+        let explicit = direct && !run.folder_limited;
         let visit = (|| {
-            let path = std::path::absolute(&path)?;
-            let metadata = path.symlink_metadata()?;
-            if metadata.is_symlink() || ignored(&path, metadata.is_dir(), root, global)? {
-                result.ignored += 1;
+            let absolute = std::path::absolute(&path)?;
+            let metadata = absolute.symlink_metadata()?;
+            if metadata.is_symlink() {
+                result.skipped += u64::from(visited_skips.insert(absolute));
                 return Ok(());
             }
-            let path = path.canonicalize()?;
-            if ignored(&path, metadata.is_dir(), root, global)? {
-                result.ignored += 1;
+            let candidate = metadata.is_file() && (explicit || eligible(&absolute, source));
+            let conversations_zip = candidate && is_conversations_zip(&absolute, source);
+            let known_binary = candidate && !conversations_zip && binary_extension(&absolute);
+            if !known_binary && ignores.ignored(&absolute, metadata.is_dir(), root, global)? {
+                result.skipped += u64::from(visited_skips.insert(absolute));
+                return Ok(());
+            }
+            let path = absolute.canonicalize()?;
+            if !known_binary && ignores.ignored(&path, metadata.is_dir(), root, global)? {
+                result.skipped += u64::from(visited_skips.insert(path));
                 return Ok(());
             }
             path_string(&path)?;
-            if !visited.insert(path.clone()) {
-                return Ok(());
-            }
             if metadata.is_dir() {
-                if explicit && source.is_none() {
+                if direct && source.is_none() {
                     result.directories.insert(path.clone());
                 }
+                if !visited_directories.insert(path.clone()) {
+                    return Ok(());
+                }
+                let discovered = (result.files.len() + result.directories.len()) as u64;
+                run.progress.document(&path, 0, discovered, "scanning");
                 for entry in std::fs::read_dir(&path)? {
+                    run.cancellation.check()?;
                     match entry {
                         Ok(entry) => pending.push((entry.path(), false)),
                         Err(error) => result.issues.push(issue(&path, error.into())),
                     }
                 }
-            } else if metadata.is_file() && (explicit || eligible(&path, source)) {
-                result.files.insert(path);
+            } else if candidate {
+                // Prefer the explicit-file limit when the same file was also reached by a walk.
+                *result.files.entry(path).or_insert(false) |= explicit;
             }
             Ok(())
         })();
-        if let Err(error) = visit {
-            result.issues.push(issue(&path, error));
+        match visit {
+            Err(CobaltError::Cancelled) => break,
+            Err(error) => result.issues.push(issue(&path, error)),
+            Ok(()) => {}
         }
     }
     result
+}
+
+fn is_conversations_zip(path: &Path, source: Option<PastLifeSource>) -> bool {
+    matches!(
+        source,
+        Some(PastLifeSource::ChatgptExport | PastLifeSource::ClaudeExport)
+    ) && path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+}
+
+fn binary_extension(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some(
+            "a" | "o"
+                | "obj"
+                | "lib"
+                | "so"
+                | "dll"
+                | "dylib"
+                | "exe"
+                | "bin"
+                | "class"
+                | "jar"
+                | "war"
+                | "wasm"
+                | "pyc"
+                | "pyo"
+                | "pack"
+                | "db"
+                | "sqlite"
+                | "sqlite3"
+                | "onnx"
+                | "pt"
+                | "pth"
+                | "safetensors"
+                | "parquet"
+                | "zip"
+                | "tar"
+                | "gz"
+                | "tgz"
+                | "bz2"
+                | "xz"
+                | "zst"
+                | "7z"
+                | "rar"
+                | "iso"
+                | "mp4"
+                | "mov"
+                | "mkv"
+                | "avi"
+                | "webm"
+                | "mp3"
+                | "wav"
+                | "ogg"
+                | "flac"
+                | "ico"
+                | "woff"
+                | "woff2"
+                | "ttf"
+                | "otf"
+                | "psd"
+                | "docx"
+                | "xlsx"
+                | "pptx"
+        )
+    )
 }
 
 pub(crate) fn eligible(path: &Path, source: Option<PastLifeSource>) -> bool {
@@ -232,6 +355,87 @@ pub(crate) fn read_document(mut input: impl Read) -> Result<Vec<u8>> {
         ));
     }
     Ok(bytes)
+}
+
+pub(crate) enum FileRead {
+    Bytes(Vec<u8>),
+    Skipped(CobaltError),
+}
+
+impl FileRead {
+    fn unsupported(reason: &str) -> Self {
+        Self::Skipped(CobaltError::Unsupported(reason.into()))
+    }
+
+    fn over_limit(limit: u64) -> Self {
+        let reason = if limit == MAX_FOLDER_FILE_BYTES {
+            "document exceeds the 2 MiB folder ingestion limit"
+        } else {
+            "document exceeds the 128 MiB ingestion limit"
+        };
+        Self::Skipped(CobaltError::InvalidInput(reason.into()))
+    }
+}
+
+pub(crate) fn read_text_document(mut input: impl Read, limit: u64) -> Result<FileRead> {
+    let mut input = input.by_ref().take(limit + 1);
+    let mut bytes = Vec::with_capacity(SNIFF_BYTES);
+    input
+        .by_ref()
+        .take(SNIFF_BYTES as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.contains(&0) {
+        return Ok(FileRead::unsupported("binary document contains a NUL byte"));
+    }
+    if let Err(error) = std::str::from_utf8(&bytes)
+        && (error.error_len().is_some() || bytes.len() < SNIFF_BYTES)
+    {
+        return Ok(FileRead::unsupported("document is not UTF-8 text"));
+    }
+    input.read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
+        return Ok(FileRead::over_limit(limit));
+    }
+    if bytes[SNIFF_BYTES.min(bytes.len())..].contains(&0) {
+        return Ok(FileRead::unsupported("binary document contains a NUL byte"));
+    }
+    // Validate the complete text too, including a code point split at the sniff boundary.
+    if std::str::from_utf8(&bytes).is_err() {
+        return Ok(FileRead::unsupported("document is not UTF-8 text"));
+    }
+    Ok(FileRead::Bytes(bytes))
+}
+
+fn read_file(
+    path: &Path,
+    kind: SourceType,
+    explicit: bool,
+    conversations_zip: bool,
+    ocr: bool,
+) -> Result<FileRead> {
+    if !explicit && matches!(kind, SourceType::Pdf | SourceType::Image)
+        || !conversations_zip && binary_extension(path)
+    {
+        return Ok(FileRead::unsupported(
+            "binary document excluded by file extension",
+        ));
+    }
+    if kind == SourceType::Image {
+        return Ok(FileRead::Skipped(ocr_error(ocr)));
+    }
+    let limit = if explicit {
+        MAX_DOCUMENT_BYTES
+    } else {
+        MAX_FOLDER_FILE_BYTES
+    };
+    if path.metadata()?.len() > limit {
+        return Ok(FileRead::over_limit(limit));
+    }
+    let file = std::fs::File::open(path)?;
+    if conversations_zip || kind == SourceType::Pdf {
+        return read_document(file).map(FileRead::Bytes);
+    }
+    read_text_document(file, limit)
 }
 
 fn ocr_error(ocr: bool) -> CobaltError {
@@ -301,7 +505,6 @@ struct FileInput {
     project_id: Option<Id>,
     branch: Id,
     kind: SourceType,
-    watch: bool,
     reusable: bool,
     client: &'static str,
     file_hash: String,
@@ -310,16 +513,73 @@ struct FileInput {
     contents: Vec<(MemoryCategory, String)>,
 }
 
+#[derive(Default)]
+struct IngestRun {
+    cancellation: Cancellation,
+    folder_limited: bool,
+    from_watcher: bool,
+    source: Option<PastLifeSource>,
+    progress: Progress,
+}
+
+struct DocumentWork<'a> {
+    req: &'a IngestRequest,
+    settings: &'a AppSettings,
+    branch: Id,
+    run: &'a IngestRun,
+}
+
 impl Context {
     pub(crate) async fn ingest(
         &self,
         req: IngestRequest,
         source: Option<PastLifeSource>,
-        from_watcher: bool,
         progress: ProgressSink<IngestProgress>,
     ) -> Result<IngestReport> {
-        let _write = self.writes.lock().await;
-        let job_id = new_id();
+        let job = self.jobs.start();
+        let (updates, receiver) = Progress::channel(job.id, req.paths.first().map(String::as_str));
+        let ((), report) = tokio::join!(emit_progress(receiver, progress), async {
+            let report = self
+                .ingest_job(
+                    req,
+                    IngestRun {
+                        cancellation: job.cancellation.clone(),
+                        source,
+                        progress: updates,
+                        ..Default::default()
+                    },
+                )
+                .await;
+            drop(job);
+            report
+        });
+        report
+    }
+
+    pub(crate) async fn ingest_watched(
+        &self,
+        req: IngestRequest,
+        folder_limited: bool,
+        cancellation: &Cancellation,
+    ) -> Result<IngestReport> {
+        self.ingest_job(
+            req,
+            IngestRun {
+                cancellation: cancellation.clone(),
+                from_watcher: true,
+                folder_limited,
+                ..Default::default()
+            },
+        )
+        .await
+    }
+
+    async fn ingest_job(&self, req: IngestRequest, run: IngestRun) -> Result<IngestReport> {
+        let _write = tokio::select! {
+            biased;
+            _ = run.cancellation.cancelled() => return Ok(IngestReport::default()),
+            guard = self.writes.lock() => guard,
+        };
         let root = if let Some(id) = req.project_id {
             self.store
                 .get_project(id)
@@ -332,70 +592,106 @@ impl Context {
         };
         let global = self.global_ignore.clone();
         let paths = req.paths.clone();
+        let scan = IngestRun {
+            cancellation: run.cancellation.clone(),
+            progress: run.progress.clone(),
+            ..run
+        };
         let Paths {
             files,
             directories,
-            ignored,
+            skipped,
             issues,
-        } = blocking(move || Ok(collect(paths, root.as_deref(), global.as_deref(), source)))
-            .await?;
+        } = blocking(move || Ok(collect(paths, root.as_deref(), global.as_deref(), &scan))).await?;
         let mut report = IngestReport {
-            skipped_ignored: ignored,
+            skipped_ignored: skipped,
             errors: issues,
             ..Default::default()
         };
         let total = (files.len() + directories.len()) as u64;
-        progress(IngestProgress {
-            job_id,
-            processed: 0,
-            total,
-            current_path: None,
-            stage: "ingesting".into(),
-        });
+        if run.cancellation.check().is_err() {
+            run.progress.finish(0, total);
+            return Ok(report);
+        }
         let settings = self.store.load_settings().await?;
         if settings.read_only {
             return Err(CobaltError::ReadOnly);
         }
-        let branch = self.store.active_branch().await?.id;
-        for (idx, (path, directory)) in directories
-            .into_iter()
-            .map(|path| (path, true))
-            .chain(files.into_iter().map(|path| (path, false)))
-            .enumerate()
-        {
-            let result = if from_watcher
+        let work = DocumentWork {
+            req: &req,
+            settings: &settings,
+            branch: self.store.active_branch().await?.id,
+            run: &run,
+        };
+        let mut pending_watches = Vec::new();
+        let mut processed = 0;
+        for (path, file) in directories.into_iter().map(|path| (path, None)).chain(
+            files
+                .into_iter()
+                .map(|(path, explicit)| (path, Some(explicit))),
+        ) {
+            if run.cancellation.check().is_err() {
+                break;
+            }
+            run.progress.document(
+                &path,
+                processed,
+                total,
+                if file.is_some() { "reading" } else { "saving" },
+            );
+            let result = if run.from_watcher
                 && self
                     .store
                     .find_source_document_by_path(&path_string(&path)?)
                     .await?
                     .is_some_and(|doc| !doc.is_watched)
             {
-                Ok(())
-            } else if directory {
-                self.register_directory(&path, &req, &mut report).await
+                Ok(None)
+            } else if let Some(explicit) = file {
+                self.process_file(&path, explicit, &work, &mut report).await
             } else {
-                self.process_file(&path, &req, &settings, branch, source, &mut report)
-                    .await
+                self.register_directory(&path, &req, &mut report).await
             };
-            if let Err(error) = result {
-                report.errors.push(issue(&path, error));
+            match result {
+                Ok(Some(id)) if req.watch => pending_watches.push((id, path)),
+                Err(CobaltError::Cancelled) if run.cancellation.check().is_err() => break,
+                Err(error) => report.errors.push(issue(&path, error)),
+                Ok(_) => {}
             }
-            progress(IngestProgress {
-                job_id,
-                processed: idx as u64 + 1,
-                total,
-                current_path: Some(scrub(&path.to_string_lossy()).text),
-                stage: "ingesting".into(),
-            });
+            processed += 1;
         }
-        progress(IngestProgress {
-            job_id,
-            processed: total,
-            total,
-            current_path: None,
-            stage: "completed".into(),
-        });
+        if !pending_watches.is_empty() && run.cancellation.check().is_ok() {
+            run.progress.stage("saving");
+        }
+        self.enroll_watches(pending_watches, &run, &mut report)
+            .await;
+        run.progress.finish(processed, total);
         Ok(report)
+    }
+
+    async fn enroll_watches(
+        &self,
+        pending: Vec<(Id, PathBuf)>,
+        run: &IngestRun,
+        report: &mut IngestReport,
+    ) {
+        let mut enrolled = Vec::new();
+        for (id, path) in pending {
+            if run.cancellation.check().is_err() {
+                break;
+            }
+            match self.store.set_watched(id, true).await {
+                Ok(_) => enrolled.push((id, path)),
+                Err(error) => report.errors.push(issue(&path, error)),
+            }
+        }
+        if run.cancellation.check().is_err() {
+            for (id, path) in enrolled {
+                if let Err(error) = self.store.set_watched(id, false).await {
+                    report.errors.push(issue(&path, error));
+                }
+            }
+        }
     }
 
     async fn register_directory(
@@ -403,18 +699,22 @@ impl Context {
         path: &Path,
         req: &IngestRequest,
         report: &mut IngestReport,
-    ) -> Result<()> {
+    ) -> Result<Option<Id>> {
         let file_path = path_string(path)?;
         let prior = self.store.find_source_document_by_path(&file_path).await?;
         if let Some(prior) = &prior
             && prior.is_dir
-            && (prior.is_watched || !req.watch)
             && prior.project_id == req.project_id
         {
-            report.documents_unchanged += 1;
-            return Ok(());
+            if req.watch && !prior.is_watched {
+                report.documents_updated += 1;
+            } else {
+                report.documents_unchanged += 1;
+            }
+            return Ok((!prior.is_watched).then_some(prior.id));
         }
-        self.store
+        let doc = self
+            .store
             .upsert_source_document(NewSourceDocument {
                 project_id: req.project_id,
                 file_path,
@@ -422,7 +722,7 @@ impl Context {
                 source_type: Some(SourceType::Other),
                 file_hash: None,
                 total_tokens: 0,
-                is_watched: req.watch || prior.as_ref().is_some_and(|doc| doc.is_watched),
+                is_watched: prior.as_ref().is_some_and(|doc| doc.is_watched),
             })
             .await?;
         if prior.is_some() {
@@ -430,50 +730,52 @@ impl Context {
         } else {
             report.documents_created += 1;
         }
-        Ok(())
+        Ok((!doc.is_watched).then_some(doc.id))
     }
 
     async fn process_file(
         &self,
         path: &Path,
-        req: &IngestRequest,
-        settings: &AppSettings,
-        branch: Id,
-        source: Option<PastLifeSource>,
+        explicit: bool,
+        work: &DocumentWork<'_>,
         report: &mut IngestReport,
-    ) -> Result<()> {
+    ) -> Result<Option<Id>> {
         let file_path = path_string(path)?;
         let read_path = path.to_owned();
+        let source = work.run.source;
         let client = if source.is_some() {
             PAST_LIFE_CLIENT
         } else {
             INGEST_CLIENT
         };
-        let is_conversations_zip = matches!(
-            source,
-            Some(PastLifeSource::ChatgptExport | PastLifeSource::ClaudeExport)
-        ) && path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"));
-        let kind = if is_conversations_zip {
+        let conversations_zip = is_conversations_zip(path, source);
+        let kind = if conversations_zip {
             SourceType::Json
         } else {
             SourceType::from_path(path)
         };
         let tokens = self.tokens.clone();
-        let max = chunk_limit(settings);
-        let overlap = settings.chunking.overlap_tokens as usize;
-        let ocr = req.ocr;
-        let (file_hash, total_tokens, redactions, contents) = blocking(move || {
-            let bytes = read_document(std::fs::File::open(read_path)?)?;
+        let max = chunk_limit(work.settings);
+        let overlap = work.settings.chunking.overlap_tokens as usize;
+        let ocr = work.req.ocr;
+        let cancellation = work.run.cancellation.clone();
+        let prepared = blocking(move || {
+            cancellation.check()?;
+            let bytes = match read_file(&read_path, kind, explicit, conversations_zip, ocr)? {
+                FileRead::Bytes(bytes) => bytes,
+                FileRead::Skipped(error) => return Ok(Err(error)),
+            };
+            cancellation.check()?;
             let file_hash = digest(&bytes);
-            let text = if is_conversations_zip {
+            let text = if conversations_zip {
                 let json = past_life::conversations_from_zip(&bytes)?;
                 text_from_bytes(&json, kind, ocr)?
             } else {
                 text_from_bytes(&bytes, kind, ocr)?
             };
+            cancellation.check()?;
             let total = tokens.count(&text);
+            cancellation.check()?;
             let messages = match source {
                 Some(source) => past_life::messages(source, &text)?,
                 None => vec![text],
@@ -481,48 +783,68 @@ impl Context {
             let mut redactions = 0;
             let mut contents = Vec::new();
             for message in messages {
+                cancellation.check()?;
                 let clean = scrub(&message);
                 redactions += u64::from(clean.count());
                 check_document_text(&clean.text)?;
                 if let Some(source) = source {
                     for (category, atom) in past_life::distill(source, &clean.text) {
                         contents.extend(
-                            chunks(tokens.as_ref(), &atom, max, 0)?
+                            chunks(tokens.as_ref(), &atom, max, 0, &cancellation)?
                                 .into_iter()
                                 .map(|chunk| (category, chunk)),
                         );
                     }
                 } else {
                     contents.extend(
-                        chunks(tokens.as_ref(), &clean.text, max, overlap)?
+                        chunks(tokens.as_ref(), &clean.text, max, overlap, &cancellation)?
                             .into_iter()
                             .map(|chunk| (category(kind), chunk)),
                     );
                 }
             }
-            Ok((file_hash, total, redactions, contents))
-        })
-        .await?;
+            Ok(Ok((file_hash, total, redactions, contents)))
+        });
+        let result = tokio::select! {
+            biased;
+            _ = work.run.cancellation.cancelled() => return Err(CobaltError::Cancelled),
+            result = prepared => result?,
+        };
+        let (file_hash, total_tokens, redactions, contents) = match result {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                report.skipped_ignored += 1;
+                report.errors.push(issue(path, error));
+                return Ok(None);
+            }
+        };
         self.persist_file(
             FileInput {
                 path: file_path,
-                project_id: req.project_id,
-                branch,
+                project_id: work.req.project_id,
+                branch: work.branch,
                 kind,
-                watch: req.watch,
-                reusable: req.mark_reusable,
+                reusable: work.req.mark_reusable,
                 client,
                 file_hash,
                 total_tokens,
                 redactions,
                 contents,
             },
+            work.run,
             report,
         )
         .await
     }
 
-    async fn persist_file(&self, input: FileInput, report: &mut IngestReport) -> Result<()> {
+    async fn persist_file(
+        &self,
+        input: FileInput,
+        run: &IngestRun,
+        report: &mut IngestReport,
+    ) -> Result<Option<Id>> {
+        run.cancellation.check()?;
+        run.progress.stage("saving");
         if input.contents.is_empty() && input.client == PAST_LIFE_CLIENT {
             return Err(CobaltError::InvalidInput(
                 "no atomic memories identified in this document".into(),
@@ -538,7 +860,7 @@ impl Context {
             source_type: Some(input.kind),
             file_hash: Some(input.file_hash),
             total_tokens,
-            is_watched: input.watch || prior.as_ref().is_some_and(|doc| doc.is_watched),
+            is_watched: prior.as_ref().is_some_and(|doc| doc.is_watched),
         };
         let doc_id = if let Some(prior) = &prior {
             prior.id
@@ -601,13 +923,12 @@ impl Context {
                 })
             })
         {
-            if doc.is_watched && !prior.is_watched {
-                self.store.set_watched(doc_id, true).await?;
-            }
+            run.cancellation.check()?;
             report.documents_unchanged += 1;
-            return Ok(());
+            return Ok((!doc.is_watched).then_some(doc_id));
         }
         for (hash, category, content) in chunks {
+            run.cancellation.check()?;
             let snippet = input.reusable.then(|| {
                 self.tokens
                     .truncate(&content, cobalt_core::mcp::REUSABLE_SUMMARY_TOKENS as usize)
@@ -646,6 +967,8 @@ impl Context {
                 reusable_snippet: snippet,
                 source_client: Some(input.client.into()),
             };
+            run.progress.stage("embedding");
+            // Each store call embeds and writes one chunk. Let the current write finish.
             let action = if let Some(store) = &self.sqlite {
                 store.insert_document_chunk(new).await?.action
             } else {
@@ -657,6 +980,8 @@ impl Context {
             ));
             report.memories_superseded += u64::from(action == WriteAction::Superseded);
         }
+        run.cancellation.check()?;
+        run.progress.stage("saving");
         for row in old
             .into_values()
             .filter(|row| !row.is_core_pin && !row.is_encrypted)
@@ -674,7 +999,7 @@ impl Context {
             .get_source_document(doc_id)
             .await?
             .is_some_and(|row| row.is_watched);
-        self.store.upsert_source_document(doc).await?;
+        let doc = self.store.upsert_source_document(doc).await?;
         report.total_tokens += input.total_tokens as u64;
         report.redacted_secrets += input.redactions;
         if prior.as_ref().is_some_and(|doc| doc.file_hash.is_some()) {
@@ -682,7 +1007,7 @@ impl Context {
         } else {
             report.documents_created += 1;
         }
-        Ok(())
+        Ok((!doc.is_watched).then_some(doc_id))
     }
 
     pub(crate) async fn promote(&self, req: PromoteFileRequest) -> Result<Memory> {
@@ -807,6 +1132,7 @@ impl Context {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn quiet_progress() -> ProgressSink<IngestProgress> {
     Arc::new(|_| {})
 }
