@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -44,6 +45,7 @@ interface BackgroundProjectGroup {
   isRunning: boolean;
   fileCount: number;
   etaSeconds: number | null;
+  activeChunkJob: IngestJob | null;
   latestUpdatedAt: number;
 }
 
@@ -54,6 +56,71 @@ function jobElapsedMs(job: IngestJob, now: number): number {
 function jobPercent(job: IngestJob): number {
   if (job.total <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((job.processed / job.total) * 100)));
+}
+
+function hasFileChunkProgress(job: IngestJob): boolean {
+  return (
+    job.fileChunksDone !== null &&
+    job.fileChunksTotal !== null &&
+    job.fileChunksTotal > 0
+  );
+}
+
+function fileChunkPercent(done: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+}
+
+function formatFileChunkLabel(
+  currentPath: string | null,
+  done: number,
+  total: number,
+  t: TFunction,
+): string {
+  const fileName = extractFileName(currentPath);
+  if (fileName) {
+    return t("ingest.fileChunkProgress", {
+      file: fileName,
+      done,
+      total,
+    });
+  }
+  return t("ingest.chunkProgressOnly", { done, total });
+}
+
+function FileChunkProgress({
+  currentPath,
+  chunksDone,
+  chunksTotal,
+}: {
+  currentPath: string | null;
+  chunksDone: number | null;
+  chunksTotal: number | null;
+}) {
+  const { t } = useTranslation();
+  if (chunksDone === null || chunksTotal === null || chunksTotal <= 0) {
+    return null;
+  }
+
+  const pct = fileChunkPercent(chunksDone, chunksTotal);
+  const label = formatFileChunkLabel(currentPath, chunksDone, chunksTotal, t);
+
+  return (
+    <div className="space-y-1">
+      <div className="h-[3px] w-full overflow-hidden rounded-[1px] bg-void/90">
+        <div
+          className="h-full bg-cobalt-ink/85 transition-all duration-150"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div
+        className="truncate font-mono text-[10px] tabular-nums text-bone-muted"
+        title={currentPath ?? undefined}
+      >
+        {label}
+      </div>
+    </div>
+  );
 }
 
 function isPausableJob(job: IngestJob): boolean {
@@ -530,6 +597,7 @@ export function IngestShellIndicator() {
 
       let fileCount = 0;
       let maxEta: number | null = null;
+      let activeChunkJob: IngestJob | null = null;
       let latestUpdatedAt = 0;
 
       for (const job of groupJobs) {
@@ -541,6 +609,9 @@ export function IngestShellIndicator() {
         }
         if (job.etaSeconds != null && job.etaSeconds > 0) {
           maxEta = maxEta === null ? job.etaSeconds : Math.max(maxEta, job.etaSeconds);
+        }
+        if (activeChunkJob === null && hasFileChunkProgress(job)) {
+          activeChunkJob = job;
         }
       }
 
@@ -554,6 +625,7 @@ export function IngestShellIndicator() {
         isRunning: runningJobs.length > 0,
         fileCount,
         etaSeconds: maxEta,
+        activeChunkJob,
         latestUpdatedAt,
       });
     }
@@ -619,6 +691,25 @@ export function IngestShellIndicator() {
     : leadBgRunning
       ? formatIngestEta(leadBgRunning.etaSeconds, t)
       : null;
+  const leadChunkJob =
+    leadFgRunning && hasFileChunkProgress(leadFgRunning)
+      ? leadFgRunning
+      : !leadFgRunning && leadBgRunning?.activeChunkJob
+        ? leadBgRunning.activeChunkJob
+        : null;
+  const leadChunkLabel =
+    leadChunkJob && leadChunkJob.fileChunksDone !== null && leadChunkJob.fileChunksTotal !== null
+      ? formatFileChunkLabel(
+          leadChunkJob.currentPath,
+          leadChunkJob.fileChunksDone,
+          leadChunkJob.fileChunksTotal,
+          t,
+        )
+      : null;
+  const leadChunkPct =
+    leadChunkJob && leadChunkJob.fileChunksDone !== null && leadChunkJob.fileChunksTotal !== null
+      ? fileChunkPercent(leadChunkJob.fileChunksDone, leadChunkJob.fileChunksTotal)
+      : null;
 
   const formatBgRowText = (group: BackgroundProjectGroup): string => {
     const prefix = group.isRunning
@@ -667,12 +758,12 @@ export function IngestShellIndicator() {
                 {leadStage}
               </span>
 
-              {leadFileName && (
+              {(leadChunkLabel || leadFileName) && (
                 <span
-                  className="min-w-0 truncate font-mono text-[11px] text-bone-muted"
+                  className="min-w-0 truncate font-mono text-[11px] tabular-nums text-bone-muted"
                   title={leadFgRunning.currentPath ?? undefined}
                 >
-                  {leadFileName}
+                  {leadChunkLabel ?? leadFileName}
                 </span>
               )}
 
@@ -780,6 +871,14 @@ export function IngestShellIndicator() {
               <span className="truncate font-mono text-xs text-bone">
                 {formatBgRowText(leadBgRunning)}
               </span>
+              {leadChunkLabel && (
+                <span
+                  className="min-w-0 truncate font-mono text-[11px] tabular-nums text-bone-muted"
+                  title={leadChunkJob?.currentPath ?? undefined}
+                >
+                  · {leadChunkLabel}
+                </span>
+              )}
               {runningBgGroups.length > 1 && (
                 <span className="shrink-0 rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-bone-subtle">
                   +{runningBgGroups.length - 1}
@@ -1019,6 +1118,14 @@ export function IngestShellIndicator() {
           />
         </div>
       )}
+      {leadChunkPct !== null && (
+        <div className="h-[2px] w-full overflow-hidden bg-void/90">
+          <div
+            className="h-full bg-cobalt-ink/85 transition-all duration-150"
+            style={{ width: `${leadChunkPct}%` }}
+          />
+        </div>
+      )}
 
       {/* Non-blocking expanded panel */}
       {expanded && (
@@ -1089,6 +1196,7 @@ export function IngestShellIndicator() {
                   {fgRunning.map((job) => {
                     const pct = jobPercent(job);
                     const fileName = extractFileName(job.currentPath);
+                    const showChunkProgress = hasFileChunkProgress(job);
                     const stageLabel = formatIngestStage(job.stage, t);
                     const elapsed = formatElapsed(jobElapsedMs(job, now));
                     const etaLabel = formatIngestEta(job.etaSeconds, t);
@@ -1108,7 +1216,7 @@ export function IngestShellIndicator() {
                                 {stageLabel}
                               </span>
                             </div>
-                            {fileName && (
+                            {fileName && !showChunkProgress && (
                               <div
                                 className="truncate font-mono text-[10px] text-bone-muted"
                                 title={job.currentPath ?? undefined}
@@ -1175,6 +1283,14 @@ export function IngestShellIndicator() {
                             </span>
                           </div>
                         </div>
+
+                        {showChunkProgress && (
+                          <FileChunkProgress
+                            currentPath={job.currentPath}
+                            chunksDone={job.fileChunksDone}
+                            chunksTotal={job.fileChunksTotal}
+                          />
+                        )}
                       </div>
                     );
                   })}
@@ -1239,36 +1355,45 @@ export function IngestShellIndicator() {
                       return (
                         <div
                           key={group.key}
-                          className="flex items-center justify-between gap-2 px-3 py-2 font-mono text-[11px]"
+                          className="space-y-1.5 px-3 py-2 font-mono text-[11px]"
                         >
-                          <div className="flex min-w-0 items-center gap-2">
-                            {group.isRunning ? (
-                              <Loader2
-                                size={11}
-                                className="shrink-0 animate-spin text-cobalt-ink"
-                                aria-hidden
-                              />
-                            ) : (
-                              <CheckCircle2
-                                size={11}
-                                className="shrink-0 text-verdigris"
-                                aria-hidden
-                              />
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              {group.isRunning ? (
+                                <Loader2
+                                  size={11}
+                                  className="shrink-0 animate-spin text-cobalt-ink"
+                                  aria-hidden
+                                />
+                              ) : (
+                                <CheckCircle2
+                                  size={11}
+                                  className="shrink-0 text-verdigris"
+                                  aria-hidden
+                                />
+                              )}
+                              {group.projectColor && (
+                                <span
+                                  className="h-2 w-2 shrink-0 rounded-full"
+                                  style={{ backgroundColor: group.projectColor }}
+                                />
+                              )}
+                              <span className="truncate text-bone">
+                                {formatBgRowText(group)}
+                              </span>
+                            </div>
+                            {etaLabel && (
+                              <span className="shrink-0 text-[10px] tabular-nums text-cobalt-ink">
+                                {etaLabel}
+                              </span>
                             )}
-                            {group.projectColor && (
-                              <span
-                                className="h-2 w-2 shrink-0 rounded-full"
-                                style={{ backgroundColor: group.projectColor }}
-                              />
-                            )}
-                            <span className="truncate text-bone">
-                              {formatBgRowText(group)}
-                            </span>
                           </div>
-                          {etaLabel && (
-                            <span className="shrink-0 text-[10px] tabular-nums text-cobalt-ink">
-                              {etaLabel}
-                            </span>
+                          {group.isRunning && group.activeChunkJob && (
+                            <FileChunkProgress
+                              currentPath={group.activeChunkJob.currentPath}
+                              chunksDone={group.activeChunkJob.fileChunksDone}
+                              chunksTotal={group.activeChunkJob.fileChunksTotal}
+                            />
                           )}
                         </div>
                       );

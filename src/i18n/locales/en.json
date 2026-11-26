@@ -885,6 +885,8 @@
     "concurrentActive": "{{count}} active",
     "finishedBadge": "{{count}} finished",
     "calculatingTotal": "Counting files…",
+    "fileChunkProgress": "{{file}} · chunk {{done}} of {{total}}",
+    "chunkProgressOnly": "chunk {{done}} of {{total}}",
     "recentFinishedTitle": "Recent imports",
     "indexingPausedBanner": "Automatic indexing paused",
     "etaLessThanMin": "< 1 min left",

@@ -41,6 +41,10 @@ export interface IngestJob {
   processed: number;
   total: number;
   currentPath: string | null;
+  /** Chunks of the current file already embedded (`null` outside the embedding stage). */
+  fileChunksDone: number | null;
+  /** Total chunks of the current file (`null` outside the embedding stage). */
+  fileChunksTotal: number | null;
   startedAt: number;
   finishedAt: number | null;
   cancelling: boolean;
@@ -259,6 +263,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
             processed: Math.max(existing.processed, payload.processed),
             total: Math.max(existing.total, payload.total),
             currentPath: payload.current_path ?? existing.currentPath,
+            fileChunksDone: null,
+            fileChunksTotal: null,
             etaSeconds: null,
           };
           return { jobs };
@@ -280,6 +286,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
             processed: Math.max(existing.processed, payload.processed),
             total: Math.max(existing.total, payload.total),
             currentPath: payload.current_path ?? existing.currentPath,
+            fileChunksDone: null,
+            fileChunksTotal: null,
             etaSeconds: null,
           };
           return { jobs };
@@ -291,6 +299,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
         let nextCancelling = existing.cancelling;
         let nextPausing = existing.pausing;
         let nextEtaSeconds: number | null = payload.eta_seconds ?? null;
+        let nextFileChunksDone: number | null = payload.file_chunks_done ?? null;
+        let nextFileChunksTotal: number | null = payload.file_chunks_total ?? null;
 
         // Finish jobs directly on terminal stages from the event itself (not only on promise resolution).
         if (terminal !== null) {
@@ -319,6 +329,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
           nextCancelling = false;
           nextPausing = false;
           nextEtaSeconds = null;
+          nextFileChunksDone = null;
+          nextFileChunksTotal = null;
 
           if (isFinishedStatus(nextStatus)) {
             newlyFinishedIds.push(existing.id);
@@ -335,6 +347,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
           processed: payload.processed,
           total: payload.total > 0 ? payload.total : existing.total,
           currentPath: payload.current_path ?? existing.currentPath,
+          fileChunksDone: nextFileChunksDone,
+          fileChunksTotal: nextFileChunksTotal,
           status: nextStatus,
           finishedAt: nextFinishedAt,
           cancelling: nextCancelling,
@@ -372,6 +386,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
         processed: payload.processed,
         total: payload.total,
         currentPath: payload.current_path,
+        fileChunksDone: externalStatus === "running" ? (payload.file_chunks_done ?? null) : null,
+        fileChunksTotal: externalStatus === "running" ? (payload.file_chunks_total ?? null) : null,
         startedAt: now,
         finishedAt: externalStatus === "running" ? null : now,
         cancelling: false,
@@ -449,6 +465,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
         stage: nextStage,
         processed: isPaused || wasCancelled ? existing.processed : Math.max(existing.processed, totalFiles),
         total: Math.max(existing.total, totalFiles),
+        fileChunksDone: null,
+        fileChunksTotal: null,
         etaSeconds: null,
         finishedAt: existing.finishedAt ?? now,
         cancelling: false,
@@ -509,6 +527,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
         ...existing,
         status: nextStatus,
         stage: nextStage,
+        fileChunksDone: null,
+        fileChunksTotal: null,
         etaSeconds: null,
         finishedAt: existing.finishedAt ?? now,
         cancelling: false,
@@ -582,6 +602,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
         processed: 0,
         total: req.paths.length,
         currentPath: req.paths[0] ?? null,
+        fileChunksDone: null,
+        fileChunksTotal: null,
         startedAt: Date.now(),
         finishedAt: null,
         cancelling: false,
@@ -620,6 +642,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
         processed: 0,
         total: 0,
         currentPath: trimmedPath,
+        fileChunksDone: null,
+        fileChunksTotal: null,
         startedAt: Date.now(),
         finishedAt: null,
         cancelling: false,
@@ -679,6 +703,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
                     ...j,
                     pausing: false,
                     cancelling: false,
+                    fileChunksDone: null,
+                    fileChunksTotal: null,
                     etaSeconds: null,
                     status: "paused" as const,
                     stage: "paused",
@@ -722,6 +748,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
                   jobId: null,
                   status: "running" as const,
                   stage: "starting",
+                  fileChunksDone: null,
+                  fileChunksTotal: null,
                   etaSeconds: null,
                   startedAt: Date.now(),
                   finishedAt: null,
@@ -748,6 +776,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
                   jobId: null,
                   status: "running" as const,
                   stage: "starting",
+                  fileChunksDone: null,
+                  fileChunksTotal: null,
                   etaSeconds: null,
                   startedAt: Date.now(),
                   finishedAt: null,
@@ -808,6 +838,8 @@ export const useIngestStore = create<IngestState>((set, get) => {
               return {
                 ...j,
                 cancelling: false,
+                fileChunksDone: null,
+                fileChunksTotal: null,
                 etaSeconds: null,
                 status: "cancelled" as const,
                 stage: INGEST_STAGES.cancelled,
