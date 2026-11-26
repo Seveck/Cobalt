@@ -37,13 +37,42 @@ fn bulk_changed(state: &AppState, client: &str) {
     });
 }
 
+/// Without an explicit project, files go to the project whose root contains them; a dropped
+/// folder that is not inside any project becomes a new project named after it.
+async fn resolve_project_for(
+    state: &AppState,
+    paths: &[String],
+) -> CmdResult<Option<cobalt_core::Id>> {
+    let Some(first) = paths.first() else {
+        return Ok(None);
+    };
+    let store = state.store();
+    if let Some(project) = store.resolve_project_by_path(first, false).await? {
+        return Ok(Some(project.id));
+    }
+    let is_dir = tokio::fs::metadata(first)
+        .await
+        .map(|m| m.is_dir())
+        .unwrap_or(false);
+    if paths.len() == 1 && is_dir {
+        return Ok(store
+            .resolve_project_by_path(first, true)
+            .await?
+            .map(|p| p.id));
+    }
+    Ok(None)
+}
+
 #[tauri::command]
 pub async fn ingest_paths(
     app: AppHandle,
     state: State<'_, AppState>,
-    args: IngestRequest,
+    mut args: IngestRequest,
 ) -> CmdResult<IngestReport> {
     let ingest = state.ingest()?;
+    if args.project_id.is_none() {
+        args.project_id = resolve_project_for(&state, &args.paths).await?;
+    }
     let report = {
         let _slot = state.daemon.write_slot().await;
         ingest.ingest_paths(args, progress_sink(&app)).await?
