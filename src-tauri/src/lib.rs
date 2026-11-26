@@ -5,9 +5,12 @@
 //! bridges) and `--mcp-stdio` (thin bridge, no Tauri at all).
 
 mod commands;
+mod commands_admin;
 mod commands_memory;
 mod desktop;
+mod doctor;
 mod state;
+mod themes;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -184,6 +187,29 @@ pub fn run() {
             commands_memory::verify_source_document,
             commands_memory::get_archive_impact,
             commands_memory::get_deletion_impact,
+            commands_admin::list_projects,
+            commands_admin::create_project,
+            commands_admin::update_project,
+            commands_admin::list_library,
+            commands_admin::relink_source_document,
+            commands_admin::set_watched,
+            commands_admin::get_telemetry_summary,
+            commands_admin::query_telemetry,
+            commands_admin::list_connectors,
+            commands_admin::toggle_connector,
+            commands_admin::run_doctor,
+            commands_admin::doctor_fix,
+            commands_admin::get_mcp_tool_docs,
+            commands_admin::search_theme_registry,
+            commands_admin::install_theme,
+            commands_admin::install_theme_file,
+            commands_admin::uninstall_theme,
+            commands_admin::list_installed_themes,
+            commands_admin::get_theme_manifest,
+            commands_admin::swap_engine,
+            commands_admin::remove_engine_artifacts,
+            commands_admin::build_web_context,
+            commands_admin::submit_quick_note,
         ])
         .run(tauri::generate_context!());
 
