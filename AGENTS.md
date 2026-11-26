@@ -32,6 +32,12 @@ React/TS/R3F. Targets Linux, Windows, macOS equally. Contracts: `docs/CONTRACTS.
 - [CODEX] cannot commit (its sandbox makes `.git` read-only): leave changes uncommitted and end
   with a summary + proposed commit message; [CLAUDE] verifies and commits on `agent/codex`.
 
+## Brand & originality (MindCorpus distinction)
+- Never use MindCorpus terms or copy: Corpus Labs, Vault/Volcano/Void (as license tiers), Benchmark Zero,
+  custody, residue, Flipside, "the second brain that builds itself", "Copy Config" (ours: "Manual setup").
+- Do not use a brainstem/spine metaphor for original files, nor a white node-network logo on a black square.
+- Positioning: multi-AI operational memory with measurable token savings and zero telemetry.
+
 ## Verification (must pass before committing)
 - [CODEX]: `cargo fmt --all -- --check && cargo clippy -p cobalt-store -p cobalt-embeddings -p cobalt-ingest --all-targets -- -D warnings && cargo test -p cobalt-store -p cobalt-embeddings -p cobalt-ingest`
 - [GEMINI]: `pnpm install --frozen-lockfile=false && pnpm typecheck && pnpm build`
