@@ -126,3 +126,12 @@ pub async fn import_backup(
     bulk_changed(&state, "cobalt-backup");
     Ok(report)
 }
+
+/// Cancels a running ingest/import job; already committed documents stay.
+#[tauri::command]
+pub async fn cancel_ingest(
+    state: State<'_, AppState>,
+    args: cobalt_core::ipc::IdArgs,
+) -> CmdResult<bool> {
+    state.ingest()?.cancel_job(args.id).await
+}
