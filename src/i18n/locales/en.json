@@ -745,5 +745,78 @@
     "placeholder": "Type a thought, reminder or rule and press Enter…",
     "hint": "Enter to save · Esc to close",
     "saved": "Saved to Cobalt"
+  },
+  "ingest": {
+    "regionLabel": "Import activity",
+    "panelTitle": "Import activity",
+    "concurrentActive": "{{count}} active",
+    "finishedBadge": "{{count}} finished",
+    "calculatingTotal": "Counting files…",
+    "recentFinishedTitle": "Recent imports",
+    "status": {
+      "running": "Importing",
+      "completed": "Completed",
+      "cancelled": "Stopped",
+      "failed": "Failed"
+    },
+    "stages": {
+      "starting": "Preparing import…",
+      "queued": "Waiting in queue…",
+      "scanning": "Scanning files…",
+      "reading": "Reading files…",
+      "parsing": "Reading content…",
+      "chunking": "Splitting into sections…",
+      "ocr": "Reading text from images…",
+      "redacting": "Checking for private secrets…",
+      "embedding": "Understanding content…",
+      "indexing": "Organizing in memory…",
+      "saving": "Saving memories…",
+      "importing": "Importing items…",
+      "cancelling": "Stopping import…",
+      "cancelled": "Import stopped",
+      "completed": "Import complete",
+      "failed": "Import failed"
+    },
+    "summary": {
+      "created": "{{count}} created",
+      "updated": "{{count}} updated",
+      "unchanged": "{{count}} unchanged",
+      "skippedWithReason": "{{count}} skipped ({{reason}})",
+      "errors": "{{count}} error(s)",
+      "stoppedPartial": "Stopped after {{processed}} of {{total}} files",
+      "stoppedNoFiles": "Import was stopped before finishing",
+      "processedCount": "{{processed}} of {{total}} files processed"
+    },
+    "skipReasons": {
+      "ignored": "ignored by rules",
+      "binary": "binary files",
+      "too_large": "over 2 MB",
+      "unsupported": "unsupported format",
+      "other": "skipped",
+      "default": "ignored, binary, or over 2 MB"
+    },
+    "actions": {
+      "stopping": "Stopping…",
+      "showDetails": "Expand import details",
+      "hideDetails": "Collapse import details",
+      "viewReport": "View report",
+      "dismiss": "Dismiss",
+      "clearFinished": "Clear finished",
+      "openImporter": "Open Importer"
+    },
+    "report": {
+      "title": "Import report",
+      "backToList": "All imports",
+      "filesCreated": "Created",
+      "filesUnchanged": "Unchanged",
+      "skipped": "Skipped",
+      "errors": "Errors",
+      "memoriesUpdated": "Memories updated",
+      "skippedSectionTitle": "Skipped files ({{count}})",
+      "skippedRulesHint": "Files matching ignore rules (.memoryignore), binary files, and text files larger than 2 MB are skipped automatically to keep your memory clean.",
+      "errorsSectionTitle": "Errors ({{count}})",
+      "cancelledWithoutReport": "Import was stopped after {{processed}} of {{total}} items. Any memories already saved remain in your brain.",
+      "noDetailedReport": "Processed {{processed}} of {{total}} items."
+    }
   }
 }

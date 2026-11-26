@@ -156,6 +156,9 @@ const mockListeners: EventListenerMap = {
   "cobalt://daemon-status": new Set(),
 };
 
+const runningMockIngestJobs = new Set<string>();
+const cancelledMockIngestJobs = new Set<string>();
+
 export function emitMockEvent<E extends EventName>(event: E, payload: EventPayloadMap[E]): void {
   for (const listener of mockListeners[event]) {
     listener(payload);
@@ -2556,65 +2559,191 @@ export async function callBackendMock<C extends IpcCommand>(
       assertWritable(command);
       const req = args as IngestRequest;
       const jobId = nextMockUuid("01937000");
-      for (let i = 0; i < req.paths.length; i += 1) {
+      runningMockIngestJobs.add(jobId);
+
+      const total = Math.max(1, req.paths.length);
+      let processed = 0;
+      let created = 0;
+      let unchanged = 0;
+      let skipped = 0;
+      const errors: Array<{ path: string; message: string }> = [];
+
+      try {
         emitMockEvent("cobalt://ingest-progress", {
           job_id: jobId,
-          processed: i + 1,
-          total: req.paths.length,
-          current_path: req.paths[i] ?? null,
-          stage: "embedding",
+          processed: 0,
+          total,
+          current_path: req.paths[0] ?? null,
+          stage: "scanning",
         });
-        await sleep(120);
+        await sleep(160);
+
+        for (let i = 0; i < req.paths.length; i += 1) {
+          if (cancelledMockIngestJobs.has(jobId)) {
+            emitMockEvent("cobalt://ingest-progress", {
+              job_id: jobId,
+              processed,
+              total,
+              current_path: req.paths[i] ?? null,
+              stage: "cancelled",
+            });
+            break;
+          }
+
+          const currentPath = req.paths[i] ?? null;
+          emitMockEvent("cobalt://ingest-progress", {
+            job_id: jobId,
+            processed: i,
+            total,
+            current_path: currentPath,
+            stage: "reading",
+          });
+          await sleep(220);
+
+          if (cancelledMockIngestJobs.has(jobId)) {
+            emitMockEvent("cobalt://ingest-progress", {
+              job_id: jobId,
+              processed,
+              total,
+              current_path: currentPath,
+              stage: "cancelled",
+            });
+            break;
+          }
+
+          emitMockEvent("cobalt://ingest-progress", {
+            job_id: jobId,
+            processed: i + 1,
+            total,
+            current_path: currentPath,
+            stage: "embedding",
+          });
+          await sleep(260);
+
+          processed = i + 1;
+          if (currentPath && /\.(exe|bin|zip|tar|gz|dll|so)$/i.test(currentPath)) {
+            skipped += 1;
+            errors.push({
+              path: currentPath,
+              message: "Skipped: binary file detected",
+            });
+          } else if (i > 0 && i % 4 === 0) {
+            unchanged += 1;
+          } else {
+            created += 1;
+          }
+        }
+
+        const wasCancelled = cancelledMockIngestJobs.has(jobId);
+        if (!wasCancelled) {
+          emitMockEvent("cobalt://ingest-progress", {
+            job_id: jobId,
+            processed: total,
+            total,
+            current_path: req.paths[req.paths.length - 1] ?? null,
+            stage: "completed",
+          });
+        }
+
+        const report: IngestReport = {
+          documents_created: created,
+          documents_updated: 0,
+          documents_unchanged: unchanged,
+          memories_created: created * 3,
+          memories_superseded: 0,
+          skipped_ignored: skipped,
+          redacted_secrets: 0,
+          total_tokens: created * 640,
+          errors,
+        };
+        if (created > 0) {
+          emitMockEvent("cobalt://memory-changed", {
+            kind: "created",
+            memory_ids: [],
+            source_client: "cobalt_ui",
+          });
+        }
+        return report as ResultOf<C>;
+      } finally {
+        runningMockIngestJobs.delete(jobId);
+        cancelledMockIngestJobs.delete(jobId);
       }
-      const report: IngestReport = {
-        documents_created: req.paths.length,
-        documents_updated: 0,
-        documents_unchanged: 0,
-        memories_created: req.paths.length * 3,
-        memories_superseded: 0,
-        skipped_ignored: 0,
-        redacted_secrets: 0,
-        total_tokens: req.paths.length * 640,
-        errors: [],
-      };
-      emitMockEvent("cobalt://memory-changed", {
-        kind: "created",
-        memory_ids: [],
-        source_client: "cobalt_ui",
-      });
-      return report as ResultOf<C>;
+    }
+    case "cancel_ingest": {
+      const { id } = args as IdArgs;
+      if (runningMockIngestJobs.has(id)) {
+        cancelledMockIngestJobs.add(id);
+        return true as ResultOf<C>;
+      }
+      return false as ResultOf<C>;
     }
     case "import_past_life": {
       assertWritable(command);
       const req = args as PastLifeImportRequest;
       const jobId = nextMockUuid("01937100");
-      emitMockEvent("cobalt://ingest-progress", {
-        job_id: jobId,
-        processed: 1,
-        total: 2,
-        current_path: req.path,
-        stage: "parsing",
-      });
-      await sleep(180);
-      emitMockEvent("cobalt://ingest-progress", {
-        job_id: jobId,
-        processed: 2,
-        total: 2,
-        current_path: req.path,
-        stage: "completed",
-      });
-      const report: IngestReport = {
-        documents_created: 1,
-        documents_updated: 0,
-        documents_unchanged: 0,
-        memories_created: 12,
-        memories_superseded: 1,
-        skipped_ignored: 0,
-        redacted_secrets: 1,
-        total_tokens: 2140,
-        errors: [],
-      };
-      return report as ResultOf<C>;
+      runningMockIngestJobs.add(jobId);
+      try {
+        emitMockEvent("cobalt://ingest-progress", {
+          job_id: jobId,
+          processed: 0,
+          total: 2,
+          current_path: req.path,
+          stage: "parsing",
+        });
+        await sleep(260);
+        if (cancelledMockIngestJobs.has(jobId)) {
+          emitMockEvent("cobalt://ingest-progress", {
+            job_id: jobId,
+            processed: 0,
+            total: 2,
+            current_path: req.path,
+            stage: "cancelled",
+          });
+          const partial: IngestReport = {
+            documents_created: 0,
+            documents_updated: 0,
+            documents_unchanged: 0,
+            memories_created: 0,
+            memories_superseded: 0,
+            skipped_ignored: 0,
+            redacted_secrets: 0,
+            total_tokens: 0,
+            errors: [],
+          };
+          return partial as ResultOf<C>;
+        }
+        emitMockEvent("cobalt://ingest-progress", {
+          job_id: jobId,
+          processed: 1,
+          total: 2,
+          current_path: req.path,
+          stage: "embedding",
+        });
+        await sleep(260);
+        const wasCancelled = cancelledMockIngestJobs.has(jobId);
+        emitMockEvent("cobalt://ingest-progress", {
+          job_id: jobId,
+          processed: wasCancelled ? 1 : 2,
+          total: 2,
+          current_path: req.path,
+          stage: wasCancelled ? "cancelled" : "completed",
+        });
+        const report: IngestReport = {
+          documents_created: wasCancelled ? 0 : 1,
+          documents_updated: 0,
+          documents_unchanged: 0,
+          memories_created: wasCancelled ? 4 : 12,
+          memories_superseded: wasCancelled ? 0 : 1,
+          skipped_ignored: 0,
+          redacted_secrets: wasCancelled ? 0 : 1,
+          total_tokens: wasCancelled ? 720 : 2140,
+          errors: [],
+        };
+        return report as ResultOf<C>;
+      } finally {
+        runningMockIngestJobs.delete(jobId);
+        cancelledMockIngestJobs.delete(jobId);
+      }
     }
     case "export_capsule": {
       const req = args as CapsuleExportRequest;

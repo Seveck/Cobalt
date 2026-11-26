@@ -11,13 +11,18 @@ export type NavSection =
   | "store"
   | "settings";
 
+export type ToolsTab = "projects" | "web_bridge" | "importer" | "capsules" | "backup";
+
 export interface UiState {
   activeNav: NavSection;
+  toolsTab: ToolsTab;
   sidebarCollapsed: boolean;
   appInfo: AppInfo | null;
   showOnboardingOverride: boolean;
   globalMockMode: boolean;
   setActiveNav: (nav: NavSection) => void;
+  setToolsTab: (tab: ToolsTab) => void;
+  openToolsTab: (tab: ToolsTab) => void;
   toggleSidebar: () => void;
   setShowOnboardingOverride: (open: boolean) => void;
   loadAppInfo: () => Promise<void>;
@@ -25,11 +30,14 @@ export interface UiState {
 
 export const useUiStore = create<UiState>((set) => ({
   activeNav: "brain",
+  toolsTab: "projects",
   sidebarCollapsed: false,
   appInfo: null,
   showOnboardingOverride: false,
   globalMockMode: isGlobalMockMode(),
   setActiveNav: (activeNav) => set({ activeNav }),
+  setToolsTab: (toolsTab) => set({ toolsTab }),
+  openToolsTab: (toolsTab) => set({ activeNav: "tools", toolsTab }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setShowOnboardingOverride: (showOnboardingOverride) => set({ showOnboardingOverride }),
   loadAppInfo: async () => {

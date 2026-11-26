@@ -5,6 +5,7 @@ import { backendOn } from "@/lib/backend";
 import {
   useBranchesStore,
   useHardwareStore,
+  useIngestStore,
   useMemoryStore,
   useSettingsStore,
   useSynapticStore,
@@ -18,6 +19,7 @@ import { LibraryView } from "@/components/library/LibraryView";
 import { OnboardingScreen } from "@/components/onboarding";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { CobaltMark } from "@/components/shell/CobaltMark";
+import { IngestShellIndicator } from "@/components/shell/IngestShellIndicator";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { ThemeStoreView } from "@/components/store/ThemeStoreView";
 import { TelemetryView } from "@/components/telemetry/TelemetryView";
@@ -43,6 +45,7 @@ export default function App() {
   const loadHardwareAll = useHardwareStore((s) => s.loadAll);
   const subscribeDownloadProgress = useHardwareStore((s) => s.subscribeDownloadProgress);
   const subscribeEngineSwapProgress = useHardwareStore((s) => s.subscribeEngineSwapProgress);
+  const subscribeIngestProgress = useIngestStore((s) => s.subscribeIngestProgress);
 
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const loadBranches = useBranchesStore((s) => s.loadBranches);
@@ -82,6 +85,7 @@ export default function App() {
 
     register(subscribeDownloadProgress());
     register(subscribeEngineSwapProgress());
+    register(subscribeIngestProgress());
 
     register(
       backendOn("cobalt://mcp-activity", (payload) => {
@@ -153,6 +157,7 @@ export default function App() {
     setVaultStatus,
     subscribeDownloadProgress,
     subscribeEngineSwapProgress,
+    subscribeIngestProgress,
     syncReadOnly,
   ]);
 
@@ -175,15 +180,18 @@ export default function App() {
   return (
     <div className="flex h-full w-full overflow-hidden bg-void text-bone">
       <Sidebar />
-      <main className="relative flex-1 overflow-hidden bg-void">
-        {activeNav === "brain" && <BrainCanvas />}
-        {activeNav === "library" && <LibraryView />}
-        {activeNav === "telemetry" && <TelemetryView />}
-        {activeNav === "connectors" && <ConnectorsView />}
-        {activeNav === "tools" && <ToolsView />}
-        {activeNav === "store" && <ThemeStoreView />}
-        {activeNav === "settings" && <SettingsView />}
-      </main>
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-void">
+        <IngestShellIndicator />
+        <main className="relative min-h-0 flex-1 overflow-hidden bg-void">
+          {activeNav === "brain" && <BrainCanvas />}
+          {activeNav === "library" && <LibraryView />}
+          {activeNav === "telemetry" && <TelemetryView />}
+          {activeNav === "connectors" && <ConnectorsView />}
+          {activeNav === "tools" && <ToolsView />}
+          {activeNav === "store" && <ThemeStoreView />}
+          {activeNav === "settings" && <SettingsView />}
+        </main>
+      </div>
     </div>
   );
 }

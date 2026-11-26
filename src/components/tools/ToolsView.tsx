@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   Edit3,
+  FileText,
   FileUp,
   FolderKanban,
   FolderOpen,
@@ -23,24 +24,21 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { backendCall, backendOn } from "@/lib/backend";
+import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickPaths, pickSavePath, pickSinglePath, useFileDrop } from "@/lib/dialogs";
-import { useMemoryStore, useSettingsStore } from "@/stores";
+import { analyzeIngestReport } from "@/lib/ingest";
+import { useIngestStore, useMemoryStore, useSettingsStore, useUiStore, type ToolsTab } from "@/stores";
 import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
 import type {
   BackupManifest,
   CapsuleManifest,
   ImportReport,
-  IngestProgress,
-  IngestReport,
   PastLifeSource,
   ProjectStats,
   Uuid,
   WebContext,
 } from "@/types/contracts";
-
-type ToolsTab = "projects" | "web_bridge" | "importer" | "capsules" | "backup";
 
 const PROJECT_COLORS = [
   "#3B82F6",
@@ -116,8 +114,14 @@ export function ToolsView() {
 
   const readOnly = useSettingsStore((s) => s.settings.read_only);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
+  const activeTab = useUiStore((s) => s.toolsTab);
+  const setActiveTab = useUiStore((s) => s.setToolsTab);
 
-  const [activeTab, setActiveTab] = useState<ToolsTab>("projects");
+  const ingestJobs = useIngestStore((s) => s.jobs);
+  const startIngestPaths = useIngestStore((s) => s.startIngestPaths);
+  const startImportPastLife = useIngestStore((s) => s.startImportPastLife);
+  const openIngestReport = useIngestStore((s) => s.openReport);
+
   const [projects, setProjects] = useState<ProjectStats[]>([]);
   const [includeArchivedProjects, setIncludeArchivedProjects] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(false);
@@ -150,14 +154,10 @@ export function ToolsView() {
   const [ingestWatch, setIngestWatch] = useState(false);
   const [ingestReusable, setIngestReusable] = useState(false);
   const [ingestOcr, setIngestOcr] = useState(false);
-  const [ingesting, setIngesting] = useState(false);
-  const [ingestProgress, setIngestProgress] = useState<IngestProgress | null>(null);
-  const [ingestReport, setIngestReport] = useState<IngestReport | null>(null);
 
   const [pastLifeSource, setPastLifeSource] = useState<PastLifeSource>("chatgpt_export");
   const [pastLifePath, setPastLifePath] = useState("");
   const [pastLifeProjectId, setPastLifeProjectId] = useState<string>("__global__");
-  const [importingPastLife, setImportingPastLife] = useState(false);
 
   // ---- Capsules state ----
   const [capsuleProjectId, setCapsuleProjectId] = useState<string>("__all__");
@@ -198,21 +198,6 @@ export function ToolsView() {
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
-
-  useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | null = null;
-    void backendOn("cobalt://ingest-progress", (payload) => {
-      if (active) setIngestProgress(payload);
-    }).then((fn) => {
-      if (active) unlisten = fn;
-      else fn();
-    });
-    return () => {
-      active = false;
-      unlisten?.();
-    };
-  }, []);
 
   const { isDragging } = useFileDrop((paths) => {
     setIngestPathsList((prev) => [...new Set([...prev, ...paths])]);
@@ -350,31 +335,18 @@ export function ToolsView() {
     }
   };
 
-  const handleRunIngest = async () => {
+  const handleRunIngest = () => {
     if (readOnly || ingestPathsList.length === 0) return;
-    setIngesting(true);
+    const pathsToIngest = [...ingestPathsList];
     setError(null);
-    setIngestProgress(null);
-    setIngestReport(null);
-    try {
-      const report = await backendCall("ingest_paths", {
-        paths: ingestPathsList,
-        project_id: ingestProjectId === "__global__" ? null : ingestProjectId,
-        watch: ingestWatch,
-        mark_reusable: ingestReusable,
-        ocr: ingestOcr,
-      });
-      setIngestReport(report);
-      setIngestPathsList([]);
-      await loadGraph();
-      flashNotice(
-        t("tools.importer.doneNotice", { memories: report.memories_created }),
-      );
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIngesting(false);
-    }
+    setIngestPathsList([]);
+    void startIngestPaths({
+      paths: pathsToIngest,
+      project_id: ingestProjectId === "__global__" ? null : ingestProjectId,
+      watch: ingestWatch,
+      mark_reusable: ingestReusable,
+      ocr: ingestOcr,
+    });
   };
 
   const handlePickPastLife = async () => {
@@ -391,28 +363,21 @@ export function ToolsView() {
     if (picked) setPastLifePath(picked);
   };
 
-  const handleRunPastLife = async () => {
-    if (readOnly || !pastLifePath.trim()) return;
-    setImportingPastLife(true);
+  const handleRunPastLife = () => {
+    const trimmed = pastLifePath.trim();
+    if (readOnly || !trimmed) return;
     setError(null);
-    setIngestProgress(null);
-    setIngestReport(null);
-    try {
-      const report = await backendCall("import_past_life", {
+    setPastLifePath("");
+    void startImportPastLife(
+      {
         source: pastLifeSource,
-        path: pastLifePath.trim(),
+        path: trimmed,
         project_id: pastLifeProjectId === "__global__" ? null : pastLifeProjectId,
-      });
-      setIngestReport(report);
-      await loadGraph();
-      flashNotice(
-        t("tools.importer.doneNotice", { memories: report.memories_created }),
-      );
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setImportingPastLife(false);
-    }
+      },
+      {
+        label: t(`tools.pastLife.sources.${pastLifeSource}`),
+      },
+    );
   };
 
   // ---- Capsules handlers ----
@@ -532,10 +497,17 @@ export function ToolsView() {
     { id: "backup", icon: HardDriveDownload },
   ];
 
-  const ingestPct =
-    ingestProgress && ingestProgress.total > 0
-      ? Math.min(100, Math.round((ingestProgress.processed / ingestProgress.total) * 100))
-      : 0;
+  const latestFinishedIngestJob = useMemo(
+    () => ingestJobs.find((j) => j.status !== "running" && j.report !== null) ?? null,
+    [ingestJobs],
+  );
+  const latestAnalyzedReport = useMemo(
+    () =>
+      latestFinishedIngestJob?.report
+        ? analyzeIngestReport(latestFinishedIngestJob.report)
+        : null,
+    [latestFinishedIngestJob],
+  );
 
   return (
     <div className="relative h-full overflow-y-auto bg-void p-6 lg:p-8">
@@ -986,7 +958,7 @@ export function ToolsView() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  disabled={readOnly || ingesting}
+                  disabled={readOnly}
                   onClick={() => void handleAddFiles(false)}
                   className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-1.5 font-mono text-xs text-bone hover:border-cobalt-ink/60 disabled:opacity-45"
                 >
@@ -995,7 +967,7 @@ export function ToolsView() {
                 </button>
                 <button
                   type="button"
-                  disabled={readOnly || ingesting}
+                  disabled={readOnly}
                   onClick={() => void handleAddFiles(true)}
                   className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-1.5 font-mono text-xs text-bone hover:border-cobalt-ink/60 disabled:opacity-45"
                 >
@@ -1038,7 +1010,7 @@ export function ToolsView() {
                 <label className="flex items-center gap-2 text-bone-muted">
                   <Toggle
                     checked={ingestWatch}
-                    disabled={readOnly || ingesting}
+                    disabled={readOnly}
                     ariaLabel={t("tools.importer.watchOption")}
                     onChange={setIngestWatch}
                   />
@@ -1047,7 +1019,7 @@ export function ToolsView() {
                 <label className="flex items-center gap-2 text-bone-muted">
                   <Toggle
                     checked={ingestReusable}
-                    disabled={readOnly || ingesting}
+                    disabled={readOnly}
                     ariaLabel={t("tools.importer.reusableOption")}
                     onChange={setIngestReusable}
                   />
@@ -1056,7 +1028,7 @@ export function ToolsView() {
                 <label className="flex items-center gap-2 text-bone-muted">
                   <Toggle
                     checked={ingestOcr}
-                    disabled={readOnly || ingesting}
+                    disabled={readOnly}
                     ariaLabel={t("tools.importer.ocrOption")}
                     onChange={setIngestOcr}
                   />
@@ -1065,15 +1037,11 @@ export function ToolsView() {
 
                 <button
                   type="button"
-                  disabled={readOnly || ingesting || ingestPathsList.length === 0}
-                  onClick={() => void handleRunIngest()}
+                  disabled={readOnly || ingestPathsList.length === 0}
+                  onClick={handleRunIngest}
                   className="ml-auto inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-4 py-1.5 font-mono text-xs font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
                 >
-                  {ingesting ? (
-                    <Loader2 size={12} className="animate-spin" aria-hidden />
-                  ) : (
-                    <Upload size={12} aria-hidden />
-                  )}
+                  <Upload size={12} aria-hidden />
                   {t("tools.importer.runButton")}
                 </button>
               </div>
@@ -1097,7 +1065,7 @@ export function ToolsView() {
                   <Select<PastLifeSource>
                     value={pastLifeSource}
                     options={pastLifeOptions}
-                    disabled={readOnly || importingPastLife}
+                    disabled={readOnly}
                     className="w-full"
                     onChange={(v) => {
                       setPastLifeSource(v);
@@ -1113,7 +1081,7 @@ export function ToolsView() {
                   <Select<string>
                     value={pastLifeProjectId}
                     options={projectOptionsGlobal}
-                    disabled={readOnly || importingPastLife}
+                    disabled={readOnly}
                     className="w-full"
                     onChange={setPastLifeProjectId}
                   />
@@ -1124,14 +1092,14 @@ export function ToolsView() {
                 <input
                   type="text"
                   value={pastLifePath}
-                  disabled={readOnly || importingPastLife}
+                  disabled={readOnly}
                   onChange={(e) => setPastLifePath(e.target.value)}
                   placeholder={t("tools.pastLife.pathPlaceholder")}
                   className="h-9 flex-1 rounded-[2px] border border-rule-strong bg-void px-3 font-mono text-xs text-bone placeholder:text-bone-subtle focus:border-cobalt-ink focus:outline-none"
                 />
                 <button
                   type="button"
-                  disabled={readOnly || importingPastLife}
+                  disabled={readOnly}
                   onClick={() => void handlePickPastLife()}
                   className="inline-flex h-9 items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 font-mono text-xs text-bone-muted hover:text-bone"
                 >
@@ -1140,92 +1108,90 @@ export function ToolsView() {
                 </button>
                 <button
                   type="button"
-                  disabled={readOnly || importingPastLife || !pastLifePath.trim()}
-                  onClick={() => void handleRunPastLife()}
+                  disabled={readOnly || !pastLifePath.trim()}
+                  onClick={handleRunPastLife}
                   className="inline-flex h-9 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-4 font-mono text-xs font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
                 >
-                  {importingPastLife ? (
-                    <Loader2 size={12} className="animate-spin" aria-hidden />
-                  ) : (
-                    <Upload size={12} aria-hidden />
-                  )}
+                  <Upload size={12} aria-hidden />
                   {t("tools.pastLife.importButton")}
                 </button>
               </div>
             </section>
 
-            {/* Live ingest progress */}
-            {(ingesting || importingPastLife || ingestProgress) && (
-              <div className="space-y-2 rounded-[2px] border border-cobalt-rule bg-cobalt-wash/50 p-4">
-                <div className="flex items-center justify-between font-mono text-xs">
-                  <span className="inline-flex items-center gap-2 text-cobalt-ink">
-                    {(ingesting || importingPastLife) && (
-                      <Loader2 size={12} className="animate-spin" aria-hidden />
-                    )}
-                    {ingestProgress?.stage ?? t("tools.importer.processing")}
-                  </span>
-                  <span className="tabular-nums text-bone">
-                    {ingestProgress
-                      ? `${ingestProgress.processed} / ${ingestProgress.total} (${ingestPct}%)`
-                      : "…"}
-                  </span>
-                </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-[1px] bg-void">
+            {/* Latest ingest report (synced with global ingest store) */}
+            {latestFinishedIngestJob && latestAnalyzedReport && (
+              <div
+                className={`space-y-2.5 rounded-[2px] border p-4 text-xs ${
+                  latestFinishedIngestJob.status === "cancelled"
+                    ? "border-ochre-rule bg-ochre-wash/50"
+                    : "border-verdigris-rule bg-verdigris-wash/60"
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div
-                    className="h-full bg-cobalt transition-all duration-200"
-                    style={{ width: `${ingestPct}%` }}
-                  />
-                </div>
-                {ingestProgress?.current_path && (
-                  <p className="truncate font-mono text-[10px] text-bone-muted">
-                    {ingestProgress.current_path}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Ingest report */}
-            {ingestReport && (
-              <div className="space-y-2 rounded-[2px] border border-verdigris-rule bg-verdigris-wash/60 p-4 text-xs">
-                <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-verdigris">
-                  {t("tools.importer.reportTitle")}
+                    className={`font-mono text-[11px] font-semibold uppercase tracking-[0.1em] ${
+                      latestFinishedIngestJob.status === "cancelled"
+                        ? "text-ochre"
+                        : "text-verdigris"
+                    }`}
+                  >
+                    {t("tools.importer.reportTitle")} · {latestFinishedIngestJob.label}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openIngestReport(latestFinishedIngestJob.id)}
+                    className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-2 py-0.5 font-mono text-[10px] font-medium text-cobalt-ink hover:bg-cobalt hover:text-bone"
+                  >
+                    <FileText size={10} aria-hidden />
+                    {t("ingest.actions.viewReport")}
+                  </button>
                 </div>
                 <div className="grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums sm:grid-cols-4">
                   <div>
                     <span className="text-bone-subtle">{t("tools.importer.docsCreated")}: </span>
-                    <strong className="text-bone">{ingestReport.documents_created}</strong>
+                    <strong className="text-bone">{latestAnalyzedReport.documentsCreated}</strong>
                   </div>
                   <div>
                     <span className="text-bone-subtle">{t("tools.importer.docsUpdated")}: </span>
-                    <strong className="text-bone">{ingestReport.documents_updated}</strong>
+                    <strong className="text-bone">{latestAnalyzedReport.documentsUpdated}</strong>
+                  </div>
+                  <div>
+                    <span className="text-bone-subtle">{t("ingest.report.filesUnchanged")}: </span>
+                    <strong className="text-bone">{latestAnalyzedReport.documentsUnchanged}</strong>
                   </div>
                   <div>
                     <span className="text-bone-subtle">{t("tools.importer.memsCreated")}: </span>
-                    <strong className="text-bone">{ingestReport.memories_created}</strong>
+                    <strong className="text-bone">{latestAnalyzedReport.memoriesCreated}</strong>
                   </div>
                   <div>
                     <span className="text-bone-subtle">{t("tools.importer.tokensIndexed")}: </span>
                     <strong className="text-bone">
-                      {ingestReport.total_tokens.toLocaleString()}
+                      {latestAnalyzedReport.totalTokens.toLocaleString()}
                     </strong>
                   </div>
                   <div>
                     <span className="text-bone-subtle">{t("tools.importer.redactedSecrets")}: </span>
-                    <strong className="text-ochre">{ingestReport.redacted_secrets}</strong>
+                    <strong className="text-ochre">{latestAnalyzedReport.redactedSecrets}</strong>
                   </div>
                   <div>
-                    <span className="text-bone-subtle">{t("tools.importer.skippedIgnored")}: </span>
-                    <strong className="text-bone">{ingestReport.skipped_ignored}</strong>
+                    <span className="text-bone-subtle">{t("ingest.report.skipped")}: </span>
+                    <strong className="text-ochre">{latestAnalyzedReport.skippedCount}</strong>
+                  </div>
+                  <div>
+                    <span className="text-bone-subtle">{t("ingest.report.errors")}: </span>
+                    <strong
+                      className={
+                        latestAnalyzedReport.errorIssues.length > 0 ? "text-cinnabar" : "text-bone"
+                      }
+                    >
+                      {latestAnalyzedReport.errorIssues.length}
+                    </strong>
                   </div>
                 </div>
-                {ingestReport.errors.length > 0 && (
-                  <div className="space-y-1 border-t border-verdigris-rule/40 pt-2 text-[11px] text-cinnabar">
-                    {ingestReport.errors.map((issue, idx) => (
-                      <div key={idx} className="font-mono">
-                        {issue.path}: {issue.message}
-                      </div>
-                    ))}
-                  </div>
+                {latestAnalyzedReport.skippedCount > 0 && (
+                  <p className="text-[11px] text-bone-muted">
+                    {t("ingest.report.skippedRulesHint")}
+                  </p>
                 )}
               </div>
             )}

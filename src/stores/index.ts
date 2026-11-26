@@ -1,4 +1,4 @@
-export { useUiStore, type NavSection, type UiState } from "./ui";
+export { useUiStore, type NavSection, type ToolsTab, type UiState } from "./ui";
 export { useHardwareStore, type HardwareState } from "./hardware";
 export { useSettingsStore, type SettingsState } from "./settings";
 export { useMemoryStore, type MemoryState } from "./memory";
@@ -8,3 +8,10 @@ export { useLibraryStore, type LibraryState } from "./library";
 export { useTelemetryStore, type TelemetryState } from "./telemetry";
 export { useBranchesStore, type BranchesState } from "./branches";
 export { useSynapticStore, type SynapticPulse, type SynapticState } from "./synaptic";
+export {
+  useIngestStore,
+  type IngestJob,
+  type IngestJobOrigin,
+  type IngestJobStatus,
+  type IngestState,
+} from "./ingest";
