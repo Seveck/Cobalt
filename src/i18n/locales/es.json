@@ -81,6 +81,19 @@
   },
   "onboarding": {
     "badge": "Configuración inicial",
+    "stepsLabel": "Pasos de configuración",
+    "hardwareStepLabel": "Equipo y motor",
+    "nameStep": {
+      "stepLabel": "Tu nombre",
+      "title": "¿Cómo te llamas?",
+      "subtitle": "Cobalt usará tu nombre para saludarte al abrir la app. Es opcional y solo se guarda en este equipo.",
+      "inputLabel": "Tu nombre (opcional)",
+      "placeholder": "Ej. Alex Rivera",
+      "previewWithName": "Cobalt te saludará como «Hola, {{name}}».",
+      "optionalHint": "Opcional — déjalo vacío si prefieres un saludo sin nombre.",
+      "skip": "Omitir",
+      "continue": "Continuar"
+    },
     "title": "Prepara tu segundo cerebro local",
     "headline": "Detectamos {{ram}} GB de RAM y {{cores}} núcleos. Recomendamos el Modo {{tier}}…",
     "detectedHardware": "Hardware detectado",
@@ -165,7 +178,8 @@
       "brain": "Cerebro",
       "neural_net": "Red Neuronal",
       "knowledge_tree": "Árbol",
-      "project_clusters": "Clústeres",
+      "project_clusters": "Proyectos (esferas)",
+      "project_islands": "Islas por proyecto",
       "custom_mesh": "Personalizado"
     },
     "clusterMetric": {
@@ -379,6 +393,10 @@
     "title": "Ajustes",
     "subtitle": "Configura idioma, perfil de hardware, motor vectorial y modelo de embeddings.",
     "generalTitle": "General",
+    "displayNameLabel": "Tu nombre",
+    "displayNameHint": "Se usa en el saludo al abrir Cobalt. Déjalo vacío si prefieres no mostrarlo.",
+    "displayNamePlaceholder": "Opcional…",
+    "saveName": "Guardar",
     "languageLabel": "Idioma de la interfaz",
     "languageHint": "Se guarda inmediatamente en la configuración local.",
     "proModeTitle": "Modo Pro",
@@ -811,6 +829,43 @@
     "placeholder": "Escribe una idea, recordatorio o regla y pulsa Enter…",
     "hint": "Enter para guardar · Esc para cerrar",
     "saved": "Guardado en Cobalt"
+  },
+  "welcome": {
+    "ariaLabel": "Resumen de bienvenida",
+    "period": {
+      "morning": "Buenos días",
+      "afternoon": "Buenas tardes",
+      "evening": "Buenas noches"
+    },
+    "greetingWithName": "Hola, {{name}}",
+    "greetingNoName": "Hola",
+    "brainFact": "{{memories}} memorias en tu cerebro · {{projects}} proyectos",
+    "tokensFact": "{{total}} tokens ahorrados ({{today}} hoy)",
+    "noAisConnected": "Ninguna IA conectada ahora",
+    "oneAiConnected": "1 IA conectada ahora ({{name}})",
+    "manyAisConnected": "{{count}} IAs conectadas ahora ({{names}})",
+    "noRecentActivity": "Sin actividad reciente todavía",
+    "openTelemetry": "Ver ahorro y actividad",
+    "timeAgo": {
+      "justNow": "hace un momento",
+      "minutes": "hace {{count}} min",
+      "hours": "hace {{count}} h",
+      "days": "hace {{count}} d"
+    },
+    "activity": {
+      "read": "{{client}} consultó tu memoria {{ago}}",
+      "readInProject": "{{client}} consultó {{project}} {{ago}}",
+      "write": "{{client}} guardó algo {{ago}}",
+      "writeInProject": "{{client}} guardó algo en {{project}} {{ago}}",
+      "update": "{{client}} actualizó una memoria {{ago}}",
+      "updateInProject": "{{client}} actualizó algo en {{project}} {{ago}}",
+      "reuse": "{{client}} reutilizó un recurso {{ago}}",
+      "reuseInProject": "{{client}} reutilizó un recurso de {{project}} {{ago}}",
+      "handoff": "{{client}} guardó un resumen de sesión {{ago}}",
+      "handoffInProject": "{{client}} guardó un resumen en {{project}} {{ago}}",
+      "blocked_firewall": "Cobalt pausó una escritura grande de {{client}} {{ago}}",
+      "blocked_firewallInProject": "Cobalt pausó una escritura grande de {{client}} en {{project}} {{ago}}"
+    }
   },
   "ingest": {
     "regionLabel": "Actividad de importación",

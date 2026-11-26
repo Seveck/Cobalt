@@ -1273,6 +1273,9 @@ export async function callBackendMock<C extends IpcCommand>(
       };
       return info as ResultOf<C>;
     }
+    case "get_system_user_name": {
+      return "Alex Rivera" as ResultOf<C>;
+    }
     case "get_hardware_profile": {
       return buildMockHardwareProfile() as ResultOf<C>;
     }
@@ -2268,7 +2271,22 @@ export async function callBackendMock<C extends IpcCommand>(
       return { ...mem } as ResultOf<C>;
     }
     case "get_telemetry_summary": {
-      return buildMockTelemetrySummary() as ResultOf<C>;
+      const range = args as { from?: string | null; to?: string | null; session_only?: boolean } | undefined;
+      const base = buildMockTelemetrySummary();
+      if (range?.from) {
+        const fromMs = Date.parse(range.from);
+        if (Number.isFinite(fromMs) && Date.now() - fromMs <= 36 * 3_600_000) {
+          return {
+            ...base,
+            total_saved_tokens: 4_820,
+            saved_from_reads: 3_640,
+            saved_from_reuse: 1_180,
+            total_injected_tokens: 790,
+            total_avoided_tokens: 5_610,
+          } as ResultOf<C>;
+        }
+      }
+      return base as ResultOf<C>;
     }
     case "query_telemetry": {
       const q = args as TelemetryQuery;

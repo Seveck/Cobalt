@@ -14,6 +14,7 @@ import {
   Shield,
   Sparkles,
   Trash2,
+  User,
 } from "lucide-react";
 import { SUPPORTED_LANGUAGES } from "@/i18n";
 import {
@@ -31,6 +32,7 @@ import type { CaptureSettings, EngineKind, HardwareTier, Language } from "@/type
 export function SettingsView() {
   const { t } = useTranslation();
   const langLabelId = useId();
+  const displayNameInputId = useId();
   const readOnlyLabelId = useId();
   const autoWatchLabelId = useId();
   const sessionHandoffsLabelId = useId();
@@ -61,6 +63,7 @@ export function SettingsView() {
 
   const setShowOnboardingOverride = useUiStore((s) => s.setShowOnboardingOverride);
 
+  const [displayName, setDisplayName] = useState<string>(settings.user_display_name ?? "");
   const [tier, setTier] = useState<HardwareTier>(settings.hardware_tier);
   const [engine, setEngine] = useState<EngineKind>(settings.vector_engine);
   const [modelId, setModelId] = useState<string>(settings.embedding_model_id);
@@ -69,11 +72,13 @@ export function SettingsView() {
   const [removingOld, setRemovingOld] = useState(false);
 
   useEffect(() => {
+    setDisplayName(settings.user_display_name ?? "");
     setTier(settings.hardware_tier);
     setEngine(settings.vector_engine);
     setModelId(settings.embedding_model_id);
     setProMode(settings.pro_mode);
   }, [
+    settings.user_display_name,
     settings.hardware_tier,
     settings.vector_engine,
     settings.embedding_model_id,
@@ -92,6 +97,16 @@ export function SettingsView() {
   const showSavedFlash = () => {
     setSavedNotice(true);
     setTimeout(() => setSavedNotice(false), 2000);
+  };
+
+  const normalizedDisplayName = displayName.trim() || null;
+  const savedDisplayName = settings.user_display_name?.trim() || null;
+  const displayNameDirty = normalizedDisplayName !== savedDisplayName;
+
+  const handleSaveDisplayName = async () => {
+    if (!displayNameDirty) return;
+    await patchSettings({ user_display_name: normalizedDisplayName });
+    showSavedFlash();
   };
 
   const handleSavePreferences = async () => {
@@ -211,6 +226,47 @@ export function SettingsView() {
           </div>
 
           <div className="divide-y divide-rule px-5">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleSaveDisplayName();
+              }}
+              className="flex flex-wrap items-center justify-between gap-4 py-4"
+            >
+              <div className="min-w-0 flex-1">
+                <label
+                  htmlFor={displayNameInputId}
+                  className="flex items-center gap-1.5 text-sm font-medium text-bone"
+                >
+                  <User size={14} className="text-cobalt-ink" aria-hidden />
+                  {t("settings.displayNameLabel")}
+                </label>
+                <div className="mt-0.5 text-xs text-bone-muted">
+                  {t("settings.displayNameHint")}
+                </div>
+              </div>
+              <div className="flex w-full items-center gap-2 sm:w-auto">
+                <input
+                  id={displayNameInputId}
+                  type="text"
+                  maxLength={80}
+                  value={displayName}
+                  disabled={saving}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder={t("settings.displayNamePlaceholder")}
+                  className="h-8 w-full rounded-[2px] border border-rule-strong bg-void px-2.5 text-xs text-bone placeholder:text-bone-subtle focus:border-cobalt-ink focus:outline-none disabled:opacity-45 sm:w-52"
+                />
+                <button
+                  type="submit"
+                  disabled={saving || !displayNameDirty}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 text-xs font-medium text-bone transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
+                >
+                  <Save size={12} aria-hidden />
+                  {t("settings.saveName")}
+                </button>
+              </div>
+            </form>
+
             <div className="flex flex-wrap items-center justify-between gap-4 py-4">
               <div>
                 <div id={langLabelId} className="text-sm font-medium text-bone">

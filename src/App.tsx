@@ -23,6 +23,7 @@ import { CliActivityShellBar } from "@/components/shell/CliActivityShellBar";
 import { CobaltMark } from "@/components/shell/CobaltMark";
 import { IngestShellIndicator } from "@/components/shell/IngestShellIndicator";
 import { Sidebar } from "@/components/shell/Sidebar";
+import { WelcomeGreeting } from "@/components/shell/WelcomeGreeting";
 import { ThemeStoreView } from "@/components/store/ThemeStoreView";
 import { TelemetryView } from "@/components/telemetry/TelemetryView";
 import { ToolsView } from "@/components/tools/ToolsView";
@@ -201,6 +202,7 @@ export default function App() {
           {activeNav === "tools" && <ToolsView />}
           {activeNav === "store" && <ThemeStoreView />}
           {activeNav === "settings" && <SettingsView />}
+          <WelcomeGreeting />
         </main>
       </div>
     </div>

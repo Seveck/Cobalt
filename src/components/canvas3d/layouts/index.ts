@@ -4,6 +4,7 @@ import { galaxyLayout } from "./galaxy";
 import { knowledgeTreeLayout } from "./knowledgeTree";
 import { neuralNetLayout } from "./neuralNet";
 import { projectClustersLayout } from "./projectClusters";
+import { projectIslandsLayout } from "./projectIslands";
 
 export const BUILTIN_LAYOUT_TYPES = [
   "galaxy",
@@ -11,6 +12,7 @@ export const BUILTIN_LAYOUT_TYPES = [
   "neural_net",
   "knowledge_tree",
   "project_clusters",
+  "project_islands",
 ] as const;
 
 export type BuiltinLayoutType = (typeof BUILTIN_LAYOUT_TYPES)[number];
@@ -22,6 +24,7 @@ export const LAYOUT_REGISTRY: Record<LayoutType, LayoutFn> = {
   neural_net: neuralNetLayout,
   knowledge_tree: knowledgeTreeLayout,
   project_clusters: projectClustersLayout,
+  project_islands: projectIslandsLayout,
   custom_mesh: galaxyLayout,
 };
 
@@ -35,4 +38,5 @@ export {
   neuralNetLayout,
   knowledgeTreeLayout,
   projectClustersLayout,
+  projectIslandsLayout,
 };
