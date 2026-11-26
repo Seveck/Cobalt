@@ -70,6 +70,27 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [ ] [CODEX] `cobalt-ingest` completo (importador, OCR, PDF, watcher, `.cbrain`, `.cobalt-backup`, Qdrant/LanceDB/Chroma)
 - [ ] [GEMINI] Stores a IPC real (eliminar `*Mock*`), Biblioteca, Conectores/Pro/Doctor, Tienda, Telemetría + Historial + Replay, Puente Web AI, Importador/Mudanza/Branches/Limpiar Cerebro, Nota Rápida
 
+## Fase 3.5 — Asistente conversacional, Personas y Estudio [PARALELO] (decidida 2026-11-25)
+Objetivo: que Cobalt sirva también a quien no programa (organizar notas, estudiar), con un chat que
+consulta y **actúa** sobre el cerebro. Se construye después de la Fase 3 (sus importadores alimentan el chat).
+- [ ] [CLAUDE] Proveedores de modelo elegibles por el usuario en Ajustes: local (Ollama) y APIs propias
+      (Claude, Gemini, OpenAI, OpenRouter/compatibles OpenAI). API keys guardadas cifradas (Bóveda /
+      llavero del SO), nunca en texto plano; aviso claro de qué fragmentos se envían al proveedor elegido
+- [ ] [CLAUDE] Motor del asistente con herramientas internas seguras: buscar nodos (con citas), crear
+      tablas/agrupaciones (p. ej. "proyectos de este mes" con sus nodos), mover/reasignar nodos,
+      editar, archivar (dos pasos), etiquetar; toda acción queda versionada y es reversible
+- [ ] [CLAUDE] Contratos v2: entidad **Personas** (tabla `people`: yo por defecto, familiares, colegas…),
+      `memories.owner_id`; las IAs por MCP solo usan memorias del usuario salvo petición explícita
+- [ ] [CODEX] Store: Personas + reasignación, consultas agregadas por periodo/proyecto/persona,
+      tarjetas con repaso espaciado (algoritmo tipo SM-2/FSRS) y generación/corrección de cuestionarios
+- [ ] [GEMINI] Panel de chat (lateral y a pantalla completa) con respuestas que citan nodos (se iluminan
+      en el 3D), tablas interactivas, confirmación visible de acciones; zonas por persona en el 3D;
+      clic en nodo → "decirle al chat" sobre ese nodo
+- [ ] [GEMINI] Modo Estudio: preguntas con citas, tarjetas + repaso espaciado, cuestionarios,
+      resúmenes por tema/periodo
+- [ ] Posicionamiento ampliado: memoria personal y multi-IA para cualquier persona (notas, estudio y
+      desarrollo), con ahorro de tokens medible y cero telemetría
+
 ## Fase 4 — Auditoría, pulido y empaquetado [PARALELO]
 - [ ] [CODEX] Benchmarks, RAM Eco, OCR/re-vectorización, precisión de ahorro, cobertura
 - [ ] [GEMINI] Auditoría visual, FPS/fugas WebGL, traducciones 100 %
