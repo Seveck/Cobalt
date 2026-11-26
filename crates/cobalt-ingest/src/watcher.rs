@@ -8,14 +8,14 @@ use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::Id;
 use cobalt_core::model::{MemoryChanged, SourceDocument};
 use cobalt_core::traits::ProgressSink;
-use cobalt_core::transfer::{IngestIssue, IngestProgress, IngestRequest};
+use cobalt_core::transfer::{INGEST_STAGE_READING, IngestIssue, IngestProgress, IngestRequest};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::Context;
-use crate::documents::{INGEST_CLIENT, issue};
-use crate::jobs::Cancellation;
+use crate::documents::{INGEST_CLIENT, document_priority, issue};
+use crate::jobs::{Cancellation, Progress};
 
 const DEBOUNCE: Duration = Duration::from_millis(300);
 const MAX_DEBOUNCE: Duration = Duration::from_secs(1);
@@ -181,9 +181,17 @@ pub(crate) async fn start(context: Arc<Context>, callbacks: Callbacks) -> Result
                             Ok(updated) => {
                                 let previous: HashSet<_> = docs.iter()
                                     .map(|doc| (doc.id, doc.file_path.as_str())).collect();
+                                let watched_roots: HashMap<_, _> = updated.iter()
+                                    .filter(|doc| doc.is_dir)
+                                    .map(|doc| (Path::new(&doc.file_path), doc.project_id))
+                                    .collect();
                                 for doc in &updated {
-                                    if !previous.contains(&(doc.id, doc.file_path.as_str())) {
-                                        pending.insert(PathBuf::from(&doc.file_path));
+                                    let path = Path::new(&doc.file_path);
+                                    let covered = path.ancestors().skip(1)
+                                        .find_map(|parent| watched_roots.get(parent))
+                                        .is_some_and(|project| *project == doc.project_id);
+                                    if !covered && !previous.contains(&(doc.id, doc.file_path.as_str())) {
+                                        pending.insert(path.to_owned());
                                     }
                                 }
                                 docs = updated;
@@ -297,18 +305,58 @@ async fn reconcile(
         }
     }
     let mut retry = BTreeSet::new();
-    for (path, target) in jobs {
-        if cancellation.check().is_err() {
-            break;
-        }
-        let report = reconcile_path(context, &path, target, cancellation, callbacks).await;
-        if let Err(error) = report
-            && !matches!(error, CobaltError::Cancelled)
-        {
-            context.watch_issue(issue(&path, error));
-            retry.insert(path);
-        }
+    if jobs.is_empty() || cancellation.check().is_err() {
+        return retry;
     }
+    let first = jobs
+        .first_key_value()
+        .map(|(path, target)| (path.clone(), target.project_id));
+    let project_id = first
+        .as_ref()
+        .and_then(|(_, project)| *project)
+        .filter(|project| {
+            jobs.values()
+                .all(|target| target.project_id == Some(*project))
+        });
+    let first_path = first.as_ref().and_then(|(path, _)| path.to_str());
+    let mut jobs: Vec<_> = jobs.into_iter().collect();
+    jobs.sort_by_key(|(path, _)| document_priority(path));
+    let total = jobs.len() as u64;
+    let _ = context
+        .jobs
+        .run(
+            first_path,
+            project_id,
+            Some(cancellation),
+            callbacks.progress.clone(),
+            |_| false,
+            async |cancellation, progress| {
+                let mut failed = false;
+                for (index, (path, target)) in jobs.into_iter().enumerate() {
+                    cancellation.check()?;
+                    progress.document(&path, index as u64, total, INGEST_STAGE_READING);
+                    let result =
+                        reconcile_path(context, &path, target, &cancellation, callbacks, &progress)
+                            .await;
+                    match result {
+                        Err(CobaltError::Cancelled) => return Err(CobaltError::Cancelled),
+                        Err(error) => {
+                            context.watch_issue(issue(&path, error));
+                            retry.insert(path);
+                            failed = true;
+                        }
+                        Ok(()) => {}
+                    }
+                    progress.finish(index as u64 + 1, total);
+                }
+                if failed {
+                    Err(CobaltError::Storage("watcher reconciliation failed".into()))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .await;
     retry
 }
 
@@ -318,6 +366,7 @@ async fn reconcile_path(
     target: WatchTarget,
     cancellation: &Cancellation,
     callbacks: &Callbacks,
+    progress: &Progress,
 ) -> Result<()> {
     match path.symlink_metadata() {
         Err(error)
@@ -346,7 +395,13 @@ async fn reconcile_path(
         ocr: true,
     };
     let report = context
-        .ingest_watched(req, target.folder_limited, cancellation, callbacks)
+        .ingest_watched(
+            req,
+            target.folder_limited,
+            cancellation,
+            callbacks,
+            progress,
+        )
         .await?;
     let excluded = report.skipped_ignored == 1
         && report.errors.is_empty()

@@ -6,14 +6,14 @@ use cobalt_core::ids::Id;
 use cobalt_core::model::{NewMemory, NewSourceDocument, SourceDocument};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::SqliteStore;
 use crate::db::sql_error;
 use crate::memory::{
-    WriteMode, clear_semantic_edges, configured, content_hash, embed_memory, remove_vectors,
-    write_memory,
+    WriteMode, clear_semantic_edges, configured, content_hash, embed_document_chunks,
+    remove_vectors, token_count, write_memory,
 };
 use crate::migration::edit_transaction;
 use crate::repositories::{branch, id, load_settings, source, stamp, text, upsert_source};
+use crate::{DOCUMENT_EMBED_BATCH, SqliteStore};
 
 const INGEST_CLIENT: &str = "cobalt-ingest";
 
@@ -25,6 +25,23 @@ pub struct WatchedFileUpdate {
 }
 
 impl SqliteStore {
+    /// Whether this branch already has an active watcher or ingest mirror for the source.
+    pub async fn has_ingested_chunks(&self, branch_id: Id, source_id: Id) -> Result<bool> {
+        self.db
+            .read(move |conn| {
+                conn.query_row(
+                    "SELECT EXISTS(
+                    SELECT 1 FROM memories WHERE branch_id = ?1 AND source_doc_id = ?2
+                      AND source_client = ?3 AND status = 'active'
+                )",
+                    params![branch_id.to_string(), source_id.to_string(), INGEST_CLIENT],
+                    |row| row.get(0),
+                )
+                .map_err(sql_error)
+            })
+            .await
+    }
+
     /// Replaces a file mirror, publishing its source metadata, chunks and vectors together.
     /// Checks the disk snapshot again after embedding, before publishing.
     /// Returns the previous source state and committed IDs, or None for an unchanged mirror.
@@ -32,13 +49,34 @@ impl SqliteStore {
         &self,
         doc: NewSourceDocument,
         branch_id: Id,
-        mut chunks: Vec<NewMemory>,
+        chunks: Vec<NewMemory>,
         inherit_watch: bool,
         check_cancelled: impl Fn() -> Result<()> + Send + 'static,
         verify_snapshot: impl FnOnce() -> Result<()> + Send + 'static,
     ) -> Result<Option<WatchedFileUpdate>> {
+        self.replace_watched_file_with_progress(
+            doc,
+            branch_id,
+            chunks,
+            inherit_watch,
+            move |_| check_cancelled(),
+            verify_snapshot,
+        )
+        .await
+    }
+
+    /// Calls `on_batch` after each embedding batch and with zero at cancellation checkpoints.
+    pub async fn replace_watched_file_with_progress(
+        &self,
+        doc: NewSourceDocument,
+        branch_id: Id,
+        mut chunks: Vec<NewMemory>,
+        inherit_watch: bool,
+        on_batch: impl Fn(usize) -> Result<()> + Send + 'static,
+        verify_snapshot: impl FnOnce() -> Result<()> + Send + 'static,
+    ) -> Result<Option<WatchedFileUpdate>> {
         let gate = self.engine_write().await;
-        check_cancelled()?;
+        on_batch(0)?;
         let path = doc.file_path.clone();
         let prior = self.db.read(move |conn| source_at(conn, &path)).await?;
         if let Some(prior) = &prior {
@@ -71,16 +109,18 @@ impl SqliteStore {
         }
         let retrieval = self.configured_retrieval()?;
         let mut vectors = Vec::with_capacity(chunks.len());
-        for chunk in &chunks {
-            check_cancelled()?;
-            vectors.push(embed_memory(configured(retrieval.as_deref())?, &chunk.content).await?);
+        for batch in chunks.chunks(DOCUMENT_EMBED_BATCH) {
+            on_batch(0)?;
+            vectors.extend(embed_document_chunks(configured(retrieval.as_deref())?, batch).await?);
+            on_batch(batch.len())?;
         }
-        check_cancelled()?;
+        on_batch(0)?;
         self.db
             .write(move |conn| {
                 let _gate = gate;
+                on_batch(0)?;
                 verify_snapshot()?;
-                check_cancelled()?;
+                on_batch(0)?;
                 edit_transaction(conn, retrieval.as_deref(), |tx, retrieval| {
                     check_writable(tx)?;
                     if source_at(tx, &doc.file_path)? != prior {
@@ -129,15 +169,20 @@ impl SqliteStore {
                         chunk.source_client = Some(INGEST_CLIENT.into());
                         chunk.project_id = doc.project_id;
                     }
+                    let counts = chunks
+                        .iter()
+                        .map(|chunk| token_count(configured(retrieval)?, &chunk.content))
+                        .collect::<Result<Vec<_>>>()?;
                     for branch_id in branches {
-                        for (chunk, embedding) in chunks.iter().zip(&vectors) {
+                        for ((chunk, embedding), count) in chunks.iter().zip(&vectors).zip(&counts)
+                        {
                             let outcome = write_memory(
                                 tx,
                                 configured(retrieval)?,
                                 branch_id,
                                 chunk.clone(),
                                 embedding,
-                                WriteMode::Document,
+                                WriteMode::CountedDocument(*count),
                             )?;
                             if outcome.action == WriteAction::Inserted {
                                 created.push(outcome.memory.id);

@@ -1,5 +1,7 @@
 //! Canonical SQLite repositories and hybrid retrieval.
 
+pub use cobalt_embeddings::DOCUMENT_EMBED_BATCH;
+
 mod db;
 #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
 mod external;

@@ -150,7 +150,9 @@ impl FastembedEmbedder {
                 }
                 vectors
             } else {
-                model.embed(input, None).map_err(embedding_error)?
+                model
+                    .embed(input, Some(crate::DOCUMENT_EMBED_BATCH))
+                    .map_err(embedding_error)?
             };
             normalize(vectors, count, &spec)
         })

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use cobalt_core::enums::EngineKind;
@@ -258,6 +258,7 @@ pub struct Usearch {
     db: Database,
     file: PathBuf,
     dimensions: usize,
+    working: Option<Arc<usearch::Index>>,
 }
 
 impl Usearch {
@@ -318,6 +319,7 @@ impl Usearch {
                 .join(format!("usearch-{key}"))
                 .join("index.usearch"),
             dimensions,
+            working: None,
         })
     }
 
@@ -336,6 +338,22 @@ impl Usearch {
         }
     }
 
+    pub(crate) fn stage_edit(&self, file: PathBuf) -> Result<Self> {
+        let index = self.open_index(false)?;
+        Ok(Self {
+            working: Some(index),
+            ..self.with_file(file)
+        })
+    }
+
+    pub(crate) fn publish_edit(&self) -> Result<()> {
+        self.publish(
+            self.working
+                .as_deref()
+                .ok_or_else(|| engine_error("missing staged USearch index"))?,
+        )
+    }
+
     pub(crate) fn new_index(&self) -> Result<usearch::Index> {
         usearch::Index::new(&IndexOptions {
             dimensions: self.dimensions,
@@ -346,7 +364,10 @@ impl Usearch {
         .map_err(engine_error)
     }
 
-    fn open_index(&self, mmap: bool) -> Result<usearch::Index> {
+    fn open_index(&self, mmap: bool) -> Result<Arc<usearch::Index>> {
+        if let Some(index) = &self.working {
+            return Ok(index.clone());
+        }
         let index = self.new_index()?;
         let path = index_path(&self.file)?;
         if mmap {
@@ -363,7 +384,7 @@ impl Usearch {
                 "USearch index options do not match".into(),
             ));
         }
-        Ok(index)
+        Ok(Arc::new(index))
     }
 
     pub(crate) fn publish(&self, index: &usearch::Index) -> Result<()> {
@@ -415,7 +436,11 @@ impl Usearch {
             index.remove(key).map_err(engine_error)?;
             index.add(key, embedding).map_err(engine_error)?;
         }
-        self.publish(&index)
+        if self.working.is_some() {
+            Ok(())
+        } else {
+            self.publish(&index)
+        }
     }
 
     fn scoped(
