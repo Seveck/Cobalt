@@ -54,13 +54,14 @@ pub mod commands {
     pub const SET_READ_ONLY: &str = "set_read_only";
     pub const GET_DAEMON_STATUS: &str = "get_daemon_status";
     pub const REPLAY_ACTIVITY: &str = "replay_activity";
+    pub const GET_SOURCE_DOCUMENT: &str = "get_source_document";
+    pub const VERIFY_SOURCE_DOCUMENT: &str = "verify_source_document";
 
     // Projects / library / telemetry / connectors / themes / transfer (Phase 3)
     pub const LIST_PROJECTS: &str = "list_projects";
     pub const CREATE_PROJECT: &str = "create_project";
     pub const UPDATE_PROJECT: &str = "update_project";
     pub const LIST_LIBRARY: &str = "list_library";
-    pub const VERIFY_SOURCE_DOCUMENT: &str = "verify_source_document";
     pub const RELINK_SOURCE_DOCUMENT: &str = "relink_source_document";
     pub const SET_WATCHED: &str = "set_watched";
     pub const PROMOTE_FILE_TO_REUSABLE: &str = "promote_file_to_reusable";

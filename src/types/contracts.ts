@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.1.0";
+export const CONTRACT_VERSION = "1.2.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -1126,12 +1126,13 @@ export interface IpcCommandMap {
   set_read_only: { args: SetReadOnlyArgs; result: boolean };
   get_daemon_status: { args: void; result: DaemonStatus };
   replay_activity: { args: IdArgs; result: McpActivity };
+  get_source_document: { args: IdArgs; result: SourceDocument };
+  verify_source_document: { args: IdArgs; result: FileAvailability };
   // Phase 3 — projects, library, telemetry, connectors, themes, transfer
   list_projects: { args: ListProjectsArgs; result: ProjectStats[] };
   create_project: { args: NewProject; result: Project };
   update_project: { args: UpdateProjectArgs; result: Project };
   list_library: { args: LibraryFilter; result: ReusableAsset[] };
-  verify_source_document: { args: IdArgs; result: FileAvailability };
   relink_source_document: { args: RelinkArgs; result: SourceDocument };
   set_watched: { args: SetWatchedArgs; result: SourceDocument };
   promote_file_to_reusable: { args: PromoteFileRequest; result: Memory };
