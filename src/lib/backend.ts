@@ -62,7 +62,7 @@ export const PHASE2_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>
 
 /**
  * Phase 3 commands wired to the real Rust/Tauri backend inside Tauri
- * (see `docs/CONTRACTS.md` §5, v1.3.1).
+ * (see `docs/CONTRACTS.md` §5, v1.3.2).
  */
 export const PHASE3_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>([
   "get_archive_impact",
@@ -88,6 +88,7 @@ export const PHASE3_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>
   "list_installed_themes",
   "get_theme_manifest",
   "ingest_paths",
+  "cancel_ingest",
   "import_past_life",
   "export_capsule",
   "import_capsule",

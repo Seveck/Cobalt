@@ -745,5 +745,78 @@
     "placeholder": "Escribe una idea, recordatorio o regla y pulsa Enter…",
     "hint": "Enter para guardar · Esc para cerrar",
     "saved": "Guardado en Cobalt"
+  },
+  "ingest": {
+    "regionLabel": "Actividad de importación",
+    "panelTitle": "Actividad de importación",
+    "concurrentActive": "{{count}} en curso",
+    "finishedBadge": "{{count}} terminadas",
+    "calculatingTotal": "Contando archivos…",
+    "recentFinishedTitle": "Importaciones recientes",
+    "status": {
+      "running": "Importando",
+      "completed": "Completada",
+      "cancelled": "Detenida",
+      "failed": "Error"
+    },
+    "stages": {
+      "starting": "Preparando importación…",
+      "queued": "En cola…",
+      "scanning": "Buscando archivos…",
+      "reading": "Leyendo archivos…",
+      "parsing": "Leyendo contenido…",
+      "chunking": "Dividiendo en fragmentos…",
+      "ocr": "Extrayendo texto de imágenes…",
+      "redacting": "Revisando datos sensibles…",
+      "embedding": "Analizando contenido…",
+      "indexing": "Guardando en tu memoria…",
+      "saving": "Guardando memorias…",
+      "importing": "Importando elementos…",
+      "cancelling": "Deteniendo importación…",
+      "cancelled": "Importación detenida",
+      "completed": "Importación completada",
+      "failed": "Error al importar"
+    },
+    "summary": {
+      "created": "{{count}} creados",
+      "updated": "{{count}} actualizados",
+      "unchanged": "{{count}} sin cambios",
+      "skippedWithReason": "{{count}} omitidos ({{reason}})",
+      "errors": "{{count}} error(es)",
+      "stoppedPartial": "Detenida tras {{processed}} de {{total}} archivos",
+      "stoppedNoFiles": "La importación se detuvo antes de terminar",
+      "processedCount": "{{processed}} de {{total}} archivos procesados"
+    },
+    "skipReasons": {
+      "ignored": "reglas de exclusión",
+      "binary": "archivos binarios",
+      "too_large": "mayores de 2 MB",
+      "unsupported": "formato no compatible",
+      "other": "omitidos",
+      "default": "excluidos, binarios o > 2 MB"
+    },
+    "actions": {
+      "stopping": "Deteniendo…",
+      "showDetails": "Ver detalles de importación",
+      "hideDetails": "Ocultar detalles de importación",
+      "viewReport": "Ver reporte",
+      "dismiss": "Descartar",
+      "clearFinished": "Limpiar terminadas",
+      "openImporter": "Abrir Importador"
+    },
+    "report": {
+      "title": "Reporte de importación",
+      "backToList": "Todas las importaciones",
+      "filesCreated": "Creados",
+      "filesUnchanged": "Sin cambios",
+      "skipped": "Omitidos",
+      "errors": "Errores",
+      "memoriesUpdated": "Memorias actualizadas",
+      "skippedSectionTitle": "Archivos omitidos ({{count}})",
+      "skippedRulesHint": "Los archivos excluidos por reglas (.memoryignore), los archivos binarios y los archivos de texto mayores de 2 MB se omiten automáticamente para mantener limpia tu memoria.",
+      "errorsSectionTitle": "Errores ({{count}})",
+      "cancelledWithoutReport": "La importación se detuvo tras {{processed}} de {{total}} elementos. Las memorias que ya se guardaron permanecen en tu cerebro.",
+      "noDetailedReport": "Se procesaron {{processed}} de {{total}} elementos."
+    }
   }
 }

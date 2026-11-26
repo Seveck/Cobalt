@@ -12,9 +12,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { Canvas } from "@react-three/fiber";
 import {
-  Check,
   Clock,
-  Loader2,
   Radio,
   RotateCcw,
   SearchCode,
@@ -22,10 +20,10 @@ import {
   Sparkles,
   Upload,
 } from "lucide-react";
-import { backendCall, backendOn } from "@/lib/backend";
 import { useFileDrop } from "@/lib/dialogs";
 import {
   useFiltersStore,
+  useIngestStore,
   useMemoryStore,
   useSettingsStore,
   useThemeStore,
@@ -36,7 +34,7 @@ import { BranchSwitcher } from "@/components/tools/BranchSwitcher";
 import { CleanBrainPanel } from "@/components/tools/CleanBrainPanel";
 import { RagDebugger } from "@/components/tools/RagDebugger";
 import { TimeTravelBar } from "@/components/tools/TimeTravelBar";
-import type { GraphNode, IngestProgress, ProjectContainer } from "@/types/contracts";
+import type { GraphNode, ProjectContainer } from "@/types/contracts";
 import { BrainScene } from "./BrainScene";
 import { FilterDock } from "./FilterDock";
 import { LayoutSwitcher } from "./LayoutSwitcher";
@@ -104,6 +102,7 @@ export function BrainCanvas() {
 
   const filters = useFiltersStore((s) => s.filters);
   const searchQuery = useFiltersStore((s) => s.searchQuery);
+  const startIngestPaths = useIngestStore((s) => s.startIngestPaths);
 
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   const [pointer, setPointer] = useState<TooltipPointer>({ x: 0, y: 0 });
@@ -111,59 +110,22 @@ export function BrainCanvas() {
   const [activeDrawer, setActiveDrawer] = useState<ActiveDrawer>("none");
   const [timeTravelOpen, setTimeTravelOpen] = useState(false);
   const [projectContainers, setProjectContainers] = useState<readonly ProjectContainer[]>([]);
-  const [dropIngesting, setDropIngesting] = useState(false);
-  const [dropProgress, setDropProgress] = useState<IngestProgress | null>(null);
-  const [dropNotice, setDropNotice] = useState<string | null>(null);
-  const [dropError, setDropError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | null = null;
-    void backendOn("cobalt://ingest-progress", (payload) => {
-      if (active) setDropProgress(payload);
-    }).then((fn) => {
-      if (active) unlisten = fn;
-      else fn();
-    });
-    return () => {
-      active = false;
-      unlisten?.();
-    };
-  }, []);
 
   const handleDropOnto3D = useCallback(
-    async (paths: string[]) => {
+    (paths: string[]) => {
       if (readOnly || paths.length === 0) return;
-      setDropIngesting(true);
-      setDropError(null);
-      setDropProgress(null);
-      try {
-        const report = await backendCall("ingest_paths", {
-          paths,
-          project_id: null,
-          watch: false,
-          mark_reusable: false,
-          ocr: false,
-        });
-        await loadGraph();
-        setDropNotice(
-          t("tools.importer.doneNotice", { memories: report.memories_created }),
-        );
-        window.setTimeout(() => setDropNotice(null), 4000);
-      } catch (err: unknown) {
-        setDropError(err instanceof Error ? err.message : String(err));
-        window.setTimeout(() => setDropError(null), 5000);
-      } finally {
-        setDropIngesting(false);
-        setDropProgress(null);
-      }
+      void startIngestPaths({
+        paths,
+        project_id: null,
+        watch: false,
+        mark_reusable: false,
+        ocr: false,
+      });
     },
-    [loadGraph, readOnly, t],
+    [readOnly, startIngestPaths],
   );
 
-  const { isDragging } = useFileDrop((paths) => {
-    void handleDropOnto3D(paths);
-  }, !readOnly);
+  const { isDragging } = useFileDrop(handleDropOnto3D, !readOnly);
 
   useEffect(() => {
     if (!graph && !loading) {
@@ -262,41 +224,6 @@ export function BrainCanvas() {
               </div>
               <p className="text-xs text-bone-muted">{t("brain.dropToIngestHint")}</p>
             </div>
-          </div>
-        )}
-
-        {/* Drop ingest live progress / notice pill */}
-        {(dropIngesting || dropNotice || dropError) && (
-          <div className="pointer-events-auto absolute top-16 right-3 z-30 w-72 rounded-[2px] border border-rule-strong bg-surface/95 p-3 shadow-[0_12px_32px_rgba(0,0,0,0.72)]">
-            {dropIngesting && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between font-mono text-[11px] text-cobalt-ink">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Loader2 size={12} className="animate-spin" aria-hidden />
-                    {dropProgress?.stage ?? t("tools.importer.processing")}
-                  </span>
-                  {dropProgress && dropProgress.total > 0 && (
-                    <span className="tabular-nums text-bone">
-                      {dropProgress.processed}/{dropProgress.total}
-                    </span>
-                  )}
-                </div>
-                {dropProgress?.current_path && (
-                  <div className="truncate font-mono text-[10px] text-bone-muted">
-                    {dropProgress.current_path}
-                  </div>
-                )}
-              </div>
-            )}
-            {dropNotice && !dropIngesting && (
-              <div className="flex items-center gap-1.5 font-mono text-[11px] text-verdigris">
-                <Check size={12} className="shrink-0" aria-hidden />
-                <span>{dropNotice}</span>
-              </div>
-            )}
-            {dropError && !dropIngesting && (
-              <div className="text-[11px] text-cinnabar">{dropError}</div>
-            )}
           </div>
         )}
         {/* Top HUD bar: left status + center layout switcher + right tool buttons */}
