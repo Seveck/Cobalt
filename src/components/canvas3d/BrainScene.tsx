@@ -73,6 +73,7 @@ export interface BrainSceneProps {
   manifest: ThemeManifest;
   activeLayout: LayoutType;
   clusterSizeMetric: ClusterSizeMetric;
+  showConnections: boolean;
   hardwareTier: HardwareTier;
   filters: VisualFilters;
   searchQuery: string;
@@ -170,54 +171,12 @@ function nextCapacity(needed: number): number {
   return cap;
 }
 
-/** Build a single merged LineSegments geometry of 3 orthogonal wireframe rings per project container. */
-function buildContainerShellsGeometry(
-  containers: readonly ProjectContainer[],
-): THREE.BufferGeometry | null {
-  if (containers.length === 0) return null;
-
-  const segmentsPerRing = 48;
-  const positions: number[] = [];
-  const colors: number[] = [];
-  const tmpColor = new THREE.Color();
-
-  for (const c of containers) {
-    tmpColor.set(c.color);
-    const [cx, cy, cz] = c.center;
-    const r = c.radius;
-
-    for (let s = 0; s < segmentsPerRing; s += 1) {
-      const a0 = (s / segmentsPerRing) * Math.PI * 2;
-      const a1 = ((s + 1) / segmentsPerRing) * Math.PI * 2;
-      const cos0 = Math.cos(a0) * r;
-      const sin0 = Math.sin(a0) * r;
-      const cos1 = Math.cos(a1) * r;
-      const sin1 = Math.sin(a1) * r;
-
-      // XZ equatorial ring
-      positions.push(cx + cos0, cy, cz + sin0, cx + cos1, cy, cz + sin1);
-      // XY vertical meridian
-      positions.push(cx + cos0, cy + sin0, cz, cx + cos1, cy + sin1, cz);
-      // YZ vertical meridian
-      positions.push(cx, cy + cos0, cz + sin0, cx, cy + cos1, cz + sin1);
-
-      for (let v = 0; v < 6; v += 1) {
-        colors.push(tmpColor.r, tmpColor.g, tmpColor.b);
-      }
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-  return geometry;
-}
-
 export function BrainScene({
   graph,
   manifest,
   activeLayout,
   clusterSizeMetric,
+  showConnections,
   hardwareTier,
   filters,
   searchQuery,
@@ -660,26 +619,36 @@ export function BrainScene({
     }
   });
 
-  // Semantic / hover edges geometry with explicit disposal
-  const semanticEdgeGeometry = useMemo(() => {
-    const mode = manifest.layout_params.semantic_edges_mode;
-    const effectiveMode = hardwareTier === "eco" && mode === "always" ? "hover_only" : mode;
-    if (effectiveMode === "never") return null;
+  const visibleNodeIds = useMemo(() => {
+    const visible = new Set<Uuid>();
+    for (const node of graph.nodes) {
+      if (matchesVisualFilters(node, filters, searchQuery)) {
+        visible.add(node.id);
+      }
+    }
+    return visible;
+  }, [filters, graph.nodes, searchQuery]);
 
+  // Real memory edges geometry (all real edges when `showConnections` is enabled; hover/selection always preserved)
+  const semanticEdgeGeometry = useMemo(() => {
     const focusId = hoveredNodeId ?? selectedNodeId;
-    if (effectiveMode === "hover_only" && !focusId) return null;
+    if (!showConnections && !focusId) return null;
 
     const coords: number[] = [];
     for (const edge of graph.edges) {
-      const touchesFocus =
-        focusId !== null && (edge.source_id === focusId || edge.target_id === focusId);
-
-      if (effectiveMode === "hover_only" && !touchesFocus) {
+      if (!visibleNodeIds.has(edge.source_id) || !visibleNodeIds.has(edge.target_id)) {
         continue;
       }
 
-      // In `project_islands`, edges crossing between different islands appear ONLY on hover/selection
-      if (isProjectIslands) {
+      const touchesFocus =
+        focusId !== null && (edge.source_id === focusId || edge.target_id === focusId);
+
+      if (!showConnections && !touchesFocus) {
+        continue;
+      }
+
+      // In `project_islands`, cross-island edges stay on hover/selection unless user explicitly toggled all connections on
+      if (isProjectIslands && !showConnections) {
         const srcProj = nodeProjectMap.get(edge.source_id) ?? null;
         const dstProj = nodeProjectMap.get(edge.target_id) ?? null;
         if (srcProj !== dstProj && !touchesFocus) {
@@ -699,13 +668,13 @@ export function BrainScene({
     return geometry;
   }, [
     graph.edges,
-    hardwareTier,
     hoveredNodeId,
     isProjectIslands,
     layoutResult.nodePositions,
-    manifest.layout_params.semantic_edges_mode,
     nodeProjectMap,
     selectedNodeId,
+    showConnections,
+    visibleNodeIds,
   ]);
 
   const semanticEdgeMaterial = useMemo(
@@ -713,9 +682,9 @@ export function BrainScene({
       new THREE.LineBasicMaterial({
         color: manifest.palette.edge,
         transparent: true,
-        opacity: 0.72,
+        opacity: showConnections ? 0.45 : 0.72,
       }),
-    [manifest.palette.edge],
+    [manifest.palette.edge, showConnections],
   );
 
   useEffect(() => {
@@ -730,7 +699,7 @@ export function BrainScene({
     };
   }, [semanticEdgeMaterial]);
 
-  // Structural layout edges (knowledge_tree branches, neural_net rails, brain bridges)
+  // Structural layout edges (knowledge_tree branches, neural_net rails)
   const structuralEdgeGeometry = useMemo(() => {
     const pairs = layoutResult.structuralEdges;
     if (!pairs || pairs.length === 0) return null;
@@ -775,37 +744,6 @@ export function BrainScene({
       structuralEdgeMaterial.dispose();
     };
   }, [structuralEdgeMaterial]);
-
-  // Project container wireframe shells (`project_clusters` layout using `projects.color_hex`)
-  const containerShellsGeometry = useMemo(
-    () =>
-      activeLayout === "project_clusters"
-        ? buildContainerShellsGeometry(layoutResult.projectContainers ?? [])
-        : null,
-    [activeLayout, layoutResult.projectContainers],
-  );
-
-  const containerShellsMaterial = useMemo(
-    () =>
-      new THREE.LineBasicMaterial({
-        vertexColors: true,
-        transparent: true,
-        opacity: 0.32,
-      }),
-    [],
-  );
-
-  useEffect(() => {
-    return () => {
-      containerShellsGeometry?.dispose();
-    };
-  }, [containerShellsGeometry]);
-
-  useEffect(() => {
-    return () => {
-      containerShellsMaterial.dispose();
-    };
-  }, [containerShellsMaterial]);
 
   // Flat island slabs, rims, and big floating project labels (`project_islands` layout)
   const islandSlabsGeometry = useMemo(
@@ -912,10 +850,6 @@ export function BrainScene({
 
       {structuralEdgeGeometry && (
         <lineSegments geometry={structuralEdgeGeometry} material={structuralEdgeMaterial} />
-      )}
-
-      {containerShellsGeometry && (
-        <lineSegments geometry={containerShellsGeometry} material={containerShellsMaterial} />
       )}
 
       {semanticEdgeGeometry && (

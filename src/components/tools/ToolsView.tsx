@@ -10,6 +10,7 @@ import {
   FileUp,
   FolderKanban,
   FolderOpen,
+  FolderSync,
   Globe,
   HardDriveDownload,
   History,
@@ -58,6 +59,36 @@ const PAST_LIFE_SOURCES: readonly PastLifeSource[] = [
   "cursor_rules",
   "claude_md",
 ];
+
+const PROJECT_WATCHED_STORAGE_KEY = "cobalt.projectWatched";
+
+function loadProjectWatchedMap(): Record<string, boolean> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(PROJECT_WATCHED_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const result: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === "boolean") {
+        result[k] = v;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function saveProjectWatchedMap(map: Record<string, boolean>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PROJECT_WATCHED_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // Ignore storage quota / privacy mode errors
+  }
+}
 
 function ImportReportCard({ report }: { report: ImportReport }) {
   const { t } = useTranslation();
@@ -113,6 +144,7 @@ export function ToolsView() {
   const { t } = useTranslation();
 
   const readOnly = useSettingsStore((s) => s.settings.read_only);
+  const autoWatchProjects = useSettingsStore((s) => s.settings.capture.auto_watch_projects);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const activeTab = useUiStore((s) => s.toolsTab);
   const setActiveTab = useUiStore((s) => s.setToolsTab);
@@ -139,6 +171,10 @@ export function ToolsView() {
   const [editProjName, setEditProjName] = useState("");
   const [editProjPath, setEditProjPath] = useState("");
   const [editProjColor, setEditProjColor] = useState("#3B82F6");
+  const [projectWatchedMap, setProjectWatchedMap] = useState<Record<string, boolean>>(() =>
+    loadProjectWatchedMap(),
+  );
+  const [togglingWatchId, setTogglingWatchId] = useState<Uuid | null>(null);
 
   // ---- Web AI Bridge state ----
   const [webTask, setWebTask] = useState("");
@@ -290,6 +326,36 @@ export function ToolsView() {
       );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleToggleProjectWatched = async (
+    projectId: Uuid,
+    projectName: string,
+    watched: boolean,
+  ) => {
+    if (readOnly) return;
+    setTogglingWatchId(projectId);
+    setError(null);
+    try {
+      const applied = await backendCall("set_project_watched", {
+        project_id: projectId,
+        watched,
+      });
+      setProjectWatchedMap((prev) => {
+        const next = { ...prev, [projectId]: applied };
+        saveProjectWatchedMap(next);
+        return next;
+      });
+      flashNotice(
+        applied
+          ? t("tools.projects.watchEnabledNotice", { name: projectName })
+          : t("tools.projects.watchDisabledNotice", { name: projectName }),
+      );
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTogglingWatchId(null);
     }
   };
 
@@ -806,7 +872,49 @@ export function ToolsView() {
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label
+                                title={
+                                  project.root_path
+                                    ? t("tools.projects.watchProjectHint")
+                                    : t("tools.projects.watchNeedsFolder")
+                                }
+                                className={`inline-flex items-center gap-1.5 rounded-[2px] border border-rule bg-void px-2 py-1 font-mono text-[10px] ${
+                                  project.root_path && !project.is_archived
+                                    ? "text-bone-muted"
+                                    : "text-bone-subtle opacity-60"
+                                }`}
+                              >
+                                <FolderSync
+                                  size={10}
+                                  className={
+                                    Boolean(project.root_path) &&
+                                    !project.is_archived &&
+                                    (projectWatchedMap[project.id] ?? autoWatchProjects)
+                                      ? "text-verdigris"
+                                      : "text-bone-subtle"
+                                  }
+                                  aria-hidden
+                                />
+                                <span>{t("tools.projects.watchProject")}</span>
+                                <Toggle
+                                  checked={
+                                    Boolean(project.root_path) &&
+                                    !project.is_archived &&
+                                    (projectWatchedMap[project.id] ?? autoWatchProjects)
+                                  }
+                                  disabled={
+                                    readOnly ||
+                                    project.is_archived ||
+                                    !project.root_path ||
+                                    togglingWatchId === project.id
+                                  }
+                                  ariaLabel={`${t("tools.projects.watchProject")}: ${project.name}`}
+                                  onChange={(checked) =>
+                                    void handleToggleProjectWatched(project.id, project.name, checked)
+                                  }
+                                />
+                              </label>
                               <button
                                 type="button"
                                 disabled={readOnly}

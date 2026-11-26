@@ -155,6 +155,8 @@
     "balancedFpsCap": "Balanceado · 60 FPS máx.",
     "fpsUncapped": "Ultra · FPS libres",
     "resetCamera": "Restablecer cámara",
+    "showConnections": "Mostrar conexiones",
+    "showConnectionsHint": "Muestra todas las conexiones reales entre tus memorias (siempre visibles al pasar el cursor o seleccionar un nodo)",
     "hoverHint": "Arrastra para rotar · Rueda para zoom · Haz clic en un nodo para inspeccionar",
     "corePin": "Ley Nuclear",
     "reusable": "Reutilizable",
@@ -405,6 +407,8 @@
     "readOnlyDesc": "Impide que las herramientas de IA escriban o modifiquen tus memorias.",
     "captureTitle": "Captura automática",
     "captureSubtitle": "Mantén tu memoria sincronizada automáticamente mientras trabajas con tus archivos y asistentes de IA.",
+    "captureIndexingPausedTitle": "Pausar indexación",
+    "captureIndexingPausedDesc": "Detiene temporalmente la vigilancia automática de carpetas y la re-indexación en segundo plano hasta que la reanudes.",
     "captureAutoWatchTitle": "Vigilar proyectos automáticamente",
     "captureAutoWatchDesc": "Cuando importas una carpeta o una IA trabaja dentro de un proyecto, Cobalt mantiene sus archivos indexados al día en segundo plano.",
     "captureSessionHandoffsTitle": "Resúmenes automáticos entre sesiones",
@@ -423,7 +427,10 @@
     "hardwareTitle": "Resumen de hardware y onboarding",
     "rerunOnboarding": "Asistente de bienvenida",
     "rerunOnboardingDesc": "Vuelve a abrir la pantalla inicial de detección de hardware.",
-    "rerunButton": "Abrir onboarding"
+    "rerunButton": "Abrir onboarding",
+    "aboutTitle": "Acerca de",
+    "aboutAppVersion": "Versión de Cobalt",
+    "aboutContractVersion": "Versión de contratos"
   },
   "library": {
     "title": "Biblioteca reutilizable",
@@ -735,7 +742,12 @@
       "createdNotice": "Proyecto creado.",
       "updatedNotice": "Proyecto actualizado.",
       "archivedNotice": "Proyecto archivado.",
-      "restoredNotice": "Proyecto restaurado."
+      "restoredNotice": "Proyecto restaurado.",
+      "watchProject": "Vigilar este proyecto",
+      "watchProjectHint": "Mantiene los archivos de esta carpeta indexados automáticamente al editarlos",
+      "watchNeedsFolder": "Vincula una carpeta al proyecto para poder vigilar cambios",
+      "watchEnabledNotice": "Vigilancia activada para «{{name}}».",
+      "watchDisabledNotice": "Vigilancia desactivada para «{{name}}»."
     },
     "webBridge": {
       "title": "Puente para IAs Web",
@@ -874,8 +886,21 @@
     "finishedBadge": "{{count}} terminadas",
     "calculatingTotal": "Contando archivos…",
     "recentFinishedTitle": "Importaciones recientes",
+    "indexingPausedBanner": "Indexación automática en pausa",
+    "etaLessThanMin": "queda < 1 min",
+    "etaMinutes": "quedan ~{{count}} min",
+    "etaHours": "quedan ~{{hours}} h",
+    "etaHoursMinutes": "quedan ~{{hours}} h {{minutes}} min",
+    "background": {
+      "sectionTitle": "Actualización automática en segundo plano",
+      "keepingUpToDate": "Manteniendo al día",
+      "upToDate": "Al día",
+      "fileOne": "1 archivo",
+      "fileMany": "{{count}} archivos"
+    },
     "status": {
       "running": "Importando",
+      "paused": "En pausa",
       "completed": "Completada",
       "cancelled": "Detenida",
       "failed": "Error"
@@ -893,6 +918,8 @@
       "indexing": "Guardando en tu memoria…",
       "saving": "Guardando memorias…",
       "importing": "Importando elementos…",
+      "pausing": "Pausando…",
+      "paused": "En pausa",
       "cancelling": "Deteniendo importación…",
       "cancelled": "Importación detenida",
       "completed": "Importación completada",
@@ -904,6 +931,8 @@
       "unchanged": "{{count}} sin cambios",
       "skippedWithReason": "{{count}} omitidos ({{reason}})",
       "errors": "{{count}} error(es)",
+      "pausedPartial": "En pausa tras {{processed}} de {{total}} archivos (al reanudar se omiten los que ya están guardados)",
+      "pausedGeneric": "En pausa (al reanudar se omiten los archivos sin cambios)",
       "stoppedPartial": "Detenida tras {{processed}} de {{total}} archivos",
       "stoppedNoFiles": "La importación se detuvo antes de terminar",
       "processedCount": "{{processed}} de {{total}} archivos procesados"
@@ -917,6 +946,13 @@
       "default": "excluidos, binarios o > 2 MB"
     },
     "actions": {
+      "pause": "Pausar",
+      "pausing": "Pausando…",
+      "resume": "Reanudar",
+      "pauseIndexing": "Pausar indexación",
+      "resumeIndexing": "Reanudar",
+      "pauseIndexingHint": "Pausa la vigilancia y re-indexación automática en segundo plano",
+      "resumeIndexingHint": "Reanuda la vigilancia y re-indexación automática en segundo plano",
       "stopping": "Deteniendo…",
       "showDetails": "Ver detalles de importación",
       "hideDetails": "Ocultar detalles de importación",

@@ -8,7 +8,9 @@ import {
   FolderSync,
   GitCommitHorizontal,
   History,
+  Info,
   Loader2,
+  PauseCircle,
   RotateCcw,
   Save,
   Shield,
@@ -27,13 +29,20 @@ import { useHardwareStore, useMemoryStore, useSettingsStore, useUiStore } from "
 import { DownloadProgressBar, HardwareConfigForm } from "@/components/onboarding";
 import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
-import type { CaptureSettings, EngineKind, HardwareTier, Language } from "@/types/contracts";
+import {
+  CONTRACT_VERSION,
+  type CaptureSettings,
+  type EngineKind,
+  type HardwareTier,
+  type Language,
+} from "@/types/contracts";
 
 export function SettingsView() {
   const { t } = useTranslation();
   const langLabelId = useId();
   const displayNameInputId = useId();
   const readOnlyLabelId = useId();
+  const indexingPausedLabelId = useId();
   const autoWatchLabelId = useId();
   const sessionHandoffsLabelId = useId();
   const gitCommitsLabelId = useId();
@@ -61,6 +70,7 @@ export function SettingsView() {
   const clearError = useHardwareStore((s) => s.clearError);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
 
+  const appInfo = useUiStore((s) => s.appInfo);
   const setShowOnboardingOverride = useUiStore((s) => s.setShowOnboardingOverride);
 
   const [displayName, setDisplayName] = useState<string>(settings.user_display_name ?? "");
@@ -324,6 +334,27 @@ export function SettingsView() {
             <div className="flex flex-wrap items-center justify-between gap-4 py-4">
               <div className="min-w-0 flex-1">
                 <div
+                  id={indexingPausedLabelId}
+                  className="flex items-center gap-1.5 text-sm font-medium text-bone"
+                >
+                  <PauseCircle size={14} className="text-ochre" aria-hidden />
+                  {t("settings.captureIndexingPausedTitle")}
+                </div>
+                <div className="mt-0.5 text-xs text-bone-muted">
+                  {t("settings.captureIndexingPausedDesc")}
+                </div>
+              </div>
+              <Toggle
+                checked={settings.capture.indexing_paused}
+                disabled={saving}
+                ariaLabelledBy={indexingPausedLabelId}
+                onChange={(checked) => handleToggleCaptureSetting("indexing_paused", checked)}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+              <div className="min-w-0 flex-1">
+                <div
                   id={autoWatchLabelId}
                   className="flex items-center gap-1.5 text-sm font-medium text-bone"
                 >
@@ -547,6 +578,39 @@ export function SettingsView() {
               <RotateCcw size={13} aria-hidden />
               {t("settings.rerunButton")}
             </button>
+          </div>
+        </section>
+
+        {/* 05 — About section (app version + contract version) */}
+        <section className="rounded-[2px] border border-rule bg-surface">
+          <div className="border-b border-rule px-5 py-3">
+            <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+              <Info size={13} className="text-cobalt-ink" aria-hidden />
+              05 — {t("settings.aboutTitle")}
+            </h2>
+          </div>
+
+          <div className="divide-y divide-rule px-5 font-mono text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-3 py-3.5">
+              <span className="text-bone-muted">{t("settings.aboutAppVersion")}</span>
+              <span className="text-bone">
+                {appInfo ? `v${appInfo.version}` : "—"}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 py-3.5">
+              <span className="text-bone-muted">{t("settings.aboutContractVersion")}</span>
+              <span className="text-bone">
+                v{appInfo?.contract_version ?? CONTRACT_VERSION}
+              </span>
+            </div>
+            {appInfo && (
+              <div className="flex flex-wrap items-center justify-between gap-3 py-3.5">
+                <span className="text-bone-muted">{t("onboarding.os")}</span>
+                <span className="text-bone-subtle">
+                  {appInfo.os} · {appInfo.arch}
+                </span>
+              </div>
+            )}
           </div>
         </section>
       </div>

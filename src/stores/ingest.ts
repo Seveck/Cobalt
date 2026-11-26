@@ -3,28 +3,39 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { backendCall, backendOn } from "@/lib/backend";
 import { IpcError } from "@/lib/ipc";
 import { extractFileName, isTerminalIngestStage } from "@/lib/ingest";
-import type {
-  IngestProgress,
-  IngestReport,
-  IngestRequest,
-  PastLifeImportRequest,
-  Uuid,
+import {
+  INGEST_STAGES,
+  type IngestProgress,
+  type IngestReport,
+  type IngestRequest,
+  type PastLifeImportRequest,
+  type Uuid,
 } from "@/types/contracts";
 import { useMemoryStore } from "./memory";
 
-export type IngestJobStatus = "running" | "completed" | "cancelled" | "failed";
+export type IngestJobStatus = "running" | "paused" | "completed" | "cancelled" | "failed";
 export type IngestJobOrigin = "files" | "past_life" | "external";
 
 export interface IngestJob {
-  /** Stable frontend key (becomes `jobId` once known, or a temporary local id until first event). */
+  /** Stable frontend key (`jobId` for external/background jobs, or a local id for UI-started jobs). */
   id: string;
   /** Backend `IngestProgress.job_id`, used for `cancel_ingest({ id })`. */
   jobId: Uuid | null;
   origin: IngestJobOrigin;
+  /** True for jobs initiated by Cobalt itself (watcher, CLI hooks, auto-watch). */
+  background: boolean;
+  /** Project associated with this ingest job, if known. */
+  projectId: Uuid | null;
+  /** Estimated remaining seconds reported by the backend, if available. */
+  etaSeconds: number | null;
   /** Short human-readable label (e.g. first file/folder name or source label). */
   label: string;
-  /** Requested root paths (used to correlate concurrent jobs with backend events). */
+  /** Requested root paths (used to correlate concurrent UI jobs with backend events). */
   requestedPaths: string[];
+  /** Saved request for UI-started `ingest_paths` jobs so Pause -> Resume can re-run it. */
+  ingestRequest: IngestRequest | null;
+  /** Saved request for UI-started `import_past_life` jobs so Pause -> Resume can re-run it. */
+  pastLifeRequest: PastLifeImportRequest | null;
   status: IngestJobStatus;
   stage: string;
   processed: number;
@@ -33,7 +44,9 @@ export interface IngestJob {
   startedAt: number;
   finishedAt: number | null;
   cancelling: boolean;
-  /** True if the user clicked Cancel before the first backend progress event delivered `job_id`. */
+  /** True when the user clicked Pause (cancel_ingest while keeping the request for Resume). */
+  pausing: boolean;
+  /** True if the user clicked Cancel/Pause before the first backend progress event delivered `job_id`. */
   cancelQueued: boolean;
   /** True while this job was launched by a frontend IPC call that is still in flight. */
   awaitingPromise: boolean;
@@ -54,6 +67,8 @@ export interface IngestState {
     req: PastLifeImportRequest,
     options?: { label?: string },
   ) => Promise<IngestReport | null>;
+  pauseJob: (id: string) => Promise<boolean>;
+  resumeJob: (id: string) => Promise<IngestReport | null>;
   cancelJob: (id: string) => Promise<boolean>;
   dismissJob: (id: string) => void;
   clearFinished: () => void;
@@ -63,12 +78,28 @@ export interface IngestState {
   closeReport: () => void;
 }
 
-const MAX_RETAINED_FINISHED_JOBS = 12;
+const AUTO_REMOVE_FINISHED_MS = 5000;
+const MAX_RETAINED_FOREGROUND_FINISHED = 12;
+const MAX_RETAINED_BACKGROUND_FINISHED = 150;
+
 let localJobSeq = 0;
+const autoRemoveTimers = new Map<string, number>();
 
 function nextLocalJobId(): string {
   localJobSeq += 1;
   return `local-ingest-${localJobSeq}`;
+}
+
+function clearAutoRemoveTimer(id: string): void {
+  const timerId = autoRemoveTimers.get(id);
+  if (timerId !== undefined) {
+    window.clearTimeout(timerId);
+    autoRemoveTimers.delete(id);
+  }
+}
+
+function isFinishedStatus(status: IngestJobStatus): boolean {
+  return status === "completed" || status === "cancelled" || status === "failed";
 }
 
 function buildLabelFromPaths(paths: readonly string[], fallback: string): string {
@@ -101,23 +132,46 @@ function isCancelledError(err: unknown): boolean {
 }
 
 function trimFinishedJobs(jobs: IngestJob[], pinnedReportId: string | null): IngestJob[] {
-  const running = jobs.filter((j) => j.status === "running");
-  const finished = jobs.filter((j) => j.status !== "running");
-  if (finished.length <= MAX_RETAINED_FINISHED_JOBS) {
+  const activeOrPaused = jobs.filter((j) => j.status === "running" || j.status === "paused");
+  const fgFinished = jobs.filter((j) => !j.background && isFinishedStatus(j.status));
+  const bgFinished = jobs.filter((j) => j.background && isFinishedStatus(j.status));
+
+  if (
+    fgFinished.length <= MAX_RETAINED_FOREGROUND_FINISHED &&
+    bgFinished.length <= MAX_RETAINED_BACKGROUND_FINISHED
+  ) {
     return jobs;
   }
-  const keptFinished = finished.slice(0, MAX_RETAINED_FINISHED_JOBS);
+
+  const keptFg = fgFinished.slice(0, MAX_RETAINED_FOREGROUND_FINISHED);
+  const keptBg = bgFinished.slice(0, MAX_RETAINED_BACKGROUND_FINISHED);
+
   if (
     pinnedReportId &&
-    !keptFinished.some((j) => j.id === pinnedReportId) &&
-    !running.some((j) => j.id === pinnedReportId)
+    !keptFg.some((j) => j.id === pinnedReportId) &&
+    !keptBg.some((j) => j.id === pinnedReportId) &&
+    !activeOrPaused.some((j) => j.id === pinnedReportId)
   ) {
-    const pinned = finished.find((j) => j.id === pinnedReportId);
+    const pinned = fgFinished.find((j) => j.id === pinnedReportId) ?? bgFinished.find((j) => j.id === pinnedReportId);
     if (pinned) {
-      keptFinished[keptFinished.length - 1] = pinned;
+      if (pinned.background) {
+        keptBg[keptBg.length - 1] = pinned;
+      } else {
+        keptFg[keptFg.length - 1] = pinned;
+      }
     }
   }
-  const keepIds = new Set([...running.map((j) => j.id), ...keptFinished.map((j) => j.id)]);
+
+  const keepIds = new Set([
+    ...activeOrPaused.map((j) => j.id),
+    ...keptFg.map((j) => j.id),
+    ...keptBg.map((j) => j.id),
+  ]);
+  for (const job of jobs) {
+    if (!keepIds.has(job.id)) {
+      clearAutoRemoveTimer(job.id);
+    }
+  }
   return jobs.filter((j) => keepIds.has(j.id));
 }
 
@@ -126,10 +180,32 @@ function findJobIndexByIdOrJobId(jobs: readonly IngestJob[], idOrJobId: string):
 }
 
 export const useIngestStore = create<IngestState>((set, get) => {
+  const scheduleAutoRemove = (id: string, delayMs: number = AUTO_REMOVE_FINISHED_MS) => {
+    clearAutoRemoveTimer(id);
+    const timer = window.setTimeout(() => {
+      autoRemoveTimers.delete(id);
+      set((state) => {
+        if (state.reportJobId === id) {
+          return state;
+        }
+        const target = state.jobs.find((j) => j.id === id);
+        if (!target || !isFinishedStatus(target.status)) {
+          return state;
+        }
+        const jobs = state.jobs.filter((j) => j.id !== id);
+        const expanded = jobs.length === 0 ? false : state.expanded;
+        return { jobs, expanded };
+      });
+    }, Math.max(0, delayMs));
+    autoRemoveTimers.set(id, timer);
+  };
+
   const handleProgressEvent = (payload: IngestProgress) => {
     const now = Date.now();
     const terminal = isTerminalIngestStage(payload.stage);
+    const isBackground = Boolean(payload.background);
     let deferredCancelJobId: Uuid | null = null;
+    const newlyFinishedIds: string[] = [];
 
     set((state) => {
       const jobs = [...state.jobs];
@@ -137,31 +213,38 @@ export const useIngestStore = create<IngestState>((set, get) => {
       // 1. Existing job already bound to this backend `job_id`
       let idx = jobs.findIndex((j) => j.jobId === payload.job_id);
 
-      // 2. Otherwise correlate with an unbound frontend-launched running job
-      if (idx === -1) {
+      // 2. Otherwise correlate ONLY foreground events with an unbound UI-launched running job
+      if (idx === -1 && !isBackground) {
         idx = jobs.findIndex(
           (j) =>
             j.jobId === null &&
+            !j.background &&
             j.status === "running" &&
             pathMatchesRequested(payload.current_path, j.requestedPaths),
         );
       }
-      if (idx === -1) {
-        // FIFO fallback to the oldest unbound running job
+      if (idx === -1 && !isBackground) {
+        // FIFO fallback to the oldest unbound foreground running job
         for (let i = jobs.length - 1; i >= 0; i -= 1) {
           const candidate = jobs[i];
-          if (candidate && candidate.jobId === null && candidate.status === "running") {
+          if (
+            candidate &&
+            candidate.jobId === null &&
+            !candidate.background &&
+            candidate.status === "running"
+          ) {
             idx = i;
             break;
           }
         }
       }
 
-      // 3. Guard against late terminal event arriving right after a fast IPC promise already finished
-      if (idx === -1 && terminal !== null) {
+      // 3. Guard against late terminal event arriving right after a fast foreground IPC promise settled
+      if (idx === -1 && !isBackground && terminal !== null) {
         const recentUnboundIdx = jobs.findIndex(
           (j) =>
             j.jobId === null &&
+            !j.background &&
             j.status !== "running" &&
             j.finishedAt !== null &&
             now - j.finishedAt < 3000 &&
@@ -176,6 +259,7 @@ export const useIngestStore = create<IngestState>((set, get) => {
             processed: Math.max(existing.processed, payload.processed),
             total: Math.max(existing.total, payload.total),
             currentPath: payload.current_path ?? existing.currentPath,
+            etaSeconds: null,
           };
           return { jobs };
         }
@@ -188,48 +272,87 @@ export const useIngestStore = create<IngestState>((set, get) => {
           deferredCancelJobId = payload.job_id;
         }
 
+        // Never revert an already finished or paused job back to running on out-of-order events.
+        if (existing.status !== "running") {
+          jobs[idx] = {
+            ...existing,
+            jobId: payload.job_id,
+            processed: Math.max(existing.processed, payload.processed),
+            total: Math.max(existing.total, payload.total),
+            currentPath: payload.current_path ?? existing.currentPath,
+            etaSeconds: null,
+          };
+          return { jobs };
+        }
+
         let nextStatus: IngestJobStatus = existing.status;
+        let nextStage = payload.stage;
         let nextFinishedAt = existing.finishedAt;
         let nextCancelling = existing.cancelling;
+        let nextPausing = existing.pausing;
+        let nextEtaSeconds: number | null = payload.eta_seconds ?? null;
 
-        if (terminal === "cancelled") {
-          nextStatus = "cancelled";
+        // Finish jobs directly on terminal stages from the event itself (not only on promise resolution).
+        if (terminal !== null) {
+          const canPause =
+            existing.pausing &&
+            !existing.background &&
+            (existing.ingestRequest !== null || existing.pastLifeRequest !== null);
+
+          if (terminal === INGEST_STAGES.cancelled || (terminal === INGEST_STAGES.completed && wasCancelling)) {
+            if (canPause) {
+              nextStatus = "paused";
+              nextStage = "paused";
+            } else {
+              nextStatus = "cancelled";
+              nextStage = INGEST_STAGES.cancelled;
+            }
+          } else if (terminal === INGEST_STAGES.failed) {
+            nextStatus = "failed";
+            nextStage = INGEST_STAGES.failed;
+          } else {
+            nextStatus = "completed";
+            nextStage = INGEST_STAGES.completed;
+          }
+
           nextFinishedAt = existing.finishedAt ?? now;
           nextCancelling = false;
-        } else if (terminal === "failed") {
-          nextStatus = "failed";
-          nextFinishedAt = existing.finishedAt ?? now;
-          nextCancelling = false;
-        } else if (terminal === "completed" && !existing.awaitingPromise) {
-          nextStatus = wasCancelling ? "cancelled" : "completed";
-          nextFinishedAt = existing.finishedAt ?? now;
-          nextCancelling = false;
+          nextPausing = false;
+          nextEtaSeconds = null;
+
+          if (isFinishedStatus(nextStatus)) {
+            newlyFinishedIds.push(existing.id);
+          }
         }
 
         jobs[idx] = {
           ...existing,
           jobId: payload.job_id,
-          stage: payload.stage,
+          background: existing.background || isBackground,
+          projectId: payload.project_id ?? existing.projectId,
+          etaSeconds: nextEtaSeconds,
+          stage: nextStage,
           processed: payload.processed,
           total: payload.total > 0 ? payload.total : existing.total,
           currentPath: payload.current_path ?? existing.currentPath,
           status: nextStatus,
           finishedAt: nextFinishedAt,
           cancelling: nextCancelling,
+          pausing: nextPausing,
           cancelQueued: existing.jobId === null ? false : existing.cancelQueued,
         };
         return { jobs: trimFinishedJobs(jobs, state.reportJobId) };
       }
 
-      // 4. External / daemon-initiated ingest job not started by this UI session
+      // 4. Background or external daemon-initiated ingest job not started by this UI session
       const externalLabel =
         extractFileName(payload.current_path) ?? payload.job_id.slice(0, 8);
       const externalStatus: IngestJobStatus =
-        terminal === "cancelled"
+        terminal === INGEST_STAGES.cancelled
           ? "cancelled"
-          : terminal === "failed"
+          : terminal === INGEST_STAGES.failed
             ? "failed"
-            : terminal === "completed"
+            : terminal === INGEST_STAGES.completed
               ? "completed"
               : "running";
 
@@ -237,8 +360,13 @@ export const useIngestStore = create<IngestState>((set, get) => {
         id: payload.job_id,
         jobId: payload.job_id,
         origin: "external",
+        background: isBackground,
+        projectId: payload.project_id ?? null,
+        etaSeconds: externalStatus === "running" ? (payload.eta_seconds ?? null) : null,
         label: externalLabel,
         requestedPaths: payload.current_path ? [payload.current_path] : [],
+        ingestRequest: null,
+        pastLifeRequest: null,
         status: externalStatus,
         stage: payload.stage,
         processed: payload.processed,
@@ -247,14 +375,23 @@ export const useIngestStore = create<IngestState>((set, get) => {
         startedAt: now,
         finishedAt: externalStatus === "running" ? null : now,
         cancelling: false,
+        pausing: false,
         cancelQueued: false,
         awaitingPromise: false,
         report: null,
         error: null,
       };
 
+      if (isFinishedStatus(externalStatus)) {
+        newlyFinishedIds.push(created.id);
+      }
+
       return { jobs: trimFinishedJobs([created, ...jobs], state.reportJobId) };
     });
+
+    for (const finishedId of newlyFinishedIds) {
+      scheduleAutoRemove(finishedId);
+    }
 
     if (deferredCancelJobId) {
       void backendCall("cancel_ingest", { id: deferredCancelJobId }).catch((err: unknown) => {
@@ -265,15 +402,22 @@ export const useIngestStore = create<IngestState>((set, get) => {
 
   const finalizePromiseSuccess = (localId: string, report: IngestReport) => {
     const now = Date.now();
+    let shouldAutoRemove = false;
+
     set((state) => {
       const idx = findJobIndexByIdOrJobId(state.jobs, localId);
       if (idx === -1) return state;
       const existing = state.jobs[idx]!;
+      const canPause =
+        !existing.background &&
+        (existing.ingestRequest !== null || existing.pastLifeRequest !== null);
+      const isPaused = existing.status === "paused" || (existing.pausing && canPause);
       const wasCancelled =
-        existing.cancelling ||
-        existing.cancelQueued ||
-        existing.status === "cancelled" ||
-        isTerminalIngestStage(existing.stage) === "cancelled";
+        !isPaused &&
+        (existing.cancelling ||
+          existing.cancelQueued ||
+          existing.status === "cancelled" ||
+          isTerminalIngestStage(existing.stage) === "cancelled");
 
       const totalFiles =
         existing.total > 0
@@ -284,14 +428,31 @@ export const useIngestStore = create<IngestState>((set, get) => {
             report.skipped_ignored +
             report.errors.length;
 
+      const nextStatus: IngestJobStatus = isPaused
+        ? "paused"
+        : wasCancelled
+          ? "cancelled"
+          : "completed";
+      const nextStage = isPaused
+        ? "paused"
+        : wasCancelled
+          ? INGEST_STAGES.cancelled
+          : INGEST_STAGES.completed;
+
+      if (isFinishedStatus(nextStatus)) {
+        shouldAutoRemove = true;
+      }
+
       const updated: IngestJob = {
         ...existing,
-        status: wasCancelled ? "cancelled" : "completed",
-        stage: wasCancelled ? "cancelled" : "completed",
-        processed: wasCancelled ? existing.processed : Math.max(existing.processed, totalFiles),
+        status: nextStatus,
+        stage: nextStage,
+        processed: isPaused || wasCancelled ? existing.processed : Math.max(existing.processed, totalFiles),
         total: Math.max(existing.total, totalFiles),
+        etaSeconds: null,
         finishedAt: existing.finishedAt ?? now,
         cancelling: false,
+        pausing: false,
         cancelQueued: false,
         awaitingPromise: false,
         report,
@@ -302,40 +463,96 @@ export const useIngestStore = create<IngestState>((set, get) => {
       return { jobs: trimFinishedJobs(jobs, state.reportJobId) };
     });
 
+    if (shouldAutoRemove) {
+      scheduleAutoRemove(localId);
+    }
+
     void useMemoryStore.getState().loadGraph();
   };
 
   const finalizePromiseError = (localId: string, err: unknown) => {
     const now = Date.now();
     const message = err instanceof Error ? err.message : String(err);
+    let shouldAutoRemove = false;
 
     set((state) => {
       const idx = findJobIndexByIdOrJobId(state.jobs, localId);
       if (idx === -1) return state;
       const existing = state.jobs[idx]!;
+      const canPause =
+        !existing.background &&
+        (existing.ingestRequest !== null || existing.pastLifeRequest !== null);
+      const isPaused = existing.status === "paused" || (existing.pausing && canPause);
       const cancelled =
-        existing.cancelling ||
-        existing.cancelQueued ||
-        existing.status === "cancelled" ||
-        isCancelledError(err);
+        !isPaused &&
+        (existing.cancelling ||
+          existing.cancelQueued ||
+          existing.status === "cancelled" ||
+          isCancelledError(err));
+
+      const nextStatus: IngestJobStatus = isPaused
+        ? "paused"
+        : cancelled
+          ? "cancelled"
+          : "failed";
+      const nextStage = isPaused
+        ? "paused"
+        : cancelled
+          ? INGEST_STAGES.cancelled
+          : INGEST_STAGES.failed;
+
+      if (isFinishedStatus(nextStatus)) {
+        shouldAutoRemove = true;
+      }
 
       const updated: IngestJob = {
         ...existing,
-        status: cancelled ? "cancelled" : "failed",
-        stage: cancelled ? "cancelled" : "failed",
+        status: nextStatus,
+        stage: nextStage,
+        etaSeconds: null,
         finishedAt: existing.finishedAt ?? now,
         cancelling: false,
+        pausing: false,
         cancelQueued: false,
         awaitingPromise: false,
-        error: cancelled ? null : message,
+        error: isPaused || cancelled ? null : message,
       };
       const jobs = [...state.jobs];
       jobs[idx] = updated;
       return { jobs: trimFinishedJobs(jobs, state.reportJobId) };
     });
 
-    // Partial results may have been committed before cancellation
+    if (shouldAutoRemove) {
+      scheduleAutoRemove(localId);
+    }
+
+    // Partial results may have been committed before pause/cancellation
     void useMemoryStore.getState().loadGraph();
+  };
+
+  const runIngestPathsWithId = async (localId: string, req: IngestRequest): Promise<IngestReport | null> => {
+    try {
+      const report = await backendCall("ingest_paths", req);
+      finalizePromiseSuccess(localId, report);
+      return report;
+    } catch (err: unknown) {
+      finalizePromiseError(localId, err);
+      return null;
+    }
+  };
+
+  const runImportPastLifeWithId = async (
+    localId: string,
+    req: PastLifeImportRequest,
+  ): Promise<IngestReport | null> => {
+    try {
+      const report = await backendCall("import_past_life", req);
+      finalizePromiseSuccess(localId, report);
+      return report;
+    } catch (err: unknown) {
+      finalizePromiseError(localId, err);
+      return null;
+    }
   };
 
   return {
@@ -348,12 +565,18 @@ export const useIngestStore = create<IngestState>((set, get) => {
     startIngestPaths: async (req, options) => {
       if (req.paths.length === 0) return null;
       const localId = nextLocalJobId();
+      const savedReq: IngestRequest = { ...req, paths: [...req.paths] };
       const job: IngestJob = {
         id: localId,
         jobId: null,
         origin: "files",
+        background: false,
+        projectId: req.project_id,
+        etaSeconds: null,
         label: options?.label ?? buildLabelFromPaths(req.paths, "Import"),
         requestedPaths: [...req.paths],
+        ingestRequest: savedReq,
+        pastLifeRequest: null,
         status: "running",
         stage: "starting",
         processed: 0,
@@ -362,6 +585,7 @@ export const useIngestStore = create<IngestState>((set, get) => {
         startedAt: Date.now(),
         finishedAt: null,
         cancelling: false,
+        pausing: false,
         cancelQueued: false,
         awaitingPromise: true,
         report: null,
@@ -372,26 +596,25 @@ export const useIngestStore = create<IngestState>((set, get) => {
         jobs: trimFinishedJobs([job, ...state.jobs], state.reportJobId),
       }));
 
-      try {
-        const report = await backendCall("ingest_paths", req);
-        finalizePromiseSuccess(localId, report);
-        return report;
-      } catch (err: unknown) {
-        finalizePromiseError(localId, err);
-        return null;
-      }
+      return runIngestPathsWithId(localId, savedReq);
     },
 
     startImportPastLife: async (req, options) => {
       if (!req.path.trim()) return null;
       const localId = nextLocalJobId();
       const trimmedPath = req.path.trim();
+      const savedReq: PastLifeImportRequest = { ...req, path: trimmedPath };
       const job: IngestJob = {
         id: localId,
         jobId: null,
         origin: "past_life",
+        background: false,
+        projectId: req.project_id,
+        etaSeconds: null,
         label: options?.label ?? buildLabelFromPaths([trimmedPath], req.source),
         requestedPaths: [trimmedPath],
+        ingestRequest: null,
+        pastLifeRequest: savedReq,
         status: "running",
         stage: "starting",
         processed: 0,
@@ -400,6 +623,7 @@ export const useIngestStore = create<IngestState>((set, get) => {
         startedAt: Date.now(),
         finishedAt: null,
         cancelling: false,
+        pausing: false,
         cancelQueued: false,
         awaitingPromise: true,
         report: null,
@@ -410,32 +634,26 @@ export const useIngestStore = create<IngestState>((set, get) => {
         jobs: trimFinishedJobs([job, ...state.jobs], state.reportJobId),
       }));
 
-      try {
-        const report = await backendCall("import_past_life", {
-          ...req,
-          path: trimmedPath,
-        });
-        finalizePromiseSuccess(localId, report);
-        return report;
-      } catch (err: unknown) {
-        finalizePromiseError(localId, err);
-        return null;
-      }
+      return runImportPastLifeWithId(localId, savedReq);
     },
 
-    cancelJob: async (id) => {
+    pauseJob: async (id) => {
       const state = get();
       const idx = findJobIndexByIdOrJobId(state.jobs, id);
       if (idx === -1) return false;
       const target = state.jobs[idx]!;
-      if (target.status !== "running" || target.cancelling) return false;
+      const canPause =
+        !target.background &&
+        (target.ingestRequest !== null || target.pastLifeRequest !== null);
+      if (!canPause || target.status !== "running" || target.cancelling) return false;
+
+      clearAutoRemoveTimer(target.id);
 
       if (!target.jobId) {
-        // Mark cancellation queued; fires immediately when the first progress event delivers `job_id`.
         set((s) => ({
           jobs: s.jobs.map((j) =>
             j.id === target.id
-              ? { ...j, cancelling: true, cancelQueued: true, stage: "cancelling" }
+              ? { ...j, pausing: true, cancelling: true, cancelQueued: true, stage: "pausing" }
               : j,
           ),
         }));
@@ -445,7 +663,9 @@ export const useIngestStore = create<IngestState>((set, get) => {
       const backendJobId = target.jobId;
       set((s) => ({
         jobs: s.jobs.map((j) =>
-          j.id === target.id ? { ...j, cancelling: true, stage: "cancelling" } : j,
+          j.id === target.id
+            ? { ...j, pausing: true, cancelling: true, stage: "pausing" }
+            : j,
         ),
       }));
 
@@ -457,14 +677,147 @@ export const useIngestStore = create<IngestState>((set, get) => {
               j.id === target.id && j.status === "running"
                 ? {
                     ...j,
+                    pausing: false,
                     cancelling: false,
-                    ...(j.awaitingPromise
-                      ? {}
-                      : { status: "cancelled" as const, stage: "cancelled", finishedAt: Date.now() }),
+                    etaSeconds: null,
+                    status: "paused" as const,
+                    stage: "paused",
+                    finishedAt: Date.now(),
                   }
                 : j,
             ),
           }));
+        }
+        return cancelled;
+      } catch (err: unknown) {
+        console.error("pauseJob (cancel_ingest) failed", err);
+        set((s) => ({
+          jobs: s.jobs.map((j) =>
+            j.id === target.id ? { ...j, pausing: false, cancelling: false } : j,
+          ),
+        }));
+        return false;
+      }
+    },
+
+    resumeJob: async (id) => {
+      const state = get();
+      const idx = findJobIndexByIdOrJobId(state.jobs, id);
+      if (idx === -1) return null;
+      const target = state.jobs[idx]!;
+      if (target.status !== "paused") return null;
+
+      clearAutoRemoveTimer(target.id);
+
+      if (target.ingestRequest) {
+        const req: IngestRequest = {
+          ...target.ingestRequest,
+          paths: [...target.ingestRequest.paths],
+        };
+        set((s) => ({
+          jobs: s.jobs.map((j) =>
+            j.id === target.id
+              ? {
+                  ...j,
+                  jobId: null,
+                  status: "running" as const,
+                  stage: "starting",
+                  etaSeconds: null,
+                  startedAt: Date.now(),
+                  finishedAt: null,
+                  cancelling: false,
+                  pausing: false,
+                  cancelQueued: false,
+                  awaitingPromise: true,
+                  report: null,
+                  error: null,
+                }
+              : j,
+          ),
+        }));
+        return runIngestPathsWithId(target.id, req);
+      }
+
+      if (target.pastLifeRequest) {
+        const req: PastLifeImportRequest = { ...target.pastLifeRequest };
+        set((s) => ({
+          jobs: s.jobs.map((j) =>
+            j.id === target.id
+              ? {
+                  ...j,
+                  jobId: null,
+                  status: "running" as const,
+                  stage: "starting",
+                  etaSeconds: null,
+                  startedAt: Date.now(),
+                  finishedAt: null,
+                  cancelling: false,
+                  pausing: false,
+                  cancelQueued: false,
+                  awaitingPromise: true,
+                  report: null,
+                  error: null,
+                }
+              : j,
+          ),
+        }));
+        return runImportPastLifeWithId(target.id, req);
+      }
+
+      return null;
+    },
+
+    cancelJob: async (id) => {
+      const state = get();
+      const idx = findJobIndexByIdOrJobId(state.jobs, id);
+      if (idx === -1) return false;
+      const target = state.jobs[idx]!;
+      if (target.status !== "running" || target.cancelling) return false;
+
+      if (!target.jobId) {
+        set((s) => ({
+          jobs: s.jobs.map((j) =>
+            j.id === target.id
+              ? { ...j, pausing: false, cancelling: true, cancelQueued: true, stage: "cancelling" }
+              : j,
+          ),
+        }));
+        return true;
+      }
+
+      const backendJobId = target.jobId;
+      set((s) => ({
+        jobs: s.jobs.map((j) =>
+          j.id === target.id
+            ? { ...j, pausing: false, cancelling: true, stage: "cancelling" }
+            : j,
+        ),
+      }));
+
+      try {
+        const cancelled = await backendCall("cancel_ingest", { id: backendJobId });
+        if (!cancelled) {
+          let markCancelled = false;
+          set((s) => ({
+            jobs: s.jobs.map((j) => {
+              if (j.id !== target.id || j.status !== "running") return j;
+              if (j.awaitingPromise) {
+                return { ...j, cancelling: false };
+              }
+              markCancelled = true;
+              return {
+                ...j,
+                cancelling: false,
+                etaSeconds: null,
+                status: "cancelled" as const,
+                stage: INGEST_STAGES.cancelled,
+                finishedAt: Date.now(),
+              };
+            }),
+          }));
+          if (markCancelled) {
+            scheduleAutoRemove(target.id);
+          }
         }
         return cancelled;
       } catch (err: unknown) {
@@ -479,6 +832,7 @@ export const useIngestStore = create<IngestState>((set, get) => {
     },
 
     dismissJob: (id) => {
+      clearAutoRemoveTimer(id);
       set((state) => {
         const jobs = state.jobs.filter((j) => j.id !== id);
         const reportJobId = state.reportJobId === id ? null : state.reportJobId;
@@ -489,7 +843,12 @@ export const useIngestStore = create<IngestState>((set, get) => {
 
     clearFinished: () => {
       set((state) => {
-        const jobs = state.jobs.filter((j) => j.status === "running");
+        for (const job of state.jobs) {
+          if (isFinishedStatus(job.status)) {
+            clearAutoRemoveTimer(job.id);
+          }
+        }
+        const jobs = state.jobs.filter((j) => !isFinishedStatus(j.status));
         const reportStillExists = jobs.some((j) => j.id === state.reportJobId);
         return {
           jobs,
@@ -520,9 +879,16 @@ export const useIngestStore = create<IngestState>((set, get) => {
         reportJobId: id,
       }),
 
-    closeReport: () =>
-      set({
-        reportJobId: null,
-      }),
+    closeReport: () => {
+      const prevId = get().reportJobId;
+      set({ reportJobId: null });
+      if (!prevId) return;
+      const target = get().jobs.find((j) => j.id === prevId);
+      if (target && isFinishedStatus(target.status)) {
+        const elapsedSinceFinish = target.finishedAt ? Date.now() - target.finishedAt : AUTO_REMOVE_FINISHED_MS;
+        const remaining = AUTO_REMOVE_FINISHED_MS - elapsedSinceFinish;
+        scheduleAutoRemove(prevId, Math.max(250, remaining));
+      }
+    },
   };
 });

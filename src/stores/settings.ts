@@ -25,6 +25,7 @@ export interface SettingsState {
   patchSettings: (partial: Partial<AppSettings>) => Promise<AppSettings>;
   setLanguage: (language: Language) => Promise<void>;
   setReadOnly: (readOnly: boolean) => Promise<boolean>;
+  setIndexingPaused: (paused: boolean) => Promise<boolean>;
   syncReadOnly: (readOnly: boolean) => void;
   loadDaemonStatus: () => Promise<void>;
   setDaemonStatus: (status: DaemonStatus) => void;
@@ -102,6 +103,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({ saving: false, error: message });
       return get().settings.read_only;
     }
+  },
+
+  setIndexingPaused: async (paused) => {
+    const current = get().settings;
+    const saved = await get().updateSettings({
+      ...current,
+      capture: {
+        ...current.capture,
+        indexing_paused: paused,
+      },
+    });
+    return saved.capture.indexing_paused;
   },
 
   syncReadOnly: (readOnly) =>

@@ -74,6 +74,7 @@ export const PHASE3_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>
   "list_library",
   "relink_source_document",
   "set_watched",
+  "set_project_watched",
   "promote_file_to_reusable",
   "get_telemetry_summary",
   "query_telemetry",

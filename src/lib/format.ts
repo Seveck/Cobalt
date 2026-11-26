@@ -205,6 +205,7 @@ export function createDefaultSettings(): AppSettings {
       auto_watch_projects: true,
       session_handoffs: true,
       git_commits: true,
+      indexing_paused: false,
     },
   };
 }
