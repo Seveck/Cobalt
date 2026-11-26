@@ -1,20 +1,23 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use cobalt_core::enums::MemoryChangeKind;
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::Id;
 use cobalt_core::model::{MemoryChanged, SourceDocument};
+use cobalt_core::paths::MEMORY_IGNORE_FILE;
 use cobalt_core::traits::ProgressSink;
 use cobalt_core::transfer::{INGEST_STAGE_READING, IngestIssue, IngestProgress, IngestRequest};
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::{CreateKind, RemoveKind};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::Context;
-use crate::documents::{INGEST_CLIENT, document_priority, issue};
+use crate::documents::{INGEST_CLIENT, IgnoreMatchers, document_priority, issue};
 use crate::jobs::{Cancellation, Progress};
 
 const DEBOUNCE: Duration = Duration::from_millis(300);
@@ -63,6 +66,80 @@ impl Drop for WatchTask {
 
 fn watcher_error(error: notify::Error) -> CobaltError {
     CobaltError::Storage(format!("file watcher: {error}"))
+}
+
+#[derive(Default)]
+struct EventFilter {
+    watched: HashMap<PathBuf, (Option<Id>, bool)>,
+    project_roots: HashMap<Id, PathBuf>,
+    ignores: IgnoreMatchers,
+}
+
+impl EventFilter {
+    async fn load(context: &Context, docs: &[SourceDocument]) -> Self {
+        let mut filter = Self::default();
+        let projects: HashSet<_> = docs.iter().filter_map(|doc| doc.project_id).collect();
+        for id in projects {
+            match context.store.get_project(id).await {
+                Ok(Some(project)) => {
+                    if let Some(root) = project.root_path {
+                        filter.project_roots.insert(id, root.into());
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => context.watch_issue(issue(Path::new("watcher"), error)),
+            }
+        }
+        filter.watched = docs
+            .iter()
+            .map(|doc| (PathBuf::from(&doc.file_path), (doc.project_id, doc.is_dir)))
+            .collect();
+        filter
+    }
+
+    fn filter_paths(&mut self, event: &mut Event, global: Option<&Path>) {
+        if event
+            .paths
+            .iter()
+            .any(|path| path.file_name() == Some(MEMORY_IGNORE_FILE.as_ref()))
+        {
+            self.ignores = IgnoreMatchers::default();
+        }
+        event.paths.retain(|path| {
+            let ignore_file = path.file_name() == Some(MEMORY_IGNORE_FILE.as_ref());
+            if ignore_file && path.parent() == global {
+                return true;
+            }
+            let root = path
+                .ancestors()
+                .find_map(|ancestor| self.watched.get(ancestor))
+                .and_then(|(project, _)| project.as_ref())
+                .and_then(|project| self.project_roots.get(project))
+                .map(PathBuf::as_path);
+            let (path, is_dir) = if ignore_file && let Some(parent) = path.parent() {
+                (parent, true)
+            } else {
+                let is_dir = match event.kind {
+                    EventKind::Create(CreateKind::Folder)
+                    | EventKind::Remove(RemoveKind::Folder) => true,
+                    EventKind::Create(CreateKind::File) | EventKind::Remove(RemoveKind::File) => {
+                        false
+                    }
+                    _ => path.symlink_metadata().map_or_else(
+                        // An untyped rename can refer to a directory that has already moved.
+                        |_| self.watched.get(path).is_none_or(|(_, is_dir)| *is_dir),
+                        |metadata| metadata.is_dir(),
+                    ),
+                };
+                (path.as_path(), is_dir)
+            };
+            // Let reconciliation report invalid rules instead of losing file changes.
+            !self
+                .ignores
+                .ignored(path, is_dir, root, global)
+                .unwrap_or(false)
+        });
+    }
 }
 
 fn refresh(
@@ -122,12 +199,28 @@ fn refresh(
 pub(crate) async fn start(context: Arc<Context>, callbacks: Callbacks) -> Result<WatchTask> {
     let cancellation = Cancellation::default();
     let docs = list_watched(&context, &cancellation).await?;
+    let filter = Arc::new(Mutex::new(EventFilter::load(&context, &docs).await));
+    let event_filter = filter.clone();
+    let global = context.global_ignore.clone();
     let (event_tx, mut events) = mpsc::channel::<notify::Result<Event>>(1024);
-    let overflow = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let overflow = Arc::new(AtomicBool::new(false));
     let overrun = overflow.clone();
-    let mut watcher = notify::recommended_watcher(move |event| {
+    let mut watcher = notify::recommended_watcher(move |mut event: notify::Result<Event>| {
+        if let Ok(event) = &mut event {
+            // Reads during reconciliation can generate more events than the queue can hold.
+            if event.kind.is_access() {
+                return;
+            }
+            event_filter
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .filter_paths(event, global.as_deref());
+            if event.paths.is_empty() && !event.need_rescan() {
+                return;
+            }
+        }
         if let Err(mpsc::error::TrySendError::Full(_)) = event_tx.try_send(event) {
-            overrun.store(true, std::sync::atomic::Ordering::Relaxed);
+            overrun.store(true, Ordering::Relaxed);
         }
     })
     .map_err(watcher_error)?;
@@ -155,7 +248,7 @@ pub(crate) async fn start(context: Arc<Context>, callbacks: Callbacks) -> Result
                 _ = task_cancellation.cancelled() => break,
                 received = events.recv() => {
                     match received {
-                        Some(Ok(event)) if !event.kind.is_access() => {
+                        Some(Ok(event)) => {
                             rescan |= event.need_rescan();
                             if !event.paths.is_empty() {
                                 last_event = tokio::time::Instant::now();
@@ -167,13 +260,12 @@ pub(crate) async fn start(context: Arc<Context>, callbacks: Callbacks) -> Result
                             context.watch_issue(issue(Path::new("watcher"), watcher_error(error)));
                             rescan = true;
                         }
-                        Some(Ok(_)) => {}
                         None => break,
                     }
                 }
                 _ = tick.tick() => {
                     let refresh_due = last_refresh.elapsed() >= REFRESH;
-                    rescan |= overflow.swap(false, std::sync::atomic::Ordering::Relaxed);
+                    rescan |= overflow.swap(false, Ordering::Relaxed);
                     let batch_ready = batch_started.is_some() && (last_event.elapsed() >= DEBOUNCE
                         || batch_started.is_some_and(|start| start.elapsed() >= MAX_DEBOUNCE));
                     if refresh_due || batch_ready || rescan {
@@ -193,6 +285,10 @@ pub(crate) async fn start(context: Arc<Context>, callbacks: Callbacks) -> Result
                                     if !covered && !previous.contains(&(doc.id, doc.file_path.as_str())) {
                                         pending.insert(path.to_owned());
                                     }
+                                }
+                                if refresh_due || updated != docs {
+                                    let updated_filter = EventFilter::load(&context, &updated).await;
+                                    *filter.lock().unwrap_or_else(PoisonError::into_inner) = updated_filter;
                                 }
                                 docs = updated;
                                 for issue in refresh(&mut watcher, &mut roots, &docs, context.global_ignore.as_deref()) { context.watch_issue(issue); }
@@ -256,11 +352,11 @@ async fn reconcile(
     let global_changed = context
         .global_ignore
         .as_ref()
-        .is_some_and(|global| paths.contains(&global.join(cobalt_core::paths::MEMORY_IGNORE_FILE)));
+        .is_some_and(|global| paths.contains(&global.join(MEMORY_IGNORE_FILE)));
     let ignore_roots: Vec<_> = paths
         .iter()
         .filter_map(|path| {
-            (path.file_name()? == cobalt_core::paths::MEMORY_IGNORE_FILE)
+            (path.file_name()? == MEMORY_IGNORE_FILE)
                 .then(|| path.parent())
                 .flatten()
         })
@@ -320,7 +416,15 @@ async fn reconcile(
         });
     let first_path = first.as_ref().and_then(|(path, _)| path.to_str());
     let mut jobs: Vec<_> = jobs.into_iter().collect();
-    jobs.sort_by_key(|(path, _)| document_priority(path));
+    // Walk directories before their files. Missing or excluded files still need their own
+    // reconciliation because a directory walk does not report them as processed.
+    jobs.sort_by_cached_key(|(path, target)| {
+        if target.was_directory == Some(true) || path.is_dir() {
+            0
+        } else {
+            1 + document_priority(path)
+        }
+    });
     let total = jobs.len() as u64;
     let _ = context
         .jobs
@@ -332,12 +436,24 @@ async fn reconcile(
             |_| false,
             async |cancellation, progress| {
                 let mut failed = false;
+                let mut reconciled_files = HashMap::new();
                 for (index, (path, target)) in jobs.into_iter().enumerate() {
                     cancellation.check()?;
+                    if reconciled_files.get(&path) == Some(&target.project_id) {
+                        progress.finish(index as u64 + 1, total);
+                        continue;
+                    }
                     progress.document(&path, index as u64, total, INGEST_STAGE_READING);
-                    let result =
-                        reconcile_path(context, &path, target, &cancellation, callbacks, &progress)
-                            .await;
+                    let result = reconcile_path(
+                        context,
+                        &path,
+                        target,
+                        &cancellation,
+                        callbacks,
+                        &progress,
+                        &mut reconciled_files,
+                    )
+                    .await;
                     match result {
                         Err(CobaltError::Cancelled) => return Err(CobaltError::Cancelled),
                         Err(error) => {
@@ -367,6 +483,7 @@ async fn reconcile_path(
     cancellation: &Cancellation,
     callbacks: &Callbacks,
     progress: &Progress,
+    reconciled_files: &mut HashMap<PathBuf, Option<Id>>,
 ) -> Result<()> {
     match path.symlink_metadata() {
         Err(error)
@@ -401,6 +518,7 @@ async fn reconcile_path(
             cancellation,
             callbacks,
             progress,
+            reconciled_files,
         )
         .await?;
     let excluded = report.skipped_ignored == 1

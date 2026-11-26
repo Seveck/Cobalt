@@ -122,13 +122,13 @@ pub(crate) fn chunks(
 }
 
 #[derive(Default)]
-struct IgnoreMatchers {
+pub(crate) struct IgnoreMatchers {
     roots: HashMap<PathBuf, MemoryIgnore>,
     nested: HashMap<PathBuf, Option<MemoryIgnore>>,
 }
 
 impl IgnoreMatchers {
-    fn ignored(
+    pub(crate) fn ignored(
         &mut self,
         path: &Path,
         is_dir: bool,
@@ -578,6 +578,7 @@ impl Context {
                             progress,
                             ..Default::default()
                         },
+                        None,
                     )
                     .await
                 },
@@ -592,6 +593,7 @@ impl Context {
         cancellation: &Cancellation,
         callbacks: &Callbacks,
         progress: &Progress,
+        reconciled_files: &mut HashMap<PathBuf, Option<Id>>,
     ) -> Result<IngestReport> {
         self.ingest_job(
             req,
@@ -603,11 +605,17 @@ impl Context {
                 progress: progress.within_path(),
                 ..Default::default()
             },
+            Some(reconciled_files),
         )
         .await
     }
 
-    async fn ingest_job(&self, req: IngestRequest, run: IngestRun) -> Result<IngestReport> {
+    async fn ingest_job(
+        &self,
+        req: IngestRequest,
+        run: IngestRun,
+        mut reconciled_files: Option<&mut HashMap<PathBuf, Option<Id>>>,
+    ) -> Result<IngestReport> {
         let _write = tokio::select! {
             biased;
             _ = run.cancellation.cancelled() => return Ok(IngestReport::default()),
@@ -637,6 +645,10 @@ impl Context {
             errors: issues,
             ..Default::default()
         };
+        let mut files: Vec<_> = files.into_iter().collect();
+        if let Some(reconciled) = &reconciled_files {
+            files.retain(|(path, _)| reconciled.get(path) != Some(&req.project_id));
+        }
         let total = (files.len() + directories.len()) as u64;
         if run.cancellation.check().is_err() {
             run.progress.finish(0, total);
@@ -654,7 +666,6 @@ impl Context {
         };
         let mut pending_watches = Vec::new();
         let mut processed = 0;
-        let mut files: Vec<_> = files.into_iter().collect();
         files.sort_by_key(|(path, _)| document_priority(path));
         for (path, file) in directories.into_iter().map(|path| (path, None)).chain(
             files
@@ -675,7 +686,13 @@ impl Context {
                 },
             );
             let result = if let Some(explicit) = file {
-                self.process_file(&path, explicit, &work, &mut report).await
+                let result = self.process_file(&path, explicit, &work, &mut report).await;
+                if result.is_ok()
+                    && let Some(reconciled) = &mut reconciled_files
+                {
+                    reconciled.insert(path.clone(), req.project_id);
+                }
+                result
             } else {
                 self.register_directory(&path, &req, &mut report).await
             };

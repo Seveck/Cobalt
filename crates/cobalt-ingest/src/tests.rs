@@ -820,6 +820,103 @@ async fn watched_directory_discovers_and_retires_files_under_moved_or_deleted_su
 }
 
 #[tokio::test]
+async fn watcher_completes_one_scan_for_a_directory_larger_than_its_event_queue() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, ingest, _) = setup(dir.path(), "test").await;
+    let root = dir.path().canonicalize().unwrap().join("project");
+    std::fs::create_dir(&root).unwrap();
+    for index in 0..1101 {
+        std::fs::write(root.join(format!("notes-{index}.md")), "").unwrap();
+    }
+    let initial = ingest
+        .ingest_paths(
+            IngestRequest {
+                watch: true,
+                ..req(&root)
+            },
+            quiet_progress(),
+        )
+        .await
+        .unwrap();
+    assert!(initial.errors.is_empty(), "{:?}", initial.errors);
+
+    let (progress, mut updates) = mpsc::unbounded_channel();
+    let ingest = ingest.with_watcher_callbacks(
+        Arc::new(move |update| progress.send(update).unwrap()),
+        Arc::new(|_| {}),
+    );
+    ingest.start_watcher().await.unwrap();
+    let job = watcher_job(&mut updates).await;
+    assert_eq!(job.last().unwrap().stage, INGEST_STAGE_COMPLETED);
+    let next = tokio::time::timeout(Duration::from_secs(3), updates.recv()).await;
+    ingest.stop_watcher().await.unwrap();
+    assert!(next.is_err(), "unexpected watcher update: {next:?}");
+}
+
+#[tokio::test]
+async fn watcher_filters_ignored_events_and_reloads_rules_when_they_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, ingest, _) = setup(dir.path(), "test").await;
+    let root = dir.path().canonicalize().unwrap().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let rules = root.join(".memoryignore");
+    std::fs::write(&rules, "/excluded/\n").unwrap();
+    let ignored = [".git", "target", "node_modules", "excluded"].map(|name| root.join(name));
+    for folder in &ignored {
+        std::fs::create_dir(folder).unwrap();
+    }
+    let project = store
+        .create_project(NewProject {
+            name: "Ignored events".into(),
+            root_path: Some(path(&root)),
+            color_hex: None,
+        })
+        .await
+        .unwrap();
+    let initial = ingest
+        .ingest_paths(
+            IngestRequest {
+                watch: true,
+                project_id: Some(project.id),
+                ..req(&root)
+            },
+            quiet_progress(),
+        )
+        .await
+        .unwrap();
+    assert!(initial.errors.is_empty(), "{:?}", initial.errors);
+
+    let (progress, mut updates) = mpsc::unbounded_channel();
+    let ingest = ingest.with_watcher_callbacks(
+        Arc::new(move |update| progress.send(update).unwrap()),
+        Arc::new(|_| {}),
+    );
+    ingest.start_watcher().await.unwrap();
+    assert_eq!(
+        watcher_job(&mut updates).await.last().unwrap().stage,
+        INGEST_STAGE_COMPLETED
+    );
+    let content = b"Previously excluded notes";
+    for folder in &ignored {
+        std::fs::write(folder.join("notes.md"), content).unwrap();
+    }
+    assert!(
+        tokio::time::timeout(Duration::from_millis(1250), updates.recv())
+            .await
+            .is_err()
+    );
+
+    std::fs::write(&rules, "").unwrap();
+    let included = ignored[3].join("notes.md");
+    wait_for_hash(&store, &included, Some(digest(content))).await;
+    assert_eq!(
+        watcher_job(&mut updates).await.last().unwrap().stage,
+        INGEST_STAGE_COMPLETED
+    );
+    ingest.stop_watcher().await.unwrap();
+}
+
+#[tokio::test]
 async fn watcher_coalesces_a_multi_file_burst_and_skips_unchanged_hashes() {
     let dir = tempfile::tempdir().unwrap();
     let (store, mut ingest, tokens) = setup(dir.path(), "test").await;
