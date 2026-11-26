@@ -29,6 +29,10 @@ pub trait EventSink: Send + Sync {
     fn firewall_blocked(&self, client_name: &str, detail: &str);
     /// An agent archived a memory (always notified: the user must be able to restore it).
     fn agent_archived(&self, client_name: &str, preview: &str, other_agents: usize);
+    /// Something happened in an AI CLI (hooks). The sink re-indexes touched files.
+    fn cli_activity(&self, _activity: &cobalt_core::events::CliActivity) {}
+    /// A project with a root path is in use (first time per process): auto-watch it.
+    fn project_active(&self, _project: &cobalt_core::model::Project) {}
 }
 
 /// Sink that ignores everything (tests, headless tooling).
@@ -52,6 +56,8 @@ pub enum DaemonEvent {
     MemoryChanged(MemoryChanged),
     #[serde(rename = "cobalt://read-only-changed")]
     ReadOnlyChanged { read_only: bool },
+    #[serde(rename = "cobalt://cli-activity")]
+    CliActivity(cobalt_core::events::CliActivity),
 }
 
 pub struct Daemon {
@@ -71,6 +77,8 @@ pub struct Daemon {
     http_port: Mutex<Option<u16>>,
     /// `(client, memory)` -> time of the last `archive_memory` dry run.
     archive_dry_runs: Mutex<HashMap<(String, cobalt_core::Id), std::time::Instant>>,
+    pub(crate) sessions: Mutex<crate::capture::SessionTracker>,
+    seen_projects: crate::capture::SeenProjects,
 }
 
 impl Daemon {
@@ -99,6 +107,8 @@ impl Daemon {
             clients: Mutex::new(HashMap::new()),
             http_port: Mutex::new(None),
             archive_dry_runs: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(crate::capture::SessionTracker::default()),
+            seen_projects: crate::capture::SeenProjects::default(),
         })
     }
 
@@ -173,6 +183,27 @@ impl Daemon {
     pub fn emit_memory_changed(&self, change: MemoryChanged) {
         self.sink.memory_changed(&change);
         let _ = self.events.send(DaemonEvent::MemoryChanged(change));
+    }
+
+    pub(crate) fn emit_cli_activity(&self, activity: cobalt_core::events::CliActivity) {
+        self.sink.cli_activity(&activity);
+        let _ = self.events.send(DaemonEvent::CliActivity(activity));
+    }
+
+    /// Announces a project with a root path once per process (auto-watch / indexing).
+    pub(crate) fn notify_project_active(&self, project: &cobalt_core::model::Project) {
+        if project.root_path.is_none() {
+            return;
+        }
+        let first = self
+            .seen_projects
+            .0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(project.id);
+        if first {
+            self.sink.project_active(project);
+        }
     }
 
     pub(crate) fn emit_agent_archived(&self, client: &str, preview: &str, other_agents: usize) {

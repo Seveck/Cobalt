@@ -80,6 +80,37 @@ impl EventSink for TauriSink {
             .show();
     }
 
+    fn cli_activity(&self, activity: &cobalt_core::events::CliActivity) {
+        let _ = self
+            .app
+            .emit(cobalt_core::events::EVENT_CLI_ACTIVITY, activity);
+        if activity.files.is_empty() {
+            return;
+        }
+        // Files touched by an AI CLI are re-indexed right away (even if the AI never called us).
+        let app = self.app.clone();
+        let files = activity.files.clone();
+        let project_id = activity.project_id;
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            if let Err(err) = commands_ingest::reindex_files(&app, &state, files, project_id).await
+            {
+                tracing::debug!(%err, "re-index after CLI activity skipped");
+            }
+        });
+    }
+
+    fn project_active(&self, project: &cobalt_core::model::Project) {
+        let app = self.app.clone();
+        let project = project.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            if let Err(err) = commands_ingest::auto_watch_project(&app, &state, &project).await {
+                tracing::debug!(%err, "auto-watch skipped");
+            }
+        });
+    }
+
     fn firewall_blocked(&self, client_name: &str, detail: &str) {
         let _ = self
             .app
@@ -143,6 +174,9 @@ pub fn run() {
             if let Err(err) = tauri::async_runtime::block_on(state.start_servers()) {
                 tracing::error!(%err, "daemon servers not started");
             }
+            // Hook events received while Cobalt was closed.
+            let daemon = state.daemon.clone();
+            tauri::async_runtime::spawn(async move { daemon.replay_hook_queue().await });
             app.manage(state);
             desktop::setup_tray(&handle, &settings)?;
             desktop::register_shortcuts(&handle, &settings);
@@ -216,6 +250,8 @@ pub fn run() {
             commands_admin::query_telemetry,
             commands_admin::list_connectors,
             commands_admin::toggle_connector,
+            commands_admin::list_capture_integrations,
+            commands_admin::toggle_capture_integration,
             commands_admin::run_doctor,
             commands_admin::doctor_fix,
             commands_admin::get_mcp_tool_docs,
@@ -302,6 +338,22 @@ fn spawn_database_watcher(app: AppHandle) {
             }
         }
     });
+}
+
+/// `cobalt --hook <source>`: forwards one client hook event to the daemon (or queues it).
+/// Always exits 0 so a hook can never break the user's CLI.
+pub fn run_hook(source: &str, last_arg: Option<String>) -> i32 {
+    let result = (|| -> cobalt_core::Result<()> {
+        let home = cobalt_core::paths::cobalt_home()?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        rt.block_on(cobalt_mcp::capture::run_hook(&home, source, last_arg))
+    })();
+    if let Err(err) = result {
+        eprintln!("cobalt --hook: {err}");
+    }
+    0
 }
 
 /// `cobalt --mcp-stdio`: stdio <-> daemon bridge (no GUI, nothing written to stdout but MCP).

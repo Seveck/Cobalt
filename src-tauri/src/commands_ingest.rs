@@ -164,3 +164,78 @@ pub async fn cancel_ingest(
 ) -> CmdResult<bool> {
     state.ingest()?.cancel_job(args.id).await
 }
+
+/// Re-indexes files an AI CLI just touched (only files inside a known project; ignored and
+/// oversized files are skipped by the ingest rules).
+pub async fn reindex_files(
+    app: &AppHandle,
+    state: &AppState,
+    files: Vec<String>,
+    project_id: Option<cobalt_core::Id>,
+) -> CmdResult<()> {
+    let Some(project_id) = project_id else {
+        return Ok(());
+    };
+    let ingest = state.ingest()?;
+    let existing: Vec<String> = files
+        .into_iter()
+        .filter(|f| std::path::Path::new(f).is_file())
+        .collect();
+    if existing.is_empty() {
+        return Ok(());
+    }
+    {
+        let _slot = state.daemon.write_slot().await;
+        ingest
+            .ingest_paths(
+                IngestRequest {
+                    paths: existing,
+                    project_id: Some(project_id),
+                    watch: true,
+                    mark_reusable: false,
+                    ocr: false,
+                },
+                progress_sink(app),
+            )
+            .await?;
+    }
+    bulk_changed(state, "cobalt-capture");
+    Ok(())
+}
+
+/// First time a project with a root is seen: index and watch it (if enabled in settings).
+pub async fn auto_watch_project(
+    app: &AppHandle,
+    state: &AppState,
+    project: &cobalt_core::model::Project,
+) -> CmdResult<()> {
+    if !state.config.get().capture.auto_watch_projects {
+        return Ok(());
+    }
+    let Some(root) = project.root_path.clone() else {
+        return Ok(());
+    };
+    if let Some(doc) = state.store().find_source_document_by_path(&root).await?
+        && doc.is_watched
+    {
+        return Ok(());
+    }
+    let ingest = state.ingest()?;
+    {
+        let _slot = state.daemon.write_slot().await;
+        ingest
+            .ingest_paths(
+                IngestRequest {
+                    paths: vec![root],
+                    project_id: Some(project.id),
+                    watch: true,
+                    mark_reusable: false,
+                    ocr: false,
+                },
+                progress_sink(app),
+            )
+            .await?;
+    }
+    bulk_changed(state, "cobalt-capture");
+    Ok(())
+}

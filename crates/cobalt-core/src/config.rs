@@ -217,7 +217,11 @@ pub struct CaptureSettings {
 
 impl Default for CaptureSettings {
     fn default() -> Self {
-        Self { auto_watch_projects: true, session_handoffs: true, git_commits: true }
+        Self {
+            auto_watch_projects: true,
+            session_handoffs: true,
+            git_commits: true,
+        }
     }
 }
 

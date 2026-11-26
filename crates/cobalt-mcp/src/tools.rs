@@ -348,23 +348,35 @@ impl Daemon {
             .collect())
     }
 
+    // The async lookup between check and insert rules out the `entry` API.
+    #[allow(clippy::map_entry)]
     async fn compact(
         &self,
         memories: Vec<(Memory, Option<f64>)>,
         names: &HashMap<Id, String>,
     ) -> Result<Vec<CompactMemory>> {
-        let mut paths: HashMap<Id, Option<String>> = HashMap::new();
+        let mut paths: HashMap<Id, (Option<String>, bool)> = HashMap::new();
         let mut out = Vec::with_capacity(memories.len());
         for (m, similarity) in memories {
-            let file_path = match m.source_doc_id {
+            let (file_path, file_changed) = match m.source_doc_id {
                 Some(doc_id) => {
                     if let std::collections::hash_map::Entry::Vacant(e) = paths.entry(doc_id) {
-                        let doc = self.store().get_source_document(doc_id).await?;
-                        e.insert(doc.map(|d| d.file_path));
+                        let store = self.store();
+                        let doc = store.get_source_document(doc_id).await?;
+                        // Ingest chunks are refreshed by the watcher; only memories written by
+                        // agents/users are flagged when their file changed afterwards.
+                        let authored = m.source_client.as_deref() != Some("cobalt-ingest");
+                        let changed = authored
+                            && doc.is_some()
+                            && matches!(
+                                store.verify_source_document(doc_id).await,
+                                Ok(cobalt_core::enums::FileAvailability::Modified)
+                            );
+                        e.insert((doc.map(|d| d.file_path), changed));
                     }
-                    paths.get(&doc_id).cloned().flatten()
+                    paths.get(&doc_id).cloned().unwrap_or((None, false))
                 }
-                None => None,
+                None => (None, false),
             };
             out.push(CompactMemory {
                 id: m.id,
@@ -377,6 +389,7 @@ impl Daemon {
                 is_core_pin: m.is_core_pin,
                 is_reusable: m.is_reusable,
                 file_path,
+                file_changed,
                 updated_at: m.updated_at,
             });
         }

@@ -44,13 +44,19 @@ pub fn search_memory(o: &SearchMemoryOutput) -> String {
             .as_deref()
             .map(|f| format!(" ({f})"))
             .unwrap_or_default();
+        let stale = if m.file_changed {
+            " ⚠ file changed since saved — re-check before trusting"
+        } else {
+            ""
+        };
         let _ = writeln!(
             s,
-            "{:.2} {:<10} {}{} conf={:.2} [id:{}]",
+            "{:.2} {:<10} {}{}{} conf={:.2} [id:{}]",
             m.similarity.unwrap_or(0.0),
             m.category.as_str(),
             m.content.trim(),
             file,
+            stale,
             m.confidence,
             short_id(&m.id)
         );

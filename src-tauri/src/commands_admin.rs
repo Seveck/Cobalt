@@ -122,6 +122,54 @@ pub fn toggle_connector(args: ConnectorToggleRequest) -> CmdResult<ConnectorTogg
 }
 
 #[tauri::command]
+pub async fn list_capture_integrations(
+    state: State<'_, AppState>,
+) -> CmdResult<Vec<cobalt_core::events::CaptureStatus>> {
+    let mut out = cobalt_mcp::capture_install::client_statuses(&PlatformDirs::detect()?, &exe()?);
+    for p in state.store().list_projects(false).await? {
+        let root = p.project.root_path.as_deref().map(std::path::Path::new);
+        out.push(cobalt_mcp::capture_install::git_status(p.project.id, root));
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn toggle_capture_integration(
+    state: State<'_, AppState>,
+    args: cobalt_core::events::CaptureToggleRequest,
+) -> CmdResult<cobalt_core::events::CaptureStatus> {
+    use cobalt_core::enums::CaptureIntegration;
+    match (args.integration, args.client, args.project_id) {
+        (CaptureIntegration::GitHooks, _, Some(project_id)) => {
+            let project = state
+                .store()
+                .get_project(project_id)
+                .await?
+                .ok_or_else(|| CobaltError::NotFound(format!("project {project_id}")))?;
+            let root = project.root_path.ok_or_else(|| {
+                CobaltError::InvalidInput("the project has no root folder".into())
+            })?;
+            cobalt_mcp::capture_install::toggle_git(
+                project_id,
+                std::path::Path::new(&root),
+                args.enable,
+                &exe()?,
+            )
+        }
+        (integration, Some(client), _) => cobalt_mcp::capture_install::toggle_client(
+            integration,
+            client,
+            args.enable,
+            &PlatformDirs::detect()?,
+            &exe()?,
+        ),
+        _ => Err(CobaltError::InvalidInput(
+            "choose an AI client or a project".into(),
+        )),
+    }
+}
+
+#[tauri::command]
 pub async fn run_doctor(state: State<'_, AppState>) -> CmdResult<DoctorReport> {
     doctor::run(&state).await
 }

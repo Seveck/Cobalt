@@ -7,6 +7,8 @@
 //! - [`socket`]: authenticated local socket + the `cobalt --mcp-stdio` bridge.
 //! - [`http`]: MCP streamable HTTP + legacy SSE, REST API with OpenAPI/Swagger, WebSocket.
 
+pub mod capture;
+pub mod capture_install;
 pub mod connectors;
 pub mod daemon;
 pub mod http;

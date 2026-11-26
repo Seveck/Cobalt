@@ -92,8 +92,14 @@ fn enum_literals_exist_in_typescript() {
     );
     assert_literals("NodeShape", NodeShape::ALL.iter().map(|v| v.as_str()));
     assert_literals("ConfigFormat", ConfigFormat::ALL.iter().map(|v| v.as_str()));
-    assert_literals("CliActivityKind", CliActivityKind::ALL.iter().map(|v| v.as_str()));
-    assert_literals("CaptureIntegration", CaptureIntegration::ALL.iter().map(|v| v.as_str()));
+    assert_literals(
+        "CliActivityKind",
+        CliActivityKind::ALL.iter().map(|v| v.as_str()),
+    );
+    assert_literals(
+        "CaptureIntegration",
+        CaptureIntegration::ALL.iter().map(|v| v.as_str()),
+    );
     assert_literals("McpTransport", McpTransport::ALL.iter().map(|v| v.as_str()));
 }
 

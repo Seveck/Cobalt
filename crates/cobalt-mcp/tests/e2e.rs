@@ -62,6 +62,7 @@ struct Recorder {
     changes: Mutex<Vec<MemoryChanged>>,
     blocked: Mutex<Vec<String>>,
     archived: Mutex<Vec<(String, usize)>>,
+    cli: Mutex<Vec<cobalt_core::events::CliActivity>>,
 }
 
 impl EventSink for Recorder {
@@ -74,6 +75,9 @@ impl EventSink for Recorder {
     fn read_only_changed(&self, _: bool) {}
     fn firewall_blocked(&self, client: &str, _: &str) {
         self.blocked.lock().unwrap().push(client.to_owned());
+    }
+    fn cli_activity(&self, a: &cobalt_core::events::CliActivity) {
+        self.cli.lock().unwrap().push(a.clone());
     }
     fn agent_archived(&self, client: &str, _: &str, others: usize) {
         self.archived
@@ -362,6 +366,51 @@ async fn mcp_end_to_end_over_socket_and_http() {
             .unwrap()
             .iter()
             .all(|r| r["id"] != target_id.as_str())
+    );
+
+    // Hooks: a Claude Code edit and a git commit arrive without any AI cooperation.
+    let proj_dir = home.path().join("hooked-project");
+    std::fs::create_dir_all(&proj_dir).unwrap();
+    let edit = cobalt_mcp::capture::HookEnvelope {
+        source: "claude".into(),
+        cwd: Some(proj_dir.to_string_lossy().into_owned()),
+        payload: json!({ "hook_event_name": "PostToolUse", "session_id": "s1", "tool_name": "Edit",
+                         "tool_input": { "file_path": proj_dir.join("src/api.ts").to_string_lossy() } }),
+    };
+    cobalt_mcp::socket::send_hook(home.path(), &edit)
+        .await
+        .unwrap();
+    let commit = cobalt_mcp::capture::HookEnvelope {
+        source: "git".into(),
+        cwd: Some(proj_dir.to_string_lossy().into_owned()),
+        payload: json!({ "sha": "abcdef1234567", "branch": "main", "subject": "Migrar pagos a Stripe v3",
+                         "body": "Se elimina el SDK viejo.", "files": [] }),
+    };
+    cobalt_mcp::socket::send_hook(home.path(), &commit)
+        .await
+        .unwrap();
+    {
+        let cli = recorder.cli.lock().unwrap();
+        assert!(
+            cli.iter().any(|a| a.kind.as_str() == "file_edit"
+                && a.client_name == "claude-code"
+                && a.project_name.as_deref() == Some("hooked-project")),
+            "{cli:?}"
+        );
+        assert!(cli.iter().any(|a| a.kind.as_str() == "git_commit"));
+    }
+    let commits = c
+        .call(
+            "search_memory",
+            json!({ "query": "Stripe pagos commit", "project": proj_dir.to_string_lossy() }),
+        )
+        .await;
+    assert!(
+        commits["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Stripe"),
+        "{commits}"
     );
 
     // Unknown method -> JSON-RPC error.

@@ -51,6 +51,20 @@ impl Daemon {
         self.persist(new, client_name).await
     }
 
+    /// Writes captured automatically (git commits, hooks): scrubbed and paused by Read-Only mode.
+    pub async fn save_captured(
+        &self,
+        mut new: NewMemory,
+        client_name: &str,
+    ) -> Result<SaveOutcome> {
+        if self.is_read_only() {
+            return Err(cobalt_core::CobaltError::ReadOnly);
+        }
+        new.content = scrub(&new.content).text;
+        new.source_client = Some(client_name.to_owned());
+        self.persist(new, client_name).await
+    }
+
     async fn persist(&self, new: NewMemory, client_name: &str) -> Result<SaveOutcome> {
         let started = Instant::now();
         let outcome = {

@@ -170,10 +170,34 @@ async fn serve_connection(conn: Stream, daemon: Arc<Daemon>, token: &str) -> Res
     }
     send.write_all(b"{\"cobalt_ok\":true}\n").await?;
 
+    // A hook client sends exactly one `{"cobalt_hook": ...}` line and leaves.
+    let first_msg = match lines.next_line().await? {
+        Some(l) => l,
+        None => return Ok(()),
+    };
+    if let Ok(serde_json::Value::Object(obj)) =
+        serde_json::from_str::<serde_json::Value>(&first_msg)
+        && let Some(hook) = obj.get("cobalt_hook")
+    {
+        if let Ok(env) = serde_json::from_value::<crate::capture::HookEnvelope>(hook.clone()) {
+            let _ = daemon.handle_hook(env).await;
+        }
+        send.write_all(b"{\"cobalt_ok\":true}\n").await?;
+        return Ok(());
+    }
+
     let mut ctx = ClientContext::new(McpTransport::Stdio);
     ctx.cwd = hs.cwd;
     let mut session = Session::new(daemon, ctx);
-    while let Some(line) = lines.next_line().await? {
+    let mut pending = Some(first_msg);
+    loop {
+        let line = match pending.take() {
+            Some(l) => l,
+            None => match lines.next_line().await? {
+                Some(l) => l,
+                None => break,
+            },
+        };
         if line.trim().is_empty() {
             continue;
         }
@@ -302,4 +326,18 @@ pub async fn connect_existing(home: &Path) -> Result<Stream> {
     } else {
         Err(CobaltError::Daemon("handshake rejected".into()))
     }
+}
+
+/// Hook client: authenticates and delivers one event to a running daemon (never spawns one).
+pub async fn send_hook(home: &Path, env: &crate::capture::HookEnvelope) -> Result<()> {
+    let stream = connect_existing(home).await?;
+    let mut line = serde_json::to_vec(&serde_json::json!({ "cobalt_hook": env }))?;
+    line.push(b'\n');
+    let mut send = &stream;
+    send.write_all(&line).await?;
+    send.flush().await?;
+    let mut ack = [0u8; 1];
+    let mut recv = &stream;
+    let _ = tokio::io::AsyncReadExt::read(&mut recv, &mut ack).await;
+    Ok(())
 }
