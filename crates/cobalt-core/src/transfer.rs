@@ -62,6 +62,12 @@ pub struct IngestProgress {
     /// Estimated seconds left (from the recent chunk throughput), when known.
     #[serde(default)]
     pub eta_seconds: Option<u64>,
+    /// Chunks of the current file already embedded, while it is being embedded.
+    #[serde(default)]
+    pub file_chunks_done: Option<u64>,
+    /// Total chunks of the current file, while it is being embedded.
+    #[serde(default)]
+    pub file_chunks_total: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.6.0";
+export const CONTRACT_VERSION = "1.6.1";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -894,6 +894,10 @@ export interface IngestProgress {
   background: boolean;
   project_id: Uuid | null;
   eta_seconds: number | null;
+  /** Chunks of the current file already embedded (null outside the embedding stage). */
+  file_chunks_done: number | null;
+  /** Total chunks of the current file (null outside the embedding stage). */
+  file_chunks_total: number | null;
 }
 
 export interface IngestIssue {

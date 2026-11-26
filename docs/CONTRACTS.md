@@ -1,4 +1,7 @@
-# Cobalt — Frozen Contracts (v1.6.0)
+# Cobalt — Frozen Contracts (v1.6.1)
+
+> v1.6.1 (additive): `IngestProgress.{file_chunks_done, file_chunks_total}` (chunk progress inside
+> the current file, so large files do not look frozen).
 
 > v1.6.0 (additive): every ingest job ends with a terminal stage (`completed|cancelled|failed`);
 > `IngestProgress.{background, project_id, eta_seconds}`; `CaptureSettings.indexing_paused`;
