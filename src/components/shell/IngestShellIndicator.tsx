@@ -533,10 +533,12 @@ export function IngestShellIndicator() {
       let latestUpdatedAt = 0;
 
       for (const job of groupJobs) {
-        fileCount += job.total > 0 ? job.total : Math.max(1, job.processed);
         latestUpdatedAt = Math.max(latestUpdatedAt, job.finishedAt ?? job.startedAt);
       }
       for (const job of runningJobs) {
+        if (job.total > 0) {
+          fileCount += job.total;
+        }
         if (job.etaSeconds != null && job.etaSeconds > 0) {
           maxEta = maxEta === null ? job.etaSeconds : Math.max(maxEta, job.etaSeconds);
         }
@@ -550,7 +552,7 @@ export function IngestShellIndicator() {
         jobs: groupJobs,
         runningJobs,
         isRunning: runningJobs.length > 0,
-        fileCount: Math.max(1, fileCount),
+        fileCount,
         etaSeconds: maxEta,
         latestUpdatedAt,
       });
@@ -619,13 +621,16 @@ export function IngestShellIndicator() {
       : null;
 
   const formatBgRowText = (group: BackgroundProjectGroup): string => {
+    const prefix = group.isRunning
+      ? t("ingest.background.keepingUpToDate")
+      : t("ingest.background.upToDate");
+    if (!group.isRunning || group.fileCount <= 0) {
+      return `${prefix} · ${group.projectName}`;
+    }
     const filesText =
       group.fileCount === 1
         ? t("ingest.background.fileOne")
         : t("ingest.background.fileMany", { count: group.fileCount });
-    const prefix = group.isRunning
-      ? t("ingest.background.keepingUpToDate")
-      : t("ingest.background.upToDate");
     return `${prefix} · ${group.projectName} · ${filesText}`;
   };
 
