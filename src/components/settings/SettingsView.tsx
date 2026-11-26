@@ -1,15 +1,14 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Cpu, Download, RotateCcw, Save, Shield } from "lucide-react";
+import { ArrowRightLeft, Check, Cpu, Download, Loader2, RotateCcw, Save, Shield, Trash2 } from "lucide-react";
 import { SUPPORTED_LANGUAGES } from "@/i18n";
-import { isCommandMocked } from "@/lib/backend";
 import {
   estimateDownloadBytes,
   formatBytes,
   formatRamGb,
   isEngineModelInstalled,
 } from "@/lib/format";
-import { useHardwareStore, useSettingsStore, useUiStore } from "@/stores";
+import { useHardwareStore, useMemoryStore, useSettingsStore, useUiStore } from "@/stores";
 import { DownloadProgressBar, HardwareConfigForm } from "@/components/onboarding";
 import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
@@ -32,10 +31,16 @@ export function SettingsView() {
   const downloadProgress = useHardwareStore((s) => s.downloadProgress);
   const isInstalling = useHardwareStore((s) => s.isInstalling);
   const isCancelling = useHardwareStore((s) => s.isCancelling);
+  const swapProgress = useHardwareStore((s) => s.swapProgress);
+  const swapReport = useHardwareStore((s) => s.swapReport);
+  const isSwapping = useHardwareStore((s) => s.isSwapping);
   const error = useHardwareStore((s) => s.error);
   const installEngine = useHardwareStore((s) => s.installEngine);
   const cancelDownload = useHardwareStore((s) => s.cancelDownload);
+  const swapEngine = useHardwareStore((s) => s.swapEngine);
+  const removeEngineArtifacts = useHardwareStore((s) => s.removeEngineArtifacts);
   const clearError = useHardwareStore((s) => s.clearError);
+  const loadGraph = useMemoryStore((s) => s.loadGraph);
 
   const setShowOnboardingOverride = useUiStore((s) => s.setShowOnboardingOverride);
 
@@ -44,6 +49,7 @@ export function SettingsView() {
   const [modelId, setModelId] = useState<string>(settings.embedding_model_id);
   const [proMode, setProMode] = useState<boolean>(settings.pro_mode);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [removingOld, setRemovingOld] = useState(false);
 
   useEffect(() => {
     setTier(settings.hardware_tier);
@@ -81,12 +87,38 @@ export function SettingsView() {
     showSavedFlash();
   };
 
-  const isMocked = isCommandMocked("get_settings") || isCommandMocked("install_engine");
   const isAlreadyInstalled = isEngineModelInstalled(engine, modelId, engineStatus, profile);
   const downloadBytes = estimateDownloadBytes(engine, modelId, models, profile, engineStatus);
+  const needsLiveSwap =
+    Boolean(engineStatus && engineStatus.vector_count > 0) &&
+    (engine !== settings.vector_engine || modelId !== settings.embedding_model_id);
+
+  const swapPercent =
+    swapProgress && swapProgress.total > 0
+      ? Math.min(100, Math.round((swapProgress.processed / swapProgress.total) * 100))
+      : 0;
 
   const handleApplyAndInstall = async () => {
     clearError();
+    if (needsLiveSwap) {
+      const report = await swapEngine({
+        target_engine: engine,
+        target_model_id: modelId,
+        external_endpoint: null,
+      });
+      if (report && !report.rolled_back) {
+        await patchSettings({
+          hardware_tier: tier,
+          vector_engine: engine,
+          embedding_model_id: modelId,
+          pro_mode: proMode,
+          onboarding_completed: true,
+        });
+        await loadGraph();
+        showSavedFlash();
+      }
+      return;
+    }
     if (isAlreadyInstalled) {
       await patchSettings({
         hardware_tier: tier,
@@ -111,6 +143,17 @@ export function SettingsView() {
     }
   };
 
+  const handleRemoveOldEngine = async () => {
+    if (!swapReport) return;
+    setRemovingOld(true);
+    try {
+      await removeEngineArtifacts(swapReport.from_engine, swapReport.from_model_id);
+      showSavedFlash();
+    } finally {
+      setRemovingOld(false);
+    }
+  };
+
   return (
     <div className="h-full overflow-y-auto bg-void p-6 lg:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
@@ -121,7 +164,7 @@ export function SettingsView() {
               <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
                 {t("settings.title")}
               </h1>
-              {isMocked && <MockBadge />}
+              <MockBadge />
             </div>
             <p className="mt-1.5 text-sm text-bone-muted">{t("settings.subtitle")}</p>
           </div>
@@ -233,12 +276,56 @@ export function SettingsView() {
               error={error}
               onCancel={() => void cancelDownload()}
             />
+
+            {(isSwapping || swapProgress) && (
+              <div className="space-y-2 rounded-[2px] border border-cobalt-rule bg-cobalt-wash/50 p-3">
+                <div className="flex items-center justify-between font-mono text-[11px]">
+                  <span className="inline-flex items-center gap-1.5 text-cobalt-ink">
+                    {isSwapping && <Loader2 size={12} className="animate-spin" aria-hidden />}
+                    {t(`pro.swapPhase.${swapProgress?.phase ?? "staging"}`)}
+                  </span>
+                  <span className="tabular-nums text-bone">
+                    {swapProgress ? `${swapProgress.processed} / ${swapProgress.total}` : "…"} ({swapPercent}%)
+                  </span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-[1px] bg-void">
+                  <div
+                    className="h-full bg-cobalt transition-all duration-200"
+                    style={{ width: `${swapPercent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {swapReport && swapReport.reclaimable_bytes > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-verdigris-rule bg-verdigris-wash/60 p-3 text-xs">
+                <span className="font-mono text-[11px] text-bone">
+                  {t("pro.swapSummary", {
+                    reembedded: swapReport.reembedded,
+                    verified: swapReport.verified_count,
+                  })}
+                </span>
+                <button
+                  type="button"
+                  disabled={removingOld}
+                  onClick={() => void handleRemoveOldEngine()}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-ochre-rule bg-ochre-wash px-3 py-1 font-mono text-[11px] font-semibold text-ochre hover:bg-ochre hover:text-void disabled:opacity-45"
+                >
+                  {removingOld ? (
+                    <Loader2 size={11} className="animate-spin" aria-hidden />
+                  ) : (
+                    <Trash2 size={11} aria-hidden />
+                  )}
+                  {t("pro.removeOldEngine", { size: formatBytes(swapReport.reclaimable_bytes) })}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-3 border-t border-rule bg-surface-2 px-5 py-3.5">
             <button
               type="button"
-              disabled={isInstalling || saving}
+              disabled={isInstalling || isSwapping || saving}
               onClick={() => void handleSavePreferences()}
               className="inline-flex items-center gap-2 rounded-[2px] border border-rule-strong bg-surface px-4 py-2 text-xs font-medium text-bone transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
             >
@@ -247,11 +334,16 @@ export function SettingsView() {
             </button>
             <button
               type="button"
-              disabled={isInstalling || saving}
+              disabled={isInstalling || isSwapping || saving}
               onClick={() => void handleApplyAndInstall()}
               className="inline-flex items-center gap-2 rounded-[2px] border border-cobalt-rule bg-cobalt px-4 py-2 text-xs font-semibold text-bone transition-colors hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
             >
-              {isAlreadyInstalled ? (
+              {needsLiveSwap ? (
+                <>
+                  <ArrowRightLeft size={13} aria-hidden />
+                  <span>{isSwapping ? t("pro.swapping") : t("pro.swapButton")}</span>
+                </>
+              ) : isAlreadyInstalled ? (
                 <>
                   <Check size={13} aria-hidden />
                   <span>{t("onboarding.apply")}</span>

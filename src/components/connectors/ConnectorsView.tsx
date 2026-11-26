@@ -1,76 +1,510 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plug } from "lucide-react";
-import { backendCall, isCommandMocked } from "@/lib/backend";
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  Copy,
+  FileWarning,
+  Loader2,
+  Plug,
+  RefreshCw,
+  ShieldCheck,
+  Stethoscope,
+  Terminal,
+  Wrench,
+  XCircle,
+} from "lucide-react";
+import { backendCall } from "@/lib/backend";
+import { copyToClipboard } from "@/lib/dialogs";
+import { useSettingsStore } from "@/stores";
 import { MockBadge } from "@/components/shell/MockBadge";
-import type { ConnectorStatus } from "@/types/contracts";
+import { Select, Toggle, type SelectOption } from "@/components/ui";
+import {
+  AI_CLIENTS,
+  type AiClient,
+  type CheckStatus,
+  type ConnectorStatus,
+  type DoctorReport,
+} from "@/types/contracts";
+import { ProModePanel } from "./ProModePanel";
+
+const CLIENT_LABELS: Record<AiClient, string> = {
+  claude_desktop: "Claude Desktop",
+  claude_code: "Claude Code",
+  cursor: "Cursor",
+  windsurf: "Windsurf",
+  cline: "Cline",
+  gemini_cli: "Gemini CLI",
+  codex_cli: "Codex CLI",
+};
+
+function buildManualSnippet(client: AiClient, httpPort: number, httpEnabled: boolean): string {
+  if (client === "codex_cli") {
+    return `[mcp_servers.cobalt]\ncommand = "cobalt"\nargs = ["--mcp-stdio"]`;
+  }
+  const servers: Record<string, unknown> = {
+    cobalt: {
+      command: "cobalt",
+      args: ["--mcp-stdio"],
+    },
+  };
+  if (httpEnabled && (client === "cursor" || client === "windsurf" || client === "cline")) {
+    return JSON.stringify(
+      {
+        mcpServers: {
+          ...servers,
+          "cobalt-http": {
+            url: `http://127.0.0.1:${httpPort}/mcp`,
+          },
+        },
+      },
+      null,
+      2,
+    );
+  }
+  return JSON.stringify({ mcpServers: servers }, null, 2);
+}
+
+function checkStatusIcon(status: CheckStatus) {
+  switch (status) {
+    case "ok":
+      return <CheckCircle2 size={14} className="shrink-0 text-verdigris" aria-hidden />;
+    case "warning":
+      return <AlertTriangle size={14} className="shrink-0 text-ochre" aria-hidden />;
+    case "error":
+      return <XCircle size={14} className="shrink-0 text-cinnabar" aria-hidden />;
+    default:
+      return <FileWarning size={14} className="shrink-0 text-bone-subtle" aria-hidden />;
+  }
+}
 
 export function ConnectorsView() {
   const { t } = useTranslation();
+  const settings = useSettingsStore((s) => s.settings);
+
   const [connectors, setConnectors] = useState<ConnectorStatus[]>([]);
-  const isMocked = isCommandMocked("list_connectors");
+  const [loading, setLoading] = useState(true);
+  const [togglingClient, setTogglingClient] = useState<AiClient | null>(null);
+  const [manualClient, setManualClient] = useState<AiClient>("claude_desktop");
+  const [copiedManual, setCopiedManual] = useState(false);
+
+  // MCP Doctor state
+  const [doctorReport, setDoctorReport] = useState<DoctorReport | null>(null);
+  const [runningDoctor, setRunningDoctor] = useState(false);
+  const [fixingCheckId, setFixingCheckId] = useState<string | null>(null);
+
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const flashNotice = useCallback((msg: string) => {
+    setNotice(msg);
+    window.setTimeout(() => setNotice(null), 3400);
+  }, []);
+
+  const loadConnectors = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await backendCall("list_connectors");
+      setConnectors(list);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    void backendCall("list_connectors")
-      .then(setConnectors)
-      .catch((err: unknown) => console.error("list_connectors failed", err));
-  }, []);
+    void loadConnectors();
+  }, [loadConnectors]);
+
+  // Always show all 7 clients in canonical order
+  const orderedConnectors = useMemo<ConnectorStatus[]>(() => {
+    const byClient = new Map(connectors.map((c) => [c.client, c]));
+    return AI_CLIENTS.map(
+      (client) =>
+        byClient.get(client) ?? {
+          client,
+          detected: false,
+          config_path: null,
+          config_format: client === "codex_cli" ? "toml" : "json",
+          connected: false,
+          broken: false,
+          last_backup_path: null,
+          error: null,
+        },
+    );
+  }, [connectors]);
+
+  const handleToggleConnector = async (client: AiClient, enable: boolean) => {
+    setTogglingClient(client);
+    setError(null);
+    try {
+      const result = await backendCall("toggle_connector", { client, enable });
+      setConnectors((prev) => {
+        const exists = prev.some((c) => c.client === client);
+        if (!exists) return [...prev, result.status];
+        return prev.map((c) => (c.client === client ? result.status : c));
+      });
+      if (result.backup_path) {
+        flashNotice(
+          t("connectors.toggledWithBackup", {
+            client: CLIENT_LABELS[client],
+            backup: result.backup_path,
+          }),
+        );
+      } else {
+        flashNotice(
+          enable
+            ? t("connectors.connectedNotice", { client: CLIENT_LABELS[client] })
+            : t("connectors.disconnectedNotice", { client: CLIENT_LABELS[client] }),
+        );
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTogglingClient(null);
+    }
+  };
+
+  const handleRunDoctor = async () => {
+    setRunningDoctor(true);
+    setError(null);
+    try {
+      const report = await backendCall("run_doctor");
+      setDoctorReport(report);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRunningDoctor(false);
+    }
+  };
+
+  const handleDoctorFix = async (checkId: string) => {
+    setFixingCheckId(checkId);
+    setError(null);
+    try {
+      const report = await backendCall("doctor_fix", { check_id: checkId });
+      setDoctorReport(report);
+      await loadConnectors();
+      flashNotice(t("doctor.fixApplied"));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFixingCheckId(null);
+    }
+  };
+
+  const manualClientOptions = useMemo<SelectOption<AiClient>[]>(
+    () =>
+      AI_CLIENTS.map((client) => ({
+        value: client,
+        label: CLIENT_LABELS[client],
+        detail: client === "codex_cli" ? "TOML" : "JSON",
+      })),
+    [],
+  );
+
+  const manualSnippet = useMemo(
+    () =>
+      buildManualSnippet(manualClient, settings.mcp.http_port, settings.mcp.http_enabled),
+    [manualClient, settings.mcp.http_port, settings.mcp.http_enabled],
+  );
+
+  const handleCopyManual = async () => {
+    const ok = await copyToClipboard(manualSnippet);
+    if (ok) {
+      setCopiedManual(true);
+      window.setTimeout(() => setCopiedManual(false), 1800);
+    }
+  };
 
   return (
     <div className="h-full overflow-y-auto bg-void p-6 lg:p-8">
-      <div className="mx-auto max-w-4xl space-y-6">
+      <div className="mx-auto max-w-5xl space-y-6">
+        {/* Header */}
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
                 {t("connectors.title")}
               </h1>
-              {isMocked && <MockBadge />}
+              <MockBadge />
             </div>
             <p className="mt-1.5 text-sm text-bone-muted">{t("connectors.subtitle")}</p>
           </div>
-          <span className="rounded-[2px] border border-rule bg-surface px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-            {t("shell.phasePreviewBadge")}
-          </span>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void loadConnectors()}
+            className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface px-3 py-1.5 font-mono text-xs text-bone-muted hover:border-cobalt-ink/60 hover:text-bone disabled:opacity-45"
+          >
+            <RefreshCw size={12} className={loading ? "animate-spin" : ""} aria-hidden />
+            {t("common.refresh")}
+          </button>
         </header>
 
-        <p className="rounded-[2px] border border-rule border-l-2 border-l-cobalt bg-surface px-4 py-3 text-xs text-bone-muted">
-          {t("connectors.comingSoon")}
-        </p>
+        {error && (
+          <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
+            {error}
+          </div>
+        )}
+        {notice && (
+          <div className="flex items-center gap-2 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-4 py-2.5 font-mono text-xs text-verdigris">
+            <Check size={13} aria-hidden />
+            <span>{notice}</span>
+          </div>
+        )}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {connectors.map((connector) => (
-            <div
-              key={connector.client}
-              className="flex items-center justify-between gap-3 rounded-[2px] border border-rule bg-surface p-4"
+        {/* 01 — 1-Click Connectors for all 7 AI clients */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+              01 — {t("connectors.clientsTitle")}
+            </h2>
+            <span className="font-mono text-[10px] text-bone-subtle">
+              {t("connectors.backupSafetyNote")}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {orderedConnectors.map((connector) => {
+              const busy = togglingClient === connector.client;
+              const label = CLIENT_LABELS[connector.client];
+              return (
+                <div
+                  key={connector.client}
+                  className={`flex flex-col justify-between gap-3 rounded-[2px] border p-4 transition-colors ${
+                    connector.broken
+                      ? "border-cinnabar-rule bg-surface"
+                      : connector.connected
+                        ? "border-cobalt-rule/70 bg-surface"
+                        : "border-rule bg-surface"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Plug size={14} className="shrink-0 text-cobalt-ink" aria-hidden />
+                        <span className="text-sm font-semibold text-bone">{label}</span>
+                        <span className="rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase text-bone-muted">
+                          {connector.config_format}
+                        </span>
+                      </div>
+                      <div className="mt-1 truncate font-mono text-[11px] text-bone-subtle">
+                        {connector.config_path ?? t("connectors.notDetected")}
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2.5">
+                      {busy && (
+                        <Loader2 size={13} className="animate-spin text-cobalt-ink" aria-hidden />
+                      )}
+                      <Toggle
+                        checked={connector.connected}
+                        disabled={busy}
+                        ariaLabel={label}
+                        onChange={(enable) => void handleToggleConnector(connector.client, enable)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Status + Backup path + Errors */}
+                  <div className="space-y-1.5 border-t border-rule pt-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span
+                        className={`rounded-[2px] border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] ${
+                          connector.broken
+                            ? "border-cinnabar-rule bg-cinnabar-wash text-cinnabar"
+                            : connector.connected
+                              ? "border-verdigris-rule bg-verdigris-wash text-verdigris"
+                              : connector.detected
+                                ? "border-rule-strong bg-surface-2 text-bone-muted"
+                                : "border-rule bg-void text-bone-subtle"
+                        }`}
+                      >
+                        {connector.broken
+                          ? t("connectors.broken")
+                          : connector.connected
+                            ? t("connectors.connected")
+                            : connector.detected
+                              ? t("connectors.detected")
+                              : t("connectors.notDetected")}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => setManualClient(connector.client)}
+                        className="font-mono text-[10px] text-cobalt-ink hover:underline"
+                      >
+                        {t("connectors.viewManualSnippet")}
+                      </button>
+                    </div>
+
+                    {connector.last_backup_path && (
+                      <div className="truncate font-mono text-[10px] text-bone-muted">
+                        <span className="text-bone-subtle">{t("connectors.backupLabel")}:</span>{" "}
+                        {connector.last_backup_path}
+                      </div>
+                    )}
+
+                    {connector.error && (
+                      <div className="rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/70 px-2 py-1 text-[11px] text-cinnabar">
+                        {connector.error}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* 02 — Manual setup (NEVER "Copy Config") */}
+        <section className="rounded-[2px] border border-rule bg-surface p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-4">
+            <div>
+              <h2 className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-bone">
+                <Terminal size={13} className="text-cobalt-ink" aria-hidden />
+                02 — {t("connectors.manualSetupTitle")}
+              </h2>
+              <p className="mt-1 text-xs text-bone-muted">{t("connectors.manualSetupDesc")}</p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Select<AiClient>
+                value={manualClient}
+                options={manualClientOptions}
+                size="sm"
+                align="right"
+                className="w-44"
+                onChange={setManualClient}
+              />
+              <button
+                type="button"
+                onClick={() => void handleCopyManual()}
+                className="inline-flex h-7 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-3 font-mono text-[11px] font-medium text-cobalt-ink hover:bg-cobalt hover:text-bone"
+              >
+                {copiedManual ? (
+                  <Check size={12} className="text-verdigris" aria-hidden />
+                ) : (
+                  <Copy size={12} aria-hidden />
+                )}
+                {copiedManual ? t("common.copied") : t("connectors.copySnippet")}
+              </button>
+            </div>
+          </div>
+
+          <pre className="mt-4 overflow-x-auto rounded-[2px] border border-rule bg-void p-4 font-mono text-xs leading-relaxed text-bone">
+            {manualSnippet}
+          </pre>
+
+          {settings.mcp.http_enabled && (
+            <p className="mt-2.5 font-mono text-[11px] text-bone-subtle">
+              {t("connectors.httpEndpointHint", {
+                url: `http://127.0.0.1:${settings.mcp.http_port}/mcp`,
+              })}
+            </p>
+          )}
+        </section>
+
+        {/* 03 — MCP Doctor */}
+        <section className="rounded-[2px] border border-rule bg-surface p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-4">
+            <div>
+              <h2 className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-bone">
+                <Stethoscope size={13} className="text-cobalt-ink" aria-hidden />
+                03 — {t("doctor.title")}
+              </h2>
+              <p className="mt-1 text-xs text-bone-muted">{t("doctor.subtitle")}</p>
+            </div>
+
+            <button
+              type="button"
+              disabled={runningDoctor}
+              onClick={() => void handleRunDoctor()}
+              className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3.5 py-1.5 font-mono text-xs font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
             >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-sm font-medium text-bone">
-                  <Plug size={14} className="shrink-0 text-cobalt-ink" aria-hidden />
-                  <span className="truncate font-mono">{connector.client}</span>
-                </div>
-                <div className="mt-1 truncate font-mono text-[11px] text-bone-subtle">
-                  {connector.config_path ?? t("connectors.notDetected")}
-                </div>
-              </div>
-              <span
-                className={`shrink-0 rounded-[2px] border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] ${
-                  connector.connected
+              {runningDoctor ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden />
+              ) : (
+                <ShieldCheck size={13} aria-hidden />
+              )}
+              {runningDoctor ? t("doctor.running") : t("doctor.runButton")}
+            </button>
+          </div>
+
+          {!doctorReport ? (
+            <p className="mt-4 text-xs text-bone-subtle">{t("doctor.emptyHint")}</p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              <div
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-[2px] border px-3.5 py-2 font-mono text-xs ${
+                  doctorReport.healthy
                     ? "border-verdigris-rule bg-verdigris-wash text-verdigris"
-                    : connector.detected
-                      ? "border-rule-strong bg-surface-2 text-bone-muted"
-                      : "border-rule bg-void text-bone-subtle"
+                    : "border-ochre-rule bg-ochre-wash text-ochre"
                 }`}
               >
-                {connector.connected
-                  ? t("connectors.connected")
-                  : connector.detected
-                    ? t("connectors.detected")
-                    : t("connectors.notDetected")}
-              </span>
+                <span>
+                  {doctorReport.healthy ? t("doctor.healthy") : t("doctor.issuesFound")}
+                </span>
+                <span className="text-[10px] opacity-80">
+                  {new Date(doctorReport.generated_at).toLocaleTimeString()}
+                </span>
+              </div>
+
+              <div className="divide-y divide-rule rounded-[2px] border border-rule bg-void">
+                {doctorReport.checks.map((check) => {
+                  const fixing = fixingCheckId === check.id;
+                  const translatedLabel = t(check.label_key, { defaultValue: check.id });
+                  return (
+                    <div
+                      key={check.id}
+                      className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5"
+                    >
+                      <div className="flex min-w-0 items-start gap-2.5">
+                        <div className="mt-0.5">{checkStatusIcon(check.status)}</div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium text-bone">{translatedLabel}</div>
+                          {check.detail && (
+                            <div className="mt-0.5 font-mono text-[11px] text-bone-muted">
+                              {check.detail}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="font-mono text-[10px] uppercase text-bone-subtle">
+                          {t(`doctor.status.${check.status}`)}
+                        </span>
+                        {check.fixable && (
+                          <button
+                            type="button"
+                            disabled={fixing}
+                            onClick={() => void handleDoctorFix(check.id)}
+                            className="inline-flex items-center gap-1 rounded-[2px] border border-ochre-rule bg-ochre-wash px-2.5 py-1 font-mono text-[10px] font-semibold text-ochre hover:bg-ochre hover:text-void disabled:opacity-45"
+                          >
+                            {fixing ? (
+                              <Loader2 size={10} className="animate-spin" aria-hidden />
+                            ) : (
+                              <Wrench size={10} aria-hidden />
+                            )}
+                            {t("doctor.fixButton")}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          ))}
-        </div>
+          )}
+        </section>
+
+        {/* 04 — Pro Mode */}
+        <ProModePanel />
       </div>
     </div>
   );
