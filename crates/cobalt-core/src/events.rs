@@ -3,8 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::enums::McpTransport;
-use crate::ids::Timestamp;
+use crate::enums::{AiClient, CliActivityKind, McpTransport};
+use crate::ids::{Id, Timestamp};
 
 /// Payload: [`crate::telemetry::McpActivity`].
 pub const EVENT_MCP_ACTIVITY: &str = "cobalt://mcp-activity";
@@ -22,6 +22,8 @@ pub const EVENT_READ_ONLY_CHANGED: &str = "cobalt://read-only-changed";
 pub const EVENT_VAULT_STATUS: &str = "cobalt://vault-status";
 /// Payload: [`DaemonStatus`].
 pub const EVENT_DAEMON_STATUS: &str = "cobalt://daemon-status";
+/// Payload: [`CliActivity`].
+pub const EVENT_CLI_ACTIVITY: &str = "cobalt://cli-activity";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadOnlyChanged {
@@ -43,4 +45,42 @@ pub struct DaemonStatus {
     pub http_port: Option<u16>,
     pub queued_writes: u64,
     pub clients: Vec<ConnectedClient>,
+}
+
+/// Something an AI CLI did, captured by hooks even if the AI never called Cobalt.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CliActivity {
+    pub timestamp: Timestamp,
+    /// `claude-code`, `codex`, `git`…
+    pub client_name: String,
+    pub kind: CliActivityKind,
+    pub project_id: Option<Id>,
+    pub project_name: Option<String>,
+    pub cwd: Option<String>,
+    pub files: Vec<String>,
+    /// Short human description (command line, commit subject, last message excerpt).
+    pub detail: Option<String>,
+}
+
+/// State of one capture integration (Connectors panel).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CaptureStatus {
+    pub integration: crate::enums::CaptureIntegration,
+    /// `None` for project-level integrations (git).
+    pub client: Option<AiClient>,
+    pub project_id: Option<Id>,
+    /// The client/project supports this integration on this machine.
+    pub supported: bool,
+    pub enabled: bool,
+    /// File Cobalt edits to install it.
+    pub path: Option<String>,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CaptureToggleRequest {
+    pub integration: crate::enums::CaptureIntegration,
+    pub client: Option<AiClient>,
+    pub project_id: Option<Id>,
+    pub enable: bool,
 }

@@ -355,6 +355,26 @@ string_enum! {
     pub enum McpTransport { Stdio => "stdio", StreamableHttp => "streamable_http", Sse => "sse" }
 }
 
+string_enum! {
+    /// What happened in a CLI session (`cobalt://cli-activity`).
+    pub enum CliActivityKind {
+        SessionStart => "session_start", FileEdit => "file_edit", Command => "command",
+        TurnEnd => "turn_end", SessionEnd => "session_end", GitCommit => "git_commit",
+    }
+}
+
+string_enum! {
+    /// Automatic capture integrations installed by Cobalt (no AI cooperation needed).
+    pub enum CaptureIntegration {
+        /// Short rule block in the client's global instructions file.
+        GlobalInstructions => "global_instructions",
+        /// Client hooks (Claude Code hooks, Codex `notify`) calling `cobalt --hook`.
+        SessionHooks => "session_hooks",
+        /// `post-commit` hook in a project's git repository.
+        GitHooks => "git_hooks",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

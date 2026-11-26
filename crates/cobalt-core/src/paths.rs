@@ -28,6 +28,10 @@ pub const DEFAULT_HTTP_PORT: u16 = 7437;
 pub const MCP_STDIO_FLAG: &str = "--mcp-stdio";
 /// CLI flag that starts the daemon without showing the main window (tray only).
 pub const HEADLESS_FLAG: &str = "--headless";
+/// CLI flag used by client hooks: `cobalt --hook <source>` (event JSON on stdin or as last arg).
+pub const HOOK_FLAG: &str = "--hook";
+/// Hook events received while the daemon was down, replayed at the next start.
+pub const HOOK_QUEUE_FILE: &str = "hook-queue.jsonl";
 
 /// Resolves the Cobalt home directory (`$COBALT_HOME` or `~/.cobalt`). Does not create it.
 pub fn cobalt_home() -> Result<PathBuf> {

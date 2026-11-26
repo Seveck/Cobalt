@@ -92,6 +92,8 @@ fn enum_literals_exist_in_typescript() {
     );
     assert_literals("NodeShape", NodeShape::ALL.iter().map(|v| v.as_str()));
     assert_literals("ConfigFormat", ConfigFormat::ALL.iter().map(|v| v.as_str()));
+    assert_literals("CliActivityKind", CliActivityKind::ALL.iter().map(|v| v.as_str()));
+    assert_literals("CaptureIntegration", CaptureIntegration::ALL.iter().map(|v| v.as_str()));
     assert_literals("McpTransport", McpTransport::ALL.iter().map(|v| v.as_str()));
 }
 
@@ -122,7 +124,7 @@ fn every_ipc_command_is_in_the_typescript_map() {
 #[test]
 fn every_event_is_in_the_typescript_map() {
     let events = string_consts(EVENTS_RS);
-    assert_eq!(events.len(), 8);
+    assert_eq!(events.len(), 9);
     for ev in events {
         assert!(
             TS.contains(&format!("\"{ev}\": ")),

@@ -71,6 +71,8 @@ pub mod commands {
     pub const QUERY_TELEMETRY: &str = "query_telemetry";
     pub const LIST_CONNECTORS: &str = "list_connectors";
     pub const TOGGLE_CONNECTOR: &str = "toggle_connector";
+    pub const LIST_CAPTURE_INTEGRATIONS: &str = "list_capture_integrations";
+    pub const TOGGLE_CAPTURE_INTEGRATION: &str = "toggle_capture_integration";
     pub const RUN_DOCTOR: &str = "run_doctor";
     pub const DOCTOR_FIX: &str = "doctor_fix";
     pub const GET_MCP_TOOL_DOCS: &str = "get_mcp_tool_docs";

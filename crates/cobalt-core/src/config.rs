@@ -203,6 +203,24 @@ impl Default for McpSettings {
     }
 }
 
+/// Automatic capture: keep Cobalt current even when an AI never calls it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CaptureSettings {
+    /// Projects are indexed and watched as soon as they are detected (respecting `.memoryignore`).
+    pub auto_watch_projects: bool,
+    /// Session hooks leave an automatic handoff when a CLI session ends.
+    pub session_handoffs: bool,
+    /// Git `post-commit` hooks record each commit as a project memory.
+    pub git_commits: bool,
+}
+
+impl Default for CaptureSettings {
+    fn default() -> Self {
+        Self { auto_watch_projects: true, session_handoffs: true, git_commits: true }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OllamaSettings {
@@ -238,6 +256,7 @@ pub struct AppSettings {
     pub shortcuts: ShortcutSettings,
     pub mcp: McpSettings,
     pub ollama: OllamaSettings,
+    pub capture: CaptureSettings,
 }
 
 /// Id of the only theme bundled with the base app.
@@ -267,6 +286,7 @@ impl Default for AppSettings {
             shortcuts: ShortcutSettings::default(),
             mcp: McpSettings::default(),
             ollama: OllamaSettings::default(),
+            capture: CaptureSettings::default(),
         }
     }
 }

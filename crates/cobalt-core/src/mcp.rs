@@ -154,6 +154,9 @@ pub struct CompactMemory {
     pub is_core_pin: bool,
     pub is_reusable: bool,
     pub file_path: Option<String>,
+    /// The linked file changed on disk after this memory was saved: treat it as possibly outdated.
+    #[serde(default)]
+    pub file_changed: bool,
     pub updated_at: Timestamp,
 }
 

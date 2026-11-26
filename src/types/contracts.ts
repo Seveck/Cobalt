@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.3.2";
+export const CONTRACT_VERSION = "1.4.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -102,6 +102,9 @@ export type ClusterSizeMetric = "vectors" | "tokens";
 export type NodeShape = "sphere" | "icosahedron" | "octahedron" | "box" | "point" | "mesh";
 export type ConfigFormat = "json" | "toml";
 export type McpTransport = "stdio" | "streamable_http" | "sse";
+export type CliActivityKind =
+  | "session_start" | "file_edit" | "command" | "turn_end" | "session_end" | "git_commit";
+export type CaptureIntegration = "global_instructions" | "session_hooks" | "git_hooks";
 
 export type ErrorKind =
   | "not_found" | "invalid_input" | "conflict" | "read_only" | "firewall_blocked"
@@ -742,6 +745,12 @@ export interface OllamaSettings {
   base_url: string;
 }
 
+export interface CaptureSettings {
+  auto_watch_projects: boolean;
+  session_handoffs: boolean;
+  git_commits: boolean;
+}
+
 export interface AppSettings {
   onboarding_completed: boolean;
   hardware_tier: HardwareTier;
@@ -761,6 +770,7 @@ export interface AppSettings {
   shortcuts: ShortcutSettings;
   mcp: McpSettings;
   ollama: OllamaSettings;
+  capture: CaptureSettings;
 }
 
 // ============================================================================ themes
@@ -1046,7 +1056,37 @@ export const EVENTS = {
   readOnlyChanged: "cobalt://read-only-changed",
   vaultStatus: "cobalt://vault-status",
   daemonStatus: "cobalt://daemon-status",
+  cliActivity: "cobalt://cli-activity",
 } as const;
+
+/** Something an AI CLI did, captured by hooks even if the AI never called Cobalt. */
+export interface CliActivity {
+  timestamp: IsoDateTime;
+  client_name: string;
+  kind: CliActivityKind;
+  project_id: Uuid | null;
+  project_name: string | null;
+  cwd: string | null;
+  files: string[];
+  detail: string | null;
+}
+
+export interface CaptureStatus {
+  integration: CaptureIntegration;
+  client: AiClient | null;
+  project_id: Uuid | null;
+  supported: boolean;
+  enabled: boolean;
+  path: string | null;
+  detail: string | null;
+}
+
+export interface CaptureToggleRequest {
+  integration: CaptureIntegration;
+  client: AiClient | null;
+  project_id: Uuid | null;
+  enable: boolean;
+}
 
 export interface ReadOnlyChanged {
   read_only: boolean;
@@ -1076,6 +1116,7 @@ export interface EventPayloadMap {
   "cobalt://read-only-changed": ReadOnlyChanged;
   "cobalt://vault-status": VaultStatus;
   "cobalt://daemon-status": DaemonStatus;
+  "cobalt://cli-activity": CliActivity;
 }
 export type EventName = keyof EventPayloadMap;
 
@@ -1178,6 +1219,8 @@ export interface IpcCommandMap {
   query_telemetry: { args: TelemetryQuery; result: Page<TelemetryLog> };
   list_connectors: { args: void; result: ConnectorStatus[] };
   toggle_connector: { args: ConnectorToggleRequest; result: ConnectorToggleResult };
+  list_capture_integrations: { args: void; result: CaptureStatus[] };
+  toggle_capture_integration: { args: CaptureToggleRequest; result: CaptureStatus };
   run_doctor: { args: void; result: DoctorReport };
   doctor_fix: { args: DoctorFixArgs; result: DoctorReport };
   get_mcp_tool_docs: { args: void; result: McpToolDoc[] };
