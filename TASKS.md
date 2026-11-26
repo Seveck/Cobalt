@@ -87,6 +87,15 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [ ] Botón "Borrar por origen" para limpiar datos de prueba
 - [x] Ingesta de carpetas grandes (2026-11-26): exclusiones por defecto ampliadas, binarios detectados sin leerlos enteros, texto > 2 MiB omitido y reportado, progreso por fragmento, `cancel_ingest` y barra de progreso global con Cancelar
 
+## Fase 3.1 — Captura automática desde la CLI ✅ (2026-11-26)
+- [x] [CLAUDE] Contratos v1.4.0 (`cobalt://cli-activity`, `CaptureSettings`, `CaptureStatus`, `file_changed`) y `docs/CLI_CAPTURE.md`
+- [x] [CLAUDE] `cobalt --hook <claude|codex|git>` por socket autenticado, cola si el daemon está cerrado; actividad en vivo, reindexado de archivos tocados, commits como memorias, handoff automático al terminar sesión
+- [x] [CLAUDE] Instaladores reversibles con `.bak`: instrucciones globales (Claude Code, Codex, Gemini CLI), hooks de Claude Code, `notify` de Codex, `post-commit` de git encadenado
+- [x] [CLAUDE] Proyectos indexados y vigilados al detectarse; memorias de IA marcadas "archivo cambiado" cuando su documento se actualizó después
+- [x] [CODEX] Vigilante: reemplazo atómico de fragmentos al cambiar un archivo, archivado al borrarlo, archivos nuevos en carpetas vigiladas, nunca reescribe memorias de IA/usuario
+- [x] [GEMINI] Panel "Captura automática", feed en vivo de la CLI con pulsos en el 3D, insignia "El archivo cambió desde que se guardó"
+- [ ] Pendiente: Gemini CLI y otros clientes sin sistema de hooks (solo instrucciones globales); los hooks apuntan al binario actual (reinstalar al instalar la versión final)
+
 ## Fase 3.5 — Asistente conversacional, Personas y Estudio [PARALELO] (decidida 2026-11-25)
 Objetivo: que Cobalt sirva también a quien no programa (organizar notas, estudiar), con un chat que
 consulta y **actúa** sobre el cerebro. Se construye después de la Fase 3 (sus importadores alimentan el chat).
