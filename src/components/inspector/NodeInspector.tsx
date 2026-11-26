@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickSinglePath } from "@/lib/dialogs";
+import { formatAiClientName } from "@/lib/format";
 import { IpcError } from "@/lib/ipc";
 import {
   useBranchesStore,
@@ -45,6 +46,7 @@ import {
   type SourceDocument,
   type Uuid,
 } from "@/types/contracts";
+import { PermanentDeleteDialog } from "./PermanentDeleteDialog";
 
 interface NodeInspectorProps {
   memoryId: Uuid;
@@ -119,7 +121,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
   // Governance metadata (`patch_memory`)
   const [confidenceDraft, setConfidenceDraft] = useState(1);
   const [snippetDraft, setSnippetDraft] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Vault / Encryption state
   const [revealedPlaintext, setRevealedPlaintext] = useState<string | null>(null);
@@ -139,7 +141,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
     setError(null);
     setRevealedPlaintext(null);
     setEditingContent(false);
-    setConfirmDelete(false);
+    setDeleteDialogOpen(false);
     setSourceDoc(null);
     setArchiveImpact(null);
 
@@ -285,6 +287,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
     setError(null);
     try {
       await backendCall("delete_memory", { id: memory.id });
+      setDeleteDialogOpen(false);
       setSelectedNodeId(null);
       await loadGraph();
       onClose();
@@ -611,7 +614,9 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                         key={client.client_name}
                         className="flex items-center justify-between gap-2 py-1.5 font-mono text-[11px]"
                       >
-                        <span className="font-medium text-bone">{client.client_name}</span>
+                        <span className="font-medium text-bone">
+                          {formatAiClientName(client.client_name)}
+                        </span>
                         <span className="tabular-nums text-bone-muted">
                           {t("inspector.agentUsesCount", { count: client.uses })} ·{" "}
                           {formatDate(client.last_used_at)}
@@ -1080,45 +1085,39 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                   </button>
                 )}
 
-                {!confirmDelete ? (
-                  <button
-                    type="button"
-                    disabled={readOnly || busy}
-                    onClick={() => setConfirmDelete(true)}
-                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-3 py-1.5 font-mono text-[11px] text-cinnabar hover:bg-cinnabar hover:text-bone disabled:opacity-45"
-                  >
-                    <Trash2 size={12} aria-hidden />
-                    {t("inspector.delete")}
-                  </button>
-                ) : (
-                  <div className="flex flex-1 items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void handleDelete()}
-                      className="flex-1 rounded-[2px] border border-cinnabar bg-cinnabar px-2.5 py-1.5 font-mono text-[11px] font-semibold text-bone"
-                    >
-                      {t("inspector.confirmDelete")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDelete(false)}
-                      className="rounded-[2px] border border-rule-strong bg-surface-2 px-2 py-1.5 font-mono text-[11px] text-bone-muted"
-                    >
-                      {t("common.cancel")}
-                    </button>
-                  </div>
-                )}
+                <button
+                  type="button"
+                  disabled={readOnly || busy}
+                  onClick={() => setDeleteDialogOpen(true)}
+                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-3 py-1.5 font-mono text-[11px] text-cinnabar hover:bg-cinnabar hover:text-bone disabled:opacity-45"
+                >
+                  <Trash2 size={12} aria-hidden />
+                  {t("inspector.delete")}
+                </button>
               </div>
 
               <div className="font-mono text-[10px] text-bone-subtle">
                 {t("inspector.updatedAt", { date: formatDate(memory.updated_at) })}
-                {memory.source_client ? ` · ${memory.source_client}` : ""}
+                {memory.source_client ? ` · ${formatAiClientName(memory.source_client)}` : ""}
               </div>
             </section>
           </>
         )}
       </div>
+
+      {deleteDialogOpen && memory && (
+        <PermanentDeleteDialog
+          memory={memory}
+          busy={busy}
+          readOnly={readOnly}
+          onCancel={() => setDeleteDialogOpen(false)}
+          onArchiveInstead={async () => {
+            setDeleteDialogOpen(false);
+            await handleArchiveToggle();
+          }}
+          onConfirmDelete={handleDelete}
+        />
+      )}
     </aside>
   );
 }

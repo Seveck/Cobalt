@@ -27,6 +27,7 @@ import {
   type ConnectorToggleResult,
   type CreateSnapshotArgs,
   type DaemonStatus,
+  type DeletionImpact,
   type DoctorFixArgs,
   type DoctorReport,
   type DownloadProgress,
@@ -1988,6 +1989,71 @@ export async function callBackendMock<C extends IpcCommand>(
       };
       return impact as ResultOf<C>;
     }
+    case "get_deletion_impact": {
+      const { id } = args as IdArgs;
+      const mem = state.memories.get(id);
+      if (!mem) {
+        throw new IpcError(command, { kind: "not_found", message: `Memory ${id} not found` });
+      }
+      const usedBy =
+        mem.hit_count > 3
+          ? [
+              {
+                client_name: "cursor",
+                uses: Math.max(2, Math.floor(mem.hit_count / 2)),
+                last_used_at: new Date(Date.now() - 3_600_000 * 6).toISOString(),
+              },
+              {
+                client_name: "claude_code",
+                uses: Math.max(1, Math.floor(mem.hit_count / 3)),
+                last_used_at: new Date(Date.now() - 86_400_000 * 2).toISOString(),
+              },
+            ]
+          : [];
+      let historyVersions = 0;
+      const visited = new Set<string>([mem.id]);
+      let backCursor: Memory | undefined = mem;
+      while (backCursor) {
+        const prev = [...state.memories.values()].find(
+          (m) => m.superseded_by === backCursor?.id && !visited.has(m.id),
+        );
+        if (!prev) break;
+        visited.add(prev.id);
+        historyVersions += 1;
+        backCursor = prev;
+      }
+      let fwdId = mem.superseded_by;
+      while (fwdId && !visited.has(fwdId)) {
+        const next = state.memories.get(fwdId);
+        if (!next) break;
+        visited.add(next.id);
+        historyVersions += 1;
+        fwdId = next.superseded_by;
+      }
+      const snapshotsPossiblyContaining = state.snapshots.length;
+      const consequences: string[] = ["delete.consequence.irreversible"];
+      if (mem.is_core_pin) consequences.push("delete.consequence.core_law");
+      if (mem.is_reusable) consequences.push("delete.consequence.reusable");
+      if (usedBy.length > 0) consequences.push("delete.consequence.used_by_agents");
+      if (historyVersions > 0) consequences.push("delete.consequence.history");
+      if (snapshotsPossiblyContaining > 0) consequences.push("delete.consequence.snapshots");
+      if (mem.is_encrypted) consequences.push("delete.consequence.encrypted");
+
+      const impact: DeletionImpact = {
+        memory_id: mem.id,
+        preview: mem.is_encrypted ? "[Encrypted]" : mem.content.slice(0, 140),
+        is_core_pin: mem.is_core_pin,
+        is_reusable: mem.is_reusable,
+        reuse_count: mem.reuse_count,
+        hit_count: mem.hit_count,
+        is_encrypted: mem.is_encrypted,
+        used_by: usedBy,
+        history_versions: historyVersions,
+        snapshots_possibly_containing: snapshotsPossiblyContaining,
+        consequences,
+      };
+      return impact as ResultOf<C>;
+    }
     case "list_projects": {
       const { include_archived } = args as ListProjectsArgs;
       const allMems = [...state.memories.values()];
@@ -2178,50 +2244,86 @@ export async function callBackendMock<C extends IpcCommand>(
       return res as ResultOf<C>;
     }
     case "run_doctor": {
+      const clientChecks = state.connectors
+        .filter((c) => c.detected || c.connected || c.broken)
+        .map((c) => ({
+          id: `client.${c.client}`,
+          label_key: "doctor.client",
+          status: c.broken ? ("error" as const) : c.connected ? ("ok" as const) : ("skipped" as const),
+          detail: c.broken
+            ? (c.error ?? "Configuration file needs repair")
+            : c.connected
+              ? (c.config_path ?? "Connected")
+              : "Detected on disk (not connected)",
+          fixable: c.broken,
+        }));
+
       const report: DoctorReport = {
         generated_at: new Date().toISOString(),
         healthy: state.connectors.every((c) => !c.broken),
         checks: [
           {
             id: "daemon_socket",
-            label_key: "doctor.checks.daemon_socket",
+            label_key: "doctor.daemon_socket",
             status: "ok",
             detail: "~/.cobalt/daemon.sock responding (12ms)",
             fixable: false,
           },
           {
-            id: "sqlite_wal",
-            label_key: "doctor.checks.sqlite_wal",
+            id: "daemon_http",
+            label_key: "doctor.daemon_http",
+            status: mockSettings.mcp.http_enabled ? "ok" : "skipped",
+            detail: mockSettings.mcp.http_enabled
+              ? `http://127.0.0.1:${mockSettings.mcp.http_port}/mcp`
+              : "HTTP bridge disabled in settings",
+            fixable: false,
+          },
+          {
+            id: "sqlite",
+            label_key: "doctor.sqlite",
             status: "ok",
             detail: "SQLite WAL + FTS5 integrity verified",
             fixable: false,
           },
           {
-            id: "embedding_model",
-            label_key: "doctor.checks.embedding_model",
+            id: "engine_model",
+            label_key: "doctor.engine_model",
             status: "ok",
             detail: `${mockEngineStatus.model_id} (${mockEngineStatus.dimensions}d)`,
             fixable: false,
           },
           {
-            id: "connector_configs",
-            label_key: "doctor.checks.connector_configs",
-            status: state.connectors.some((c) => c.broken) ? "warning" : "ok",
-            detail: state.connectors.some((c) => c.broken)
-              ? "1 client configuration has syntax warnings"
-              : "All detected MCP client configurations are valid",
-            fixable: state.connectors.some((c) => c.broken),
+            id: "engine_retrieval",
+            label_key: "doctor.engine_retrieval",
+            status: "ok",
+            detail: `${mockEngineStatus.vector_count} vectors searchable`,
+            fixable: false,
           },
+          {
+            id: "vault",
+            label_key: "doctor.vault",
+            status: "ok",
+            detail: state.vaultInitialized
+              ? state.vaultUnlocked
+                ? "Unlocked"
+                : "Locked"
+              : "Not initialized",
+            fixable: false,
+          },
+          ...clientChecks,
         ],
       };
       return report as ResultOf<C>;
     }
     case "doctor_fix": {
       const { check_id } = args as DoctorFixArgs;
-      if (check_id === "connector_configs") {
-        for (const c of state.connectors) {
-          c.broken = false;
-          c.error = null;
+      if (check_id.startsWith("client.")) {
+        const clientId = check_id.slice("client.".length);
+        const target = state.connectors.find((c) => c.client === clientId);
+        if (target) {
+          target.broken = false;
+          target.error = null;
+          target.connected = true;
         }
       }
       return callBackendMock("run_doctor") as Promise<ResultOf<C>>;

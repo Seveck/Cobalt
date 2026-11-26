@@ -62,10 +62,11 @@ export const PHASE2_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>
 
 /**
  * Phase 3 commands wired to the real Rust/Tauri backend inside Tauri
- * (see `docs/CONTRACTS.md` §5, v1.3.0).
+ * (see `docs/CONTRACTS.md` §5, v1.3.1).
  */
 export const PHASE3_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>([
   "get_archive_impact",
+  "get_deletion_impact",
   "list_projects",
   "create_project",
   "update_project",
