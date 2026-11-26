@@ -56,6 +56,7 @@ pub mod commands {
     pub const REPLAY_ACTIVITY: &str = "replay_activity";
     pub const GET_SOURCE_DOCUMENT: &str = "get_source_document";
     pub const GET_ARCHIVE_IMPACT: &str = "get_archive_impact";
+    pub const GET_DELETION_IMPACT: &str = "get_deletion_impact";
     pub const VERIFY_SOURCE_DOCUMENT: &str = "verify_source_document";
 
     // Projects / library / telemetry / connectors / themes / transfer (Phase 3)

@@ -27,6 +27,8 @@ pub trait EventSink: Send + Sync {
     fn read_only_changed(&self, read_only: bool);
     /// A write or read was blocked by the Token Firewall (for a discreet OS notification).
     fn firewall_blocked(&self, client_name: &str, detail: &str);
+    /// An agent archived a memory (always notified: the user must be able to restore it).
+    fn agent_archived(&self, client_name: &str, preview: &str, other_agents: usize);
 }
 
 /// Sink that ignores everything (tests, headless tooling).
@@ -37,6 +39,7 @@ impl EventSink for NullSink {
     fn memory_changed(&self, _: &MemoryChanged) {}
     fn read_only_changed(&self, _: bool) {}
     fn firewall_blocked(&self, _: &str, _: &str) {}
+    fn agent_archived(&self, _: &str, _: &str, _: usize) {}
 }
 
 /// Event broadcast to WebSocket subscribers (`/api/v1/ws`).
@@ -66,6 +69,8 @@ pub struct Daemon {
     next_session: AtomicU64,
     clients: Mutex<HashMap<u64, ConnectedClient>>,
     http_port: Mutex<Option<u16>>,
+    /// `(client, memory)` -> time of the last `archive_memory` dry run.
+    archive_dry_runs: Mutex<HashMap<(String, cobalt_core::Id), std::time::Instant>>,
 }
 
 impl Daemon {
@@ -93,6 +98,7 @@ impl Daemon {
             next_session: AtomicU64::new(1),
             clients: Mutex::new(HashMap::new()),
             http_port: Mutex::new(None),
+            archive_dry_runs: Mutex::new(HashMap::new()),
         })
     }
 
@@ -167,6 +173,31 @@ impl Daemon {
     pub fn emit_memory_changed(&self, change: MemoryChanged) {
         self.sink.memory_changed(&change);
         let _ = self.events.send(DaemonEvent::MemoryChanged(change));
+    }
+
+    pub(crate) fn emit_agent_archived(&self, client: &str, preview: &str, other_agents: usize) {
+        self.sink.agent_archived(client, preview, other_agents);
+    }
+
+    pub(crate) fn record_archive_dry_run(&self, client: &str, id: cobalt_core::Id) {
+        let mut runs = self
+            .archive_dry_runs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let window = std::time::Duration::from_secs(cobalt_core::mcp::ARCHIVE_CONFIRM_WINDOW_SECS);
+        runs.retain(|_, t| t.elapsed() < window);
+        runs.insert((client.to_owned(), id), std::time::Instant::now());
+    }
+
+    /// Consumes a recent dry run for `(client, id)`; `false` if none within the window.
+    pub(crate) fn take_archive_dry_run(&self, client: &str, id: cobalt_core::Id) -> bool {
+        let mut runs = self
+            .archive_dry_runs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let window = std::time::Duration::from_secs(cobalt_core::mcp::ARCHIVE_CONFIRM_WINDOW_SECS);
+        runs.remove(&(client.to_owned(), id))
+            .is_some_and(|t| t.elapsed() < window)
     }
 
     pub(crate) fn emit_firewall_blocked(&self, client: &str, detail: &str) {

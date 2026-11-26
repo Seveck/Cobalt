@@ -479,3 +479,26 @@ mod tests {
         assert_eq!(back.nonce.map(|n| n.len()), Some(12));
     }
 }
+
+/// Everything the user must know before permanently deleting a memory (shown in the UI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeletionImpact {
+    pub memory_id: Id,
+    pub preview: String,
+    /// Nuclear Law: every AI loses this rule.
+    pub is_core_pin: bool,
+    /// Reusable asset: agents in other projects lose access to it.
+    pub is_reusable: bool,
+    pub reuse_count: i64,
+    pub hit_count: i64,
+    pub is_encrypted: bool,
+    /// AI clients that used it (from telemetry), most recent first.
+    pub used_by: Vec<crate::mcp::ClientUsage>,
+    /// Versions in its history chain that are deleted with it (superseded predecessors).
+    pub history_versions: u64,
+    /// Snapshots created after it existed (they may still contain it; deleting does not
+    /// touch them, so Time-Travel could bring it back until they are deleted).
+    pub snapshots_possibly_containing: u64,
+    /// i18n keys of the consequences that apply (`delete.consequence.*`).
+    pub consequences: Vec<String>,
+}

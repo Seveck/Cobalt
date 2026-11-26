@@ -65,6 +65,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 
 ## Fase 3 — Integración completa [PARALELO]
 - [ ] [CLAUDE] Herramienta MCP `archive_memory` en dos pasos (MCP_SPEC §2.8): simulación que avisa qué otros agentes usan el nodo, confirmación explícita del usuario, notificación del SO, reversible; contratos v1.3.0
+- [ ] [GEMINI] Borrado definitivo desde la UI: diálogo que deja claro que es **irreversible** y lista todas las consecuencias de `get_deletion_impact` (Ley Nuclear, activo reutilizable, IAs que lo usan, versiones del historial, snapshots, cifrado), con confirmación explícita (escribir el texto o mantener pulsado)
 - [ ] [GEMINI] Inspector: mostrar "archivado por <agente>" con botón Restaurar y la lista de agentes que usan el nodo
 - [ ] [CLAUDE] Conector 1-Click (Linux/Win/macOS + `.bak`), MCP Doctor, Theme Store sandboxed, cableado IPC completo
 - [ ] [CODEX] `cobalt-ingest` completo (importador, OCR, PDF, watcher, `.cbrain`, `.cobalt-backup`, Qdrant/LanceDB/Chroma)

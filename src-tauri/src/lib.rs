@@ -182,6 +182,8 @@ pub fn run() {
             commands_memory::replay_activity,
             commands_memory::get_source_document,
             commands_memory::verify_source_document,
+            commands_memory::get_archive_impact,
+            commands_memory::get_deletion_impact,
         ])
         .run(tauri::generate_context!());
 

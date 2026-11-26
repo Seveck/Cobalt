@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.3.0";
+export const CONTRACT_VERSION = "1.3.1";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -1019,6 +1019,22 @@ export interface ArchiveImpact {
   other_clients: ClientUsage[];
 }
 
+/** Shown before a permanent (irreversible) delete. */
+export interface DeletionImpact {
+  memory_id: Uuid;
+  preview: string;
+  is_core_pin: boolean;
+  is_reusable: boolean;
+  reuse_count: number;
+  hit_count: number;
+  is_encrypted: boolean;
+  used_by: ClientUsage[];
+  history_versions: number;
+  snapshots_possibly_containing: number;
+  /** i18n keys `delete.consequence.*` */
+  consequences: string[];
+}
+
 // ============================================================================ events
 
 export const EVENTS = {
@@ -1148,6 +1164,7 @@ export interface IpcCommandMap {
   replay_activity: { args: IdArgs; result: McpActivity };
   get_source_document: { args: IdArgs; result: SourceDocument };
   get_archive_impact: { args: IdArgs; result: ArchiveImpact };
+  get_deletion_impact: { args: IdArgs; result: DeletionImpact };
   verify_source_document: { args: IdArgs; result: FileAvailability };
   // Phase 3 — projects, library, telemetry, connectors, themes, transfer
   list_projects: { args: ListProjectsArgs; result: ProjectStats[] };

@@ -365,3 +365,66 @@ pub async fn verify_source_document(
 ) -> CmdResult<cobalt_core::enums::FileAvailability> {
     state.store().verify_source_document(args.id).await
 }
+
+#[tauri::command]
+pub async fn get_archive_impact(
+    state: State<'_, AppState>,
+    args: IdArgs,
+) -> CmdResult<cobalt_core::mcp::ArchiveImpact> {
+    state.daemon.archive_impact(args.id, None).await
+}
+
+/// Everything the user must know before an irreversible delete.
+#[tauri::command]
+pub async fn get_deletion_impact(
+    state: State<'_, AppState>,
+    args: IdArgs,
+) -> CmdResult<cobalt_core::model::DeletionImpact> {
+    let store = state.store();
+    let m = store.get_memory(args.id).await?.ok_or_else(|| not_found(args.id))?;
+    let used_by = store.memory_usage_by_client(args.id).await?;
+    let history_versions = store
+        .memory_history(args.id)
+        .await?
+        .iter()
+        .filter(|v| v.id != m.id)
+        .count() as u64;
+    let snapshots_possibly_containing = store
+        .list_snapshots()
+        .await?
+        .iter()
+        .filter(|s| s.created_at >= m.created_at)
+        .count() as u64;
+    let mut consequences = vec!["delete.consequence.irreversible".to_owned()];
+    if m.is_core_pin {
+        consequences.push("delete.consequence.core_law".into());
+    }
+    if m.is_reusable {
+        consequences.push("delete.consequence.reusable".into());
+    }
+    if !used_by.is_empty() {
+        consequences.push("delete.consequence.used_by_agents".into());
+    }
+    if history_versions > 0 {
+        consequences.push("delete.consequence.history".into());
+    }
+    if snapshots_possibly_containing > 0 {
+        consequences.push("delete.consequence.snapshots".into());
+    }
+    if m.is_encrypted {
+        consequences.push("delete.consequence.encrypted".into());
+    }
+    Ok(cobalt_core::model::DeletionImpact {
+        memory_id: m.id,
+        preview: if m.is_encrypted { String::new() } else { m.content.chars().take(160).collect() },
+        is_core_pin: m.is_core_pin,
+        is_reusable: m.is_reusable,
+        reuse_count: m.reuse_count,
+        hit_count: m.hit_count,
+        is_encrypted: m.is_encrypted,
+        used_by,
+        history_versions,
+        snapshots_possibly_containing,
+        consequences,
+    })
+}

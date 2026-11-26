@@ -166,3 +166,53 @@ pub fn project_rules(o: &ListProjectRulesOutput) -> String {
     }
     s
 }
+
+fn usage_line(o: &ArchiveMemoryOutput) -> String {
+    o.impact
+        .other_clients
+        .iter()
+        .map(|u| {
+            format!(
+                "{} ({}×, last {})",
+                u.client_name,
+                u.uses,
+                u.last_used_at.format("%Y-%m-%d")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub fn archive_dry_run(o: &ArchiveMemoryOutput) -> String {
+    let i = &o.impact;
+    let mut s = format!(
+        "[cobalt] DRY RUN — nothing archived yet [id:{}]\nmemory: {}\n",
+        o.memory_id, i.preview
+    );
+    if i.other_clients.is_empty() {
+        s.push_str("No other agent has used this memory. ");
+    } else {
+        let _ = writeln!(
+            s,
+            "⚠ Used by other agents: {}. Archiving it may hurt their work.",
+            usage_line(o)
+        );
+    }
+    if i.is_reusable {
+        let _ = writeln!(s, "It is a reusable asset (reused {}×).", i.reuse_count);
+    }
+    s.push_str("Tell the user who depends on it and ask for explicit consent. Only then call again with confirm=true. Prefer update_memory if it is merely outdated.\n");
+    s
+}
+
+pub fn archive_done(o: &ArchiveMemoryOutput) -> String {
+    format!(
+        "[cobalt] archived [id:{}] (removed from searches; the user can restore it in Cobalt). Affected agents: {}",
+        o.memory_id,
+        if o.impact.other_clients.is_empty() {
+            "none".into()
+        } else {
+            usage_line(o)
+        }
+    )
+}

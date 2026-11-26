@@ -38,7 +38,7 @@ pub struct ToolSpec {
     pub read_only: bool,
 }
 
-pub const TOOLS: [ToolSpec; 7] = [
+pub const TOOLS: [ToolSpec; 8] = [
     ToolSpec {
         name: TOOL_SEARCH_MEMORY,
         read_only: true,
@@ -73,6 +73,11 @@ pub const TOOLS: [ToolSpec; 7] = [
         name: TOOL_LIST_PROJECT_RULES,
         read_only: true,
         description: "Call once at the start of every session (and after switching projects) to load the user's Nuclear Laws and stable preferences for this project plus global ones. These rules override your defaults; follow them for the whole session.",
+    },
+    ToolSpec {
+        name: TOOL_ARCHIVE_MEMORY,
+        read_only: false,
+        description: "Archive a memory that is wrong or no longer useful, removing it from searches (reversible by the user in Cobalt). Memories are SHARED by all the user's AI tools: another agent may depend on this one. ALWAYS call first with confirm=false to see who uses it, then tell the user plainly that other agents may rely on it and that archiving could hurt their work, and only call again with confirm=true if the user explicitly agrees. Prefer update_memory when the memory is outdated rather than wrong. Nuclear Laws cannot be archived.",
     },
 ];
 
@@ -158,6 +163,15 @@ pub fn input_schema(name: &str) -> Value {
             },
             "required": ["summary"], "additionalProperties": false
         }),
+        TOOL_ARCHIVE_MEMORY => json!({
+            "type": "object",
+            "properties": {
+                "memory_id": { "type": "string", "format": "uuid" },
+                "reason": { "type": "string", "minLength": 1, "description": "Why it should be archived (shown to the user)." },
+                "confirm": { "type": "boolean", "default": false, "description": "false = dry run that returns who uses it; true = archive (only after the user agreed)." }
+            },
+            "required": ["memory_id", "reason"], "additionalProperties": false
+        }),
         TOOL_RESUME_HANDOFF | TOOL_LIST_PROJECT_RULES => json!({
             "type": "object",
             "properties": { "project": project_prop() },
@@ -202,6 +216,7 @@ impl Daemon {
             TOOL_CREATE_HANDOFF => self.tool_create_handoff(parse(args)?, ctx).await,
             TOOL_RESUME_HANDOFF => self.tool_resume_handoff(parse(args)?, ctx).await,
             TOOL_LIST_PROJECT_RULES => self.tool_list_project_rules(parse(args)?, ctx).await,
+            TOOL_ARCHIVE_MEMORY => self.tool_archive_memory(parse(args)?, ctx).await,
             other => Err(CobaltError::NotFound(format!("tool '{other}'"))),
         }
     }
@@ -818,6 +833,119 @@ impl Daemon {
             resolved.project_id(),
         )
         .await?;
+        structured(text, &output)
+    }
+}
+
+impl Daemon {
+    /// Usage impact of archiving `id`, excluding `caller` from the agent list.
+    pub async fn archive_impact(&self, id: Id, caller: Option<&str>) -> Result<ArchiveImpact> {
+        let store = self.store();
+        let m = store
+            .get_memory(id)
+            .await?
+            .ok_or_else(|| CobaltError::NotFound(format!("memory {id}")))?;
+        let other_clients = store
+            .memory_usage_by_client(id)
+            .await?
+            .into_iter()
+            .filter(|u| Some(u.client_name.as_str()) != caller)
+            .collect();
+        Ok(ArchiveImpact {
+            memory_id: m.id,
+            preview: preview(&m.content, 160),
+            is_core_pin: m.is_core_pin,
+            is_reusable: m.is_reusable,
+            hit_count: m.hit_count,
+            reuse_count: m.reuse_count,
+            last_accessed_at: m.last_accessed_at,
+            other_clients,
+        })
+    }
+
+    async fn tool_archive_memory(
+        &self,
+        args: ArchiveMemoryArgs,
+        ctx: &ClientContext,
+    ) -> Result<ToolOutput> {
+        let started = Instant::now();
+        self.guard_writable()?;
+        let reason = scrub(args.reason.trim()).text;
+        if reason.is_empty() {
+            return Err(CobaltError::InvalidInput("reason must not be empty".into()));
+        }
+        let impact = self
+            .archive_impact(args.memory_id, Some(&ctx.client_name))
+            .await?;
+        if impact.is_core_pin {
+            return Err(CobaltError::Conflict(
+                "Nuclear Laws cannot be archived by agents".into(),
+            ));
+        }
+        if !args.confirm.unwrap_or(false) {
+            self.record_archive_dry_run(&ctx.client_name, args.memory_id);
+            let output = ArchiveMemoryOutput {
+                memory_id: args.memory_id,
+                archived: false,
+                impact,
+            };
+            return structured(render::archive_dry_run(&output), &output);
+        }
+        if !self.take_archive_dry_run(&ctx.client_name, args.memory_id) {
+            return Err(CobaltError::Conflict(
+                "call archive_memory with confirm=false first, show the impact to the user and get explicit consent".into(),
+            ));
+        }
+        if let FirewallVerdict::Blocked { detail, .. } = self.firewall.check_write(
+            &ctx.client_name,
+            &format!("archive {} {reason}", args.memory_id),
+        ) {
+            return Err(self.blocked(ctx, None, &detail));
+        }
+        let archived = {
+            let _slot = self.write_slot().await;
+            self.store()
+                .archive_memory(
+                    args.memory_id,
+                    &format!("archived by {}: {reason}", ctx.client_name),
+                )
+                .await?
+        };
+        let output = ArchiveMemoryOutput {
+            memory_id: archived.id,
+            archived: true,
+            impact,
+        };
+        let text = render::archive_done(&output);
+        let item = ReturnedItem {
+            memory_id: archived.id,
+            source_doc_id: archived.source_doc_id,
+            similarity_score: 1.0,
+            chunk_tokens: archived.chunk_tokens,
+            content_snapshot: Some(output.impact.preview.clone()),
+        };
+        let injected = self.count(&text);
+        self.record(
+            ctx,
+            TelemetryOperation::Update,
+            Some(format!("archive_memory: {reason}")),
+            vec![item],
+            injected,
+            0,
+            started,
+            archived.project_id,
+        )
+        .await?;
+        self.emit_memory_changed(MemoryChanged {
+            kind: MemoryChangeKind::Archived,
+            memory_ids: vec![archived.id],
+            source_client: Some(ctx.client_name.clone()),
+        });
+        self.emit_agent_archived(
+            &ctx.client_name,
+            &output.impact.preview,
+            output.impact.other_clients.len(),
+        );
         structured(text, &output)
     }
 }
