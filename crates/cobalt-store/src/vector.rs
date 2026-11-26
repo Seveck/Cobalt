@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use cobalt_core::enums::EngineKind;
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::Id;
-use cobalt_core::paths::{VECTOR_INDEX_DIR, home_path};
+use cobalt_core::paths::VECTOR_INDEX_DIR;
 use cobalt_core::search::{ProjectScope, SearchFilter, VectorFilter, VectorHit, VectorRecord};
 use cobalt_core::traits::VectorStore;
 use rusqlite::{Connection, OptionalExtension, ffi, params, params_from_iter, types::Value};
@@ -102,7 +102,7 @@ impl Scope {
     }
 }
 
-fn checked_vector(vector: &[f32], dimensions: usize) -> Result<()> {
+pub(crate) fn checked_vector(vector: &[f32], dimensions: usize) -> Result<()> {
     if vector.len() != dimensions
         || !vector.iter().all(|v| v.is_finite())
         || vector.iter().all(|v| *v == 0.0)
@@ -114,7 +114,7 @@ fn checked_vector(vector: &[f32], dimensions: usize) -> Result<()> {
     Ok(())
 }
 
-fn vector_bytes(vector: &[f32]) -> Vec<u8> {
+pub(crate) fn vector_bytes(vector: &[f32]) -> Vec<u8> {
     vector.iter().flat_map(|v| v.to_ne_bytes()).collect()
 }
 
@@ -176,7 +176,25 @@ impl SqliteVec {
         })
     }
 
-    fn replace(conn: &Connection, id: Id, embedding: &[f32]) -> Result<()> {
+    pub(crate) fn handle(store: &SqliteStore, dimensions: usize) -> Self {
+        Self {
+            db: store.db.clone(),
+            dimensions,
+        }
+    }
+
+    pub(crate) fn recreate(conn: &Connection, dimensions: usize) -> Result<()> {
+        check_dimensions(dimensions)?;
+        conn.execute_batch(&format!(
+            "DROP TABLE IF EXISTS vec_memories;
+             CREATE VIRTUAL TABLE vec_memories USING vec0(
+                memory_id TEXT PRIMARY KEY, embedding float[{dimensions}] distance_metric=cosine
+             );"
+        ))
+        .map_err(sql_error)
+    }
+
+    pub(crate) fn replace(conn: &Connection, id: Id, embedding: &[f32]) -> Result<()> {
         Self::remove(conn, id)?;
         conn.execute(
             "INSERT INTO vec_memories (memory_id, embedding) VALUES (?1, ?2)",
@@ -186,7 +204,7 @@ impl SqliteVec {
         Ok(())
     }
 
-    fn remove(conn: &Connection, id: Id) -> Result<()> {
+    pub(crate) fn remove(conn: &Connection, id: Id) -> Result<()> {
         conn.execute(
             "DELETE FROM vec_memories WHERE memory_id = ?1",
             [id.to_string()],
@@ -244,10 +262,36 @@ pub struct Usearch {
 
 impl Usearch {
     pub async fn open(store: &SqliteStore, model: &str, dimensions: usize) -> Result<Self> {
-        Self::open_in(store, home_path(VECTOR_INDEX_DIR)?, model, dimensions).await
+        Self::open_in(store, store.data_path(VECTOR_INDEX_DIR), model, dimensions).await
     }
 
     pub async fn open_in(
+        store: &SqliteStore,
+        directory: PathBuf,
+        model: &str,
+        dimensions: usize,
+    ) -> Result<Self> {
+        let this = Self::handle(store, directory, model, dimensions)?;
+        let index = this.clone();
+        store
+            .db
+            .write(move |_| {
+                let _lock = index.db.index_io().write().map_err(engine_error)?;
+                if index.file.try_exists()? {
+                    index.open_index(true)?;
+                } else {
+                    if let Some(parent) = index.file.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    index.publish(&index.new_index()?)?;
+                }
+                Ok(())
+            })
+            .await?;
+        Ok(this)
+    }
+
+    pub(crate) fn handle(
         store: &SqliteStore,
         directory: PathBuf,
         model: &str,
@@ -268,33 +312,31 @@ impl Usearch {
                 }
             })
             .collect::<String>();
-        let this = Self {
+        Ok(Self {
             db: store.db.clone(),
             file: directory
                 .join(format!("usearch-{key}"))
                 .join("index.usearch"),
             dimensions,
-        };
-        let index = this.clone();
-        store
-            .db
-            .write(move |_| {
-                let _lock = index.db.index_io().write().map_err(engine_error)?;
-                if index.file.try_exists()? {
-                    index.open_index(true)?;
-                } else {
-                    if let Some(parent) = index.file.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    index.publish(&index.new_index()?)?;
-                }
-                Ok(())
-            })
-            .await?;
-        Ok(this)
+        })
     }
 
-    fn new_index(&self) -> Result<usearch::Index> {
+    pub(crate) fn index_io(&self) -> &std::sync::RwLock<()> {
+        self.db.index_io()
+    }
+
+    pub(crate) fn file(&self) -> &Path {
+        &self.file
+    }
+
+    pub(crate) fn with_file(&self, file: PathBuf) -> Self {
+        Self {
+            file,
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn new_index(&self) -> Result<usearch::Index> {
         usearch::Index::new(&IndexOptions {
             dimensions: self.dimensions,
             metric: MetricKind::Cos,
@@ -324,7 +366,7 @@ impl Usearch {
         Ok(index)
     }
 
-    fn publish(&self, index: &usearch::Index) -> Result<()> {
+    pub(crate) fn publish(&self, index: &usearch::Index) -> Result<()> {
         let parent = self
             .file
             .parent()
@@ -447,7 +489,7 @@ impl Usearch {
     }
 }
 
-fn index_key(id: Id) -> u64 {
+pub(crate) fn index_key(id: Id) -> u64 {
     let uuid = id.as_u128();
     (uuid as u64) ^ ((uuid >> 64) as u64).rotate_left(23)
 }
@@ -480,6 +522,65 @@ impl From<Usearch> for Index {
 }
 
 impl Index {
+    pub(crate) fn kind(&self) -> EngineKind {
+        match self {
+            Self::SqliteVec(_) => EngineKind::SqliteVec,
+            Self::Usearch(_) => EngineKind::Usearch,
+        }
+    }
+
+    pub(crate) fn delete(&self, conn: &Connection, ids: &[Id]) -> Result<()> {
+        match self {
+            Self::SqliteVec(_) => {
+                for &id in ids {
+                    SqliteVec::remove(conn, id)?;
+                }
+                Ok(())
+            }
+            Self::Usearch(index) => index.edit(conn, &[], ids),
+        }
+    }
+
+    pub(crate) fn vectors(&self, conn: &Connection, ids: &[Id]) -> Result<Vec<Option<Vec<f32>>>> {
+        match self {
+            Self::SqliteVec(_) => {
+                let mut stmt = conn
+                    .prepare("SELECT embedding FROM vec_memories WHERE memory_id = ?1")
+                    .map_err(sql_error)?;
+                ids.iter()
+                    .map(|id| {
+                        let bytes = stmt
+                            .query_row([id.to_string()], |row| row.get::<_, Vec<u8>>(0))
+                            .optional()
+                            .map_err(sql_error)?;
+                        Ok(bytes.map(|bytes| {
+                            bytes
+                                .as_chunks::<4>()
+                                .0
+                                .iter()
+                                .copied()
+                                .map(f32::from_ne_bytes)
+                                .collect()
+                        }))
+                    })
+                    .collect()
+            }
+            Self::Usearch(index) => {
+                let _lock = index.db.index_io().read().map_err(engine_error)?;
+                let view = index.open_index(true)?;
+                ids.iter()
+                    .map(|id| {
+                        let mut vector = vec![0.0; index.dimensions];
+                        let found = view
+                            .get(index_key(*id), &mut vector)
+                            .map_err(engine_error)?;
+                        Ok((found == 1).then_some(vector))
+                    })
+                    .collect()
+            }
+        }
+    }
+
     pub(crate) fn dimensions(&self) -> usize {
         match self {
             Self::SqliteVec(index) => index.dimensions,

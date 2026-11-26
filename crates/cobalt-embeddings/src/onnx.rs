@@ -2,149 +2,121 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use cobalt_core::engine::{
-    EmbeddingModelSpec, MODEL_BGE_M3, MODEL_MULTILINGUAL_E5_BASE, MODEL_MULTILINGUAL_E5_SMALL,
-    default_model_for_tier, prefixes_for_model,
-};
-use cobalt_core::enums::{EmbeddingProvider, HardwareTier, Quantization};
+use cobalt_core::catalog::{Catalog, ModelEntry};
+use cobalt_core::engine::{EmbeddingModelSpec, MODEL_BGE_M3, default_model_for_tier};
+use cobalt_core::enums::{HardwareTier, Quantization};
 use cobalt_core::error::{CobaltError, Result};
-use cobalt_core::paths::{MODELS_DIR, home_path};
+use cobalt_core::paths::home_path;
 use cobalt_core::traits::Embedder;
 use fastembed::{
-    EmbeddingModel, InitOptions, InitOptionsUserDefined, Pooling, QuantizationMode, TextEmbedding,
-    TokenizerFiles, UserDefinedEmbeddingModel,
+    InitOptionsUserDefined, Pooling, QuantizationMode, TextEmbedding, TokenizerFiles,
+    UserDefinedEmbeddingModel,
 };
 
 use crate::{normalize, one_vector, prefixed};
 
-/// The Phase 1 multilingual defaults. Download sizes are estimates for the weights.
+/// Returns the catalog specification for the built-in default of this tier.
 pub fn default_model_spec(tier: HardwareTier) -> EmbeddingModelSpec {
-    let id = default_model_for_tier(tier);
-    let (display, repo, dimensions, quantization, size_bytes) = match tier {
-        HardwareTier::Eco => (
-            "Multilingual E5 Small",
-            "intfloat/multilingual-e5-small",
-            384,
-            Quantization::Int8,
-            118_000_000,
-        ),
-        HardwareTier::Balanced => (
-            "Multilingual E5 Base",
-            "intfloat/multilingual-e5-base",
-            768,
-            Quantization::Fp32,
-            1_110_000_000,
-        ),
-        HardwareTier::Ultra => (
-            "BGE-M3",
-            "BAAI/bge-m3",
-            1024,
-            Quantization::Fp32,
-            2_270_000_000,
-        ),
-    };
-    let (query, document) = prefixes_for_model(id);
-    EmbeddingModelSpec {
-        id: id.into(),
-        provider: EmbeddingProvider::Fastembed,
-        display_name: display.into(),
-        dimensions,
-        size_bytes,
-        quantization,
-        recommended_tier: tier,
-        multilingual: true,
-        pooling: if tier == HardwareTier::Ultra {
-            cobalt_core::enums::Pooling::Cls
-        } else {
-            cobalt_core::enums::Pooling::Mean
-        },
-        hf_repo: Some(repo.into()),
-        query_prefix: query.map(str::to_owned),
-        document_prefix: document.map(str::to_owned),
-    }
+    // The tier mapping and validated catalog are compiled together.
+    catalog_entry(default_model_for_tier(tier))
+        .expect("built-in catalog must contain the default model for every tier")
+        .spec
+        .clone()
 }
 
-/// Local files installed and verified by the engine manager.
+fn catalog_entry(id: &str) -> Result<&'static ModelEntry> {
+    Catalog::builtin()?
+        .model(id)
+        .ok_or_else(|| CobaltError::NotFound(format!("catalog model {id}")))
+}
+
+/// Local ONNX paths accepted by the compatibility constructor.
 pub struct OnnxFiles {
     pub model: PathBuf,
     pub tokenizer_dir: PathBuf,
-    /// Pairs of initializer names as used inside the ONNX graph and their verified local paths.
     pub external_initializers: Vec<(String, PathBuf)>,
     pub pooling: Pooling,
     pub quantization: QuantizationMode,
     pub max_length: usize,
 }
 
-enum ModelSource {
-    BuiltIn {
-        model: EmbeddingModel,
-        cache: PathBuf,
-    },
-    Installed(OnnxFiles),
+struct CatalogFiles {
+    model: PathBuf,
+    tokenizer: PathBuf,
+    config: PathBuf,
+    special_tokens: PathBuf,
+    tokenizer_config: PathBuf,
+    external_initializers: Vec<(String, PathBuf)>,
+    pooling: Pooling,
+    quantization: QuantizationMode,
+    max_length: usize,
 }
 
 /// Loads a fastembed model on the first nonempty embedding request.
 pub struct FastembedEmbedder {
     spec: EmbeddingModelSpec,
-    source: Arc<ModelSource>,
+    source: Arc<CatalogFiles>,
     model: Arc<Mutex<Option<TextEmbedding>>>,
     inference_slot: Arc<tokio::sync::Semaphore>,
 }
 
 impl FastembedEmbedder {
     pub fn for_tier(tier: HardwareTier) -> Result<Self> {
-        Self::new(default_model_spec(tier))
+        Self::from_catalog(default_model_for_tier(tier))
     }
 
     pub fn new(spec: EmbeddingModelSpec) -> Result<Self> {
-        validate(&spec)?;
-        let cache = home_path(MODELS_DIR)?;
-        let source = if let Some(model) = built_in(&spec) {
-            ModelSource::BuiltIn { model, cache }
-        } else {
-            let directory = cache.join(&spec.id);
-            ModelSource::Installed(OnnxFiles {
-                model: directory.join("model.onnx"),
-                tokenizer_dir: directory,
-                external_initializers: Vec::new(),
-                pooling: if prefixes_for_model(&spec.id).0.is_some() {
-                    Pooling::Mean
-                } else {
-                    Pooling::Cls
-                },
-                quantization: if spec.quantization == Quantization::Int8 {
-                    QuantizationMode::Dynamic
-                } else {
-                    QuantizationMode::None
-                },
-                max_length: if spec.id == MODEL_BGE_M3 { 8192 } else { 512 },
-            })
-        };
-        Ok(Self::from_source(spec, source))
+        let entry = catalog_entry(&spec.id)?;
+        if spec != entry.spec {
+            return Err(CobaltError::InvalidInput(format!(
+                "model specification differs from catalog: {}",
+                spec.id
+            )));
+        }
+        Self::from_catalog(&spec.id)
     }
 
+    /// Accepts the engine manager's existing paths after checking them against the catalog.
+    /// Pooling and quantization always come from the catalog specification.
     pub fn from_onnx(spec: EmbeddingModelSpec, files: OnnxFiles) -> Result<Self> {
-        validate(&spec)?;
-        if files.max_length == 0 {
+        let mut embedder = Self::new(spec)?;
+        let source = Arc::get_mut(&mut embedder.source)
+            .ok_or_else(|| CobaltError::Internal("new ONNX model files are shared".into()))?;
+        let tokenizer_matches = [
+            &source.tokenizer,
+            &source.config,
+            &source.special_tokens,
+            &source.tokenizer_config,
+        ]
+        .into_iter()
+        .all(|path| path.parent() == Some(files.tokenizer_dir.as_path()));
+        let initializers_match = source.external_initializers.len()
+            == files.external_initializers.len()
+            && source
+                .external_initializers
+                .iter()
+                .all(|file| files.external_initializers.contains(file));
+        if source.model != files.model
+            || !tokenizer_matches
+            || !initializers_match
+            || files.max_length == 0
+        {
             return Err(CobaltError::InvalidInput(
-                "ONNX maximum input length must be positive".into(),
+                "ONNX files must match the installed catalog artifacts".into(),
             ));
         }
-        Ok(Self::from_source(spec, ModelSource::Installed(files)))
+        source.max_length = source.max_length.min(files.max_length);
+        Ok(embedder)
     }
 
-    fn from_source(mut spec: EmbeddingModelSpec, source: ModelSource) -> Self {
-        let (query, document) = prefixes_for_model(&spec.id);
-        if let (Some(query), Some(document)) = (query, document) {
-            spec.query_prefix = Some(query.into());
-            spec.document_prefix = Some(document.into());
-        }
-        Self {
-            spec,
-            source: Arc::new(source),
+    pub fn from_catalog(id: &str) -> Result<Self> {
+        let entry = catalog_entry(id)?;
+        Ok(Self {
+            spec: entry.spec.clone(),
+            source: Arc::new(CatalogFiles::from_catalog(entry)?),
             model: Arc::new(Mutex::new(None)),
             inference_slot: Arc::new(tokio::sync::Semaphore::new(1)),
-        }
+        })
     }
 
     async fn embed(&self, input: Vec<String>) -> Result<Vec<Vec<f32>>> {
@@ -170,18 +142,15 @@ impl FastembedEmbedder {
                 None => state.insert(source.load()?),
             };
             let count = input.len();
-            let vectors = match source.as_ref() {
-                ModelSource::Installed(files)
-                    if files.quantization == QuantizationMode::Dynamic =>
-                {
-                    // Dynamic scale depends on the batch. Keep embeddings independent of neighboring inputs.
-                    let mut vectors = Vec::with_capacity(count);
-                    for text in input {
-                        vectors.extend(model.embed([text], None).map_err(embedding_error)?);
-                    }
-                    vectors
+            let vectors = if source.quantization == QuantizationMode::Dynamic {
+                // Dynamic scale depends on the batch. Keep embeddings independent of neighboring inputs.
+                let mut vectors = Vec::with_capacity(count);
+                for text in input {
+                    vectors.extend(model.embed([text], None).map_err(embedding_error)?);
                 }
-                _ => model.embed(input, None).map_err(embedding_error)?,
+                vectors
+            } else {
+                model.embed(input, None).map_err(embedding_error)?
             };
             normalize(vectors, count, &spec)
         })
@@ -214,78 +183,79 @@ impl Embedder for FastembedEmbedder {
     }
 }
 
-fn validate(spec: &EmbeddingModelSpec) -> Result<()> {
-    if spec.provider != EmbeddingProvider::Fastembed
-        || spec.dimensions == 0
-        || spec.id.is_empty()
-        || spec.id == "."
-        || spec.id == ".."
-        || !spec
-            .id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
-    {
-        return Err(CobaltError::InvalidInput(
-            "invalid fastembed model spec".into(),
-        ));
-    }
-    Ok(())
-}
-
-fn built_in(spec: &EmbeddingModelSpec) -> Option<EmbeddingModel> {
-    use EmbeddingModel::*;
-    match (spec.id.as_str(), spec.quantization) {
-        (MODEL_MULTILINGUAL_E5_SMALL, Quantization::Fp32) => Some(MultilingualE5Small),
-        (MODEL_MULTILINGUAL_E5_BASE, Quantization::Fp32) => Some(MultilingualE5Base),
-        (MODEL_BGE_M3, Quantization::Fp32) => Some(BGEM3),
-        ("all-minilm-l6-v2", Quantization::Fp32) => Some(AllMiniLML6V2),
-        ("all-minilm-l6-v2", Quantization::Int8) => Some(AllMiniLML6V2Q),
-        ("bge-small-en-v1.5", Quantization::Fp32) => Some(BGESmallENV15),
-        ("bge-small-en-v1.5", Quantization::Int8) => Some(BGESmallENV15Q),
-        ("bge-large-en-v1.5", Quantization::Fp32) => Some(BGELargeENV15),
-        ("bge-large-en-v1.5", Quantization::Int8) => Some(BGELargeENV15Q),
-        _ => None,
-    }
-}
-
 fn embedding_error(err: impl std::fmt::Display) -> CobaltError {
     CobaltError::Embedding(err.to_string())
 }
 
-impl ModelSource {
+impl CatalogFiles {
+    fn from_catalog(entry: &ModelEntry) -> Result<Self> {
+        let artifacts = entry
+            .files
+            .iter()
+            .map(|artifact| {
+                let path = std::path::Path::new(&artifact.relative_dest);
+                let name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .ok_or_else(|| {
+                        CobaltError::Integrity(format!("invalid artifact path {}", path.display()))
+                    })?;
+                Ok((name.to_owned(), home_path(&artifact.relative_dest)?))
+            })
+            .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
+        let file = |name: &str| {
+            artifacts.get(name).cloned().ok_or_else(|| {
+                CobaltError::Integrity(format!(
+                    "missing catalog artifact {name} for {}",
+                    entry.spec.id
+                ))
+            })
+        };
+        Ok(Self {
+            model: file("model.onnx")?,
+            tokenizer: file("tokenizer.json")?,
+            config: file("config.json")?,
+            special_tokens: file("special_tokens_map.json")?,
+            tokenizer_config: file("tokenizer_config.json")?,
+            external_initializers: artifacts
+                .iter()
+                .filter(|(name, _)| name.starts_with("model.onnx_"))
+                .map(|(name, path)| (name.clone(), path.clone()))
+                .collect(),
+            pooling: match entry.spec.pooling {
+                cobalt_core::enums::Pooling::Mean => Pooling::Mean,
+                cobalt_core::enums::Pooling::Cls => Pooling::Cls,
+            },
+            quantization: match entry.spec.quantization {
+                Quantization::Int8 => QuantizationMode::Dynamic,
+                _ => QuantizationMode::None,
+            },
+            max_length: if entry.spec.id == MODEL_BGE_M3 {
+                8192
+            } else {
+                512
+            },
+        })
+    }
+
     fn load(&self) -> Result<TextEmbedding> {
-        match self {
-            Self::BuiltIn { model, cache } => {
-                std::fs::create_dir_all(cache)?;
-                TextEmbedding::try_new(
-                    InitOptions::new(model.clone())
-                        .with_cache_dir(cache.clone())
-                        .with_show_download_progress(false),
-                )
-                .map_err(embedding_error)
-            }
-            Self::Installed(files) => {
-                let read = |file: &str| read_model_file(&files.tokenizer_dir.join(file));
-                let tokenizer = TokenizerFiles {
-                    tokenizer_file: read("tokenizer.json")?,
-                    config_file: read("config.json")?,
-                    special_tokens_map_file: read("special_tokens_map.json")?,
-                    tokenizer_config_file: read("tokenizer_config.json")?,
-                };
-                let mut model =
-                    UserDefinedEmbeddingModel::new(read_model_file(&files.model)?, tokenizer)
-                        .with_pooling(files.pooling.clone())
-                        .with_quantization(files.quantization);
-                for (name, path) in &files.external_initializers {
-                    model = model.with_external_initializer(name.clone(), read_model_file(path)?);
-                }
-                TextEmbedding::try_new_from_user_defined(
-                    model,
-                    InitOptionsUserDefined::new().with_max_length(files.max_length),
-                )
-                .map_err(embedding_error)
-            }
+        let tokenizer = TokenizerFiles {
+            tokenizer_file: read_model_file(&self.tokenizer)?,
+            config_file: read_model_file(&self.config)?,
+            special_tokens_map_file: read_model_file(&self.special_tokens)?,
+            tokenizer_config_file: read_model_file(&self.tokenizer_config)?,
+        };
+        let mut model = UserDefinedEmbeddingModel::new(read_model_file(&self.model)?, tokenizer)
+            .with_pooling(self.pooling.clone())
+            .with_quantization(self.quantization);
+        for (name, path) in &self.external_initializers {
+            model = model.with_external_initializer(name.clone(), read_model_file(path)?);
         }
+        TextEmbedding::try_new_from_user_defined(
+            model,
+            InitOptionsUserDefined::new().with_max_length(self.max_length),
+        )
+        .map_err(embedding_error)
     }
 }
 
@@ -303,58 +273,59 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_use_correct_dimensions_and_mandatory_e5_prefixes() {
-        let eco = default_model_spec(HardwareTier::Eco);
-        assert_eq!(
-            (eco.dimensions, eco.quantization),
-            (384, Quantization::Int8)
-        );
-        assert_eq!(
-            eco.hf_repo.as_deref(),
-            Some("intfloat/multilingual-e5-small")
-        );
-        assert!(built_in(&eco).is_none());
-        let balanced = default_model_spec(HardwareTier::Balanced);
-        assert_eq!(
-            (balanced.dimensions, balanced.quantization),
-            (768, Quantization::Fp32)
-        );
-        assert_eq!(
-            built_in(&balanced),
-            Some(EmbeddingModel::MultilingualE5Base)
-        );
-        let ultra = default_model_spec(HardwareTier::Ultra);
-        assert_eq!(
-            (ultra.dimensions, ultra.quantization),
-            (1024, Quantization::Fp32)
-        );
-        assert_eq!(built_in(&ultra), Some(EmbeddingModel::BGEM3));
-        assert!(ultra.query_prefix.is_none() && ultra.document_prefix.is_none());
+    fn compatibility_constructor_validates_paths_and_uses_catalog_pooling() {
+        let spec = default_model_spec(HardwareTier::Ultra);
+        let catalog = FastembedEmbedder::from_catalog(&spec.id).unwrap();
+        let catalog_paths = || OnnxFiles {
+            model: catalog.source.model.clone(),
+            tokenizer_dir: catalog.source.tokenizer.parent().unwrap().to_path_buf(),
+            external_initializers: catalog.source.external_initializers.clone(),
+            pooling: Pooling::Mean,
+            quantization: QuantizationMode::Dynamic,
+            max_length: 512,
+        };
+        let attached = FastembedEmbedder::from_onnx(spec.clone(), catalog_paths()).unwrap();
+        assert!(matches!(attached.source.pooling, Pooling::Cls));
+        assert_eq!(attached.source.quantization, QuantizationMode::None);
+        assert_eq!(attached.source.max_length, 512);
+        let mut wrong_paths = catalog_paths();
+        wrong_paths.external_initializers.clear();
+        assert!(FastembedEmbedder::from_onnx(spec, wrong_paths).is_err());
+    }
 
-        let model = FastembedEmbedder::from_onnx(
-            EmbeddingModelSpec {
-                query_prefix: Some("custom: ".into()),
-                document_prefix: None,
-                ..eco
-            },
-            OnnxFiles {
-                model: PathBuf::new(),
-                tokenizer_dir: PathBuf::new(),
-                external_initializers: Vec::new(),
-                pooling: Pooling::Mean,
-                quantization: QuantizationMode::Dynamic,
-                max_length: 512,
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            prefixed("texto", model.spec().query_prefix.as_deref()),
-            "query: texto"
-        );
-        assert_eq!(
-            prefixed("texto", model.spec().document_prefix.as_deref()),
-            "passage: texto"
-        );
+    #[test]
+    fn catalog_supplies_specs_artifacts_pooling_and_prefixes() {
+        for tier in [
+            HardwareTier::Eco,
+            HardwareTier::Balanced,
+            HardwareTier::Ultra,
+        ] {
+            let model = FastembedEmbedder::for_tier(tier).unwrap();
+            assert_eq!(*model.spec(), default_model_spec(tier));
+            if tier == HardwareTier::Ultra {
+                assert!(matches!(model.source.pooling, Pooling::Cls));
+                assert_eq!(model.source.external_initializers[0].0, "model.onnx_data");
+            } else {
+                assert!(matches!(model.source.pooling, Pooling::Mean));
+                assert_eq!(model.source.quantization, QuantizationMode::Dynamic);
+                assert_eq!(
+                    prefixed("texto", model.spec().query_prefix.as_deref()),
+                    "query: texto"
+                );
+                assert_eq!(
+                    prefixed("texto", model.spec().document_prefix.as_deref()),
+                    "passage: texto"
+                );
+            }
+            assert!(
+                model
+                    .source
+                    .model
+                    .ends_with(format!("models/{}/model.onnx", model.spec().id))
+            );
+        }
+        assert!(FastembedEmbedder::from_catalog("unknown-model").is_err());
+        let model = FastembedEmbedder::for_tier(HardwareTier::Eco).unwrap();
         let rt = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap();

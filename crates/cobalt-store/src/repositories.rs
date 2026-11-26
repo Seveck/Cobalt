@@ -46,6 +46,15 @@ pub(crate) fn optional_timestamp(row: &Row<'_>, col: &str) -> rusqlite::Result<O
         .transpose()
 }
 
+pub(crate) fn json<T: serde::de::DeserializeOwned>(
+    row: &Row<'_>,
+    col: &str,
+) -> rusqlite::Result<Option<T>> {
+    row.get::<_, Option<String>>(col)?
+        .map(|value| serde_json::from_str(&value).map_err(|err| conversion(row, col, err.into())))
+        .transpose()
+}
+
 fn conversion(row: &Row<'_>, col: &str, error: CobaltError) -> rusqlite::Error {
     match row.as_ref().column_index(col) {
         Ok(index) => rusqlite::Error::FromSqlConversionFailure(
@@ -61,20 +70,22 @@ pub(crate) fn stamp() -> String {
     timestamp_to_sql(&now())
 }
 
+pub(crate) fn branch_row(row: &Row<'_>) -> rusqlite::Result<Branch> {
+    Ok(Branch {
+        id: id(row, "id")?,
+        name: row.get("name")?,
+        parent_branch_id: optional_id(row, "parent_branch_id")?,
+        created_at: timestamp(row, "created_at")?,
+        is_active: row.get("is_active")?,
+    })
+}
+
 pub(crate) fn branch(conn: &Connection, branch_id: Option<Id>) -> Result<Branch> {
     let branch = conn
         .query_row(
             "SELECT * FROM branches WHERE (?1 IS NULL AND is_active = 1) OR id = ?1",
             [branch_id.map(|id| id.to_string())],
-            |row| {
-                Ok(Branch {
-                    id: id(row, "id")?,
-                    name: row.get("name")?,
-                    parent_branch_id: optional_id(row, "parent_branch_id")?,
-                    created_at: timestamp(row, "created_at")?,
-                    is_active: row.get("is_active")?,
-                })
-            },
+            branch_row,
         )
         .optional()
         .map_err(sql_error)?;
@@ -101,7 +112,7 @@ pub(crate) fn load_settings(conn: &Connection) -> Result<AppSettings> {
     )))
 }
 
-const UPSERT_CONFIG: &str = "INSERT INTO app_config (key, value_json, updated_at) VALUES (?1, ?2, ?3)
+pub(crate) const UPSERT_CONFIG: &str = "INSERT INTO app_config (key, value_json, updated_at) VALUES (?1, ?2, ?3)
     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at";
 
 #[async_trait]
@@ -423,7 +434,22 @@ fn hash_file(path: &Path) -> Result<Option<String>> {
         }
         hash.update(&buffer[..read]);
     }
-    Ok(Some(format!("{:x}", hash.finalize())))
+    Ok(Some(hex::encode(hash.finalize())))
+}
+
+pub(crate) fn source_availability(doc: &SourceDocument, snippet: bool) -> Result<FileAvailability> {
+    match hash_file(Path::new(&doc.file_path)) {
+        Ok(hash) if hash.is_none() == doc.is_dir && hash == doc.file_hash => {
+            Ok(FileAvailability::Available)
+        }
+        Ok(_) => Ok(FileAvailability::Modified),
+        Err(CobaltError::Io(err)) if err.kind() == std::io::ErrorKind::NotFound => Ok(if snippet {
+            FileAvailability::SnippetOnly
+        } else {
+            FileAvailability::Missing
+        }),
+        Err(err) => Err(err),
+    }
 }
 
 #[async_trait]
@@ -467,26 +493,12 @@ impl SourceDocumentRepository for SqliteStore {
         let (doc, snippet) = self.db.read(move |conn| {
             let doc = source_by_id(conn, id)?.ok_or_else(|| CobaltError::NotFound(format!("source document {id}")))?;
             let snippet: bool = conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM memories WHERE source_doc_id = ?1 AND is_encrypted = 0 AND reusable_snippet <> '')",
+                "SELECT EXISTS(SELECT 1 FROM memories WHERE source_doc_id = ?1 AND is_encrypted = 0 AND is_reusable = 1 AND reusable_snippet <> '')",
                 [id.to_string()], |row| row.get(0),
             ).map_err(sql_error)?;
             Ok((doc, snippet))
         }).await?;
-        crate::db::blocking(move || match hash_file(Path::new(&doc.file_path)) {
-            Ok(hash) if hash.is_none() == doc.is_dir && hash == doc.file_hash => {
-                Ok(FileAvailability::Available)
-            }
-            Ok(_) => Ok(FileAvailability::Modified),
-            Err(CobaltError::Io(err)) if err.kind() == std::io::ErrorKind::NotFound => {
-                Ok(if snippet {
-                    FileAvailability::SnippetOnly
-                } else {
-                    FileAvailability::Missing
-                })
-            }
-            Err(err) => Err(err),
-        })
-        .await
+        crate::db::blocking(move || source_availability(&doc, snippet)).await
     }
 
     async fn relink_source_document(&self, id: Id, new_path: &str) -> Result<SourceDocument> {

@@ -33,6 +33,8 @@ impl DeterministicEmbedderMock {
     fn embedding(text: &str) -> Vec<f32> {
         if text == "bad embedding" {
             vec![0.0; 3]
+        } else if text == "alpha other" {
+            vec![0.8, 0.0, 0.6]
         } else if text.contains("alpha") {
             vec![1.0, 0.0, 0.0]
         } else if text.contains("beta") {
@@ -223,7 +225,7 @@ async fn settings_projects_and_source_documents_round_trip() {
         file_path: file.to_string_lossy().into_owned(),
         is_dir: false,
         source_type: None,
-        file_hash: Some(format!("{:x}", Sha256::digest(b"original"))),
+        file_hash: Some(hex::encode(Sha256::digest(b"original"))),
         total_tokens: 100,
         is_watched: false,
     };
@@ -673,3 +675,5 @@ async fn usearch_home_child() {
         Err(CobaltError::Engine(_))
     ));
 }
+
+mod phase2;

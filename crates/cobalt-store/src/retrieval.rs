@@ -3,21 +3,25 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use cobalt_core::config::{RrfWeights, SearchSettings};
+use cobalt_core::enums::FileAvailability;
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::Id;
 use cobalt_core::model::Memory;
 use cobalt_core::search::{
-    LibraryFilter, ReusableAsset, ReusableAssetQuery, SearchFilter, SearchHit, SearchRequest,
-    SearchResponse, TokenSavings, VectorFilter, WebContext, WebContextRequest,
+    LibraryFilter, ProjectScope, ReusableAsset, ReusableAssetQuery, SearchFilter, SearchHit,
+    SearchRequest, SearchResponse, TokenSavings, VectorFilter, WebContext, WebContextRequest,
 };
-use cobalt_core::traits::{ConfigRepository, SearchService};
-use rusqlite::{Connection, params, params_from_iter, types::Value};
+use cobalt_core::traits::{ConfigRepository, SearchService, TokenCounter};
+use cobalt_embeddings::TiktokenCounter;
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 
 use crate::db::sql_error;
 use crate::memory::{memory, memory_by_id};
-use crate::repositories::{branch, id, optional_timestamp, stamp};
-use crate::vector::{Index, Scope};
-use crate::{SqliteStore, pending};
+use crate::repositories::{
+    branch, id, optional_timestamp, source_availability, source_by_id, stamp,
+};
+use crate::vector::Scope;
+use crate::{Retrieval, SqliteStore, calibrated_similarity};
 
 pub(crate) fn core_rules(
     conn: &Connection,
@@ -104,7 +108,7 @@ fn collect_hits(
     conn: &Connection,
     req: &SearchRequest,
     settings: &SearchSettings,
-    index: Option<(&Index, &[f32])>,
+    vector: Option<(&Retrieval, &[f32])>,
     branch_id: Id,
     filter: &VectorFilter,
     top_k: u32,
@@ -117,10 +121,14 @@ fn collect_hits(
     let scope = || Scope::new(branch_id, filter, &req.filter);
     let mut candidates: HashMap<Id, Candidate> = HashMap::new();
 
-    if let Some((index, query)) = index {
-        let vectors = index.scoped(conn, query, candidates_per_channel as usize, scope())?;
+    if let Some((retrieval, query)) = vector {
+        let vectors =
+            retrieval
+                .index
+                .scoped(conn, query, candidates_per_channel as usize, scope())?;
         for (rank, entry) in (1..=candidates_per_channel).zip(vectors) {
-            let similarity = f64::from(entry.similarity);
+            let similarity =
+                calibrated_similarity(&retrieval.embedder.spec().id, f64::from(entry.similarity));
             if similarity >= settings.min_similarity {
                 candidates.entry(entry.memory_id).or_default().vector = Some((rank, similarity));
             }
@@ -176,24 +184,14 @@ fn savings<'a>(
 ) -> Result<TokenSavings> {
     let mut savings = TokenSavings::default();
     let mut known_memories = HashSet::new();
-    let mut known_docs = HashSet::new();
-    let mut statement = conn
-        .prepare("SELECT total_tokens FROM source_documents WHERE id = ?1")
-        .map_err(sql_error)?;
+    let mut items = Vec::new();
     for memory in memories {
-        if !known_memories.insert(memory.id) {
-            continue;
+        if known_memories.insert(memory.id) {
+            savings.injected_tokens = savings.injected_tokens.saturating_add(memory.chunk_tokens);
+            items.push((memory.source_doc_id, memory.chunk_tokens));
         }
-        savings.injected_tokens = savings.injected_tokens.saturating_add(memory.chunk_tokens);
-        let avoided = match memory.source_doc_id {
-            Some(id) if known_docs.insert(id) => statement
-                .query_row([id.to_string()], |row| row.get(0))
-                .map_err(sql_error)?,
-            Some(_) => 0,
-            None => memory.chunk_tokens,
-        };
-        savings.avoided_full_tokens = savings.avoided_full_tokens.saturating_add(avoided);
     }
+    savings.avoided_full_tokens = crate::telemetry::avoided_tokens(conn, items)?;
     savings.saved_tokens = savings
         .avoided_full_tokens
         .saturating_sub(savings.injected_tokens)
@@ -205,6 +203,11 @@ fn savings<'a>(
 impl SearchService for SqliteStore {
     async fn search(&self, req: SearchRequest) -> Result<SearchResponse> {
         let start = Instant::now();
+        let pending = req
+            .record_hits
+            .then(|| crate::db::PendingWrite::new(&self.waiting_for_engine));
+        let gate = self.engine_gate.clone().read_owned().await;
+        drop(pending);
         let settings = self.load_settings().await?.search;
         let top_k = req.top_k.unwrap_or(settings.top_k);
         let weights = req.rrf_override.as_ref().unwrap_or(&settings.rrf);
@@ -218,14 +221,14 @@ impl SearchService for SqliteStore {
                 "minimum confidence must be between 0 and 1".into(),
             ));
         }
-        let vector = if top_k > 0 && weights.vector_weight > 0.0 && !req.query.trim().is_empty() {
-            let retrieval = self.retrieval()?;
-            Some((
-                retrieval.index.clone(),
-                retrieval.embedder.embed_query(&req.query).await?,
-            ))
-        } else {
-            None
+        let vector = match self.configured_retrieval()? {
+            Some(retrieval)
+                if top_k > 0 && weights.vector_weight > 0.0 && !req.query.trim().is_empty() =>
+            {
+                let query = retrieval.embedder.embed_query(&req.query).await?;
+                Some((retrieval, query))
+            }
+            _ => None,
         };
         let record_hits = req.record_hits;
         let mut response = self
@@ -246,7 +249,7 @@ impl SearchService for SqliteStore {
                     &settings,
                     vector
                         .as_ref()
-                        .map(|(index, query)| (index, query.as_slice())),
+                        .map(|(index, query)| (index.as_ref(), query.as_slice())),
                     branch_id,
                     &filter,
                     top_k,
@@ -267,6 +270,7 @@ impl SearchService for SqliteStore {
             response = self
                 .db
                 .write(move |conn| {
+                    let _gate = gate;
                     let tx = conn.transaction().map_err(sql_error)?;
                     let accessed = stamp();
                     let mut updates = HashMap::new();
@@ -309,15 +313,275 @@ impl SearchService for SqliteStore {
         Ok(response)
     }
 
-    async fn search_reusable(&self, _query: ReusableAssetQuery) -> Result<Vec<ReusableAsset>> {
-        pending("search_reusable")
+    async fn search_reusable(&self, query: ReusableAssetQuery) -> Result<Vec<ReusableAsset>> {
+        let scope = if query.exclude_current_project {
+            query
+                .current_project_id
+                .map_or(ProjectScope::All, ProjectScope::AllExcept)
+        } else {
+            ProjectScope::All
+        };
+        let limit = query
+            .top_k
+            .unwrap_or(self.load_settings().await?.search.top_k);
+        let hits = self
+            .search(asset_request(
+                query.query.clone(),
+                scope,
+                query.source_type.into_iter().collect(),
+                limit,
+            ))
+            .await?
+            .hits;
+        let tokens = self.asset_tokens().await?;
+        let mut assets = self
+            .build_assets(
+                hits.into_iter()
+                    .map(|hit| (hit.memory, hit.similarity_score))
+                    .collect(),
+                tokens.clone(),
+            )
+            .await?;
+        if query.record_reuse {
+            // Only the counters live here; telemetry (with the real client identity) is
+            // recorded by the caller (cobalt-mcp), so reuse is never double counted.
+            assets = self.db.write(move |conn| {
+                let tx = conn.transaction().map_err(sql_error)?;
+                let mut returned = Vec::new();
+                {
+                    let mut stmt = tx.prepare(
+                        "UPDATE memories SET reuse_count = min(reuse_count, 9223372036854775806) + 1
+                         WHERE id = ?1 AND is_encrypted = 0 AND is_reusable = 1 AND status = 'active'
+                         RETURNING reuse_count"
+                    ).map_err(sql_error)?;
+                    for mut asset in assets {
+                        let Some(count) = stmt.query_row([asset.memory_id.to_string()], |row| row.get(0))
+                            .optional().map_err(sql_error)? else { continue };
+                        asset.reuse_count = count;
+                        returned.push(asset);
+                    }
+                }
+                tx.commit().map_err(sql_error)?;
+                Ok(returned)
+            }).await?;
+        }
+        Ok(assets)
     }
 
-    async fn list_library(&self, _filter: LibraryFilter) -> Result<Vec<ReusableAsset>> {
-        pending("list_library")
+    async fn list_library(&self, filter: LibraryFilter) -> Result<Vec<ReusableAsset>> {
+        let rows: Vec<(Memory, f64)> = if let Some(query) =
+            filter.query.as_ref().filter(|q| !q.trim().is_empty())
+        {
+            self.search(asset_request(
+                query.clone(),
+                ProjectScope::All,
+                filter.source_types.clone(),
+                u32::MAX,
+            ))
+            .await?
+            .hits
+            .into_iter()
+            .map(|hit| (hit.memory, hit.similarity_score))
+            .collect()
+        } else {
+            let types = filter.source_types.clone();
+            self.db.read(move |conn| {
+                let tx = conn.unchecked_transaction().map_err(sql_error)?;
+                let scope = Scope::new(branch(&tx, None)?.id, &VectorFilter {
+                    scope: ProjectScope::All, only_reusable: true, ..Default::default()
+                }, &SearchFilter { source_types: types, ..Default::default() });
+                let mut stmt = tx.prepare(&format!(
+                    "SELECT m.* FROM memories m WHERE {} ORDER BY m.reuse_count DESC, m.updated_at DESC, m.id", scope.clause
+                )).map_err(sql_error)?;
+                stmt.query_map(params_from_iter(scope.params), |row| Ok((memory(row)?, 1.0)))
+                    .map_err(sql_error)?.collect::<rusqlite::Result<_>>().map_err(sql_error)
+            }).await?
+        };
+        let rows = rows
+            .into_iter()
+            .filter(|(row, _)| {
+                filter.project_ids.is_empty()
+                    || row
+                        .project_id
+                        .is_some_and(|id| filter.project_ids.contains(&id))
+            })
+            .collect();
+        let assets = self.build_assets(rows, self.asset_tokens().await?).await?;
+        Ok(assets
+            .into_iter()
+            .filter(|asset| {
+                filter.availability.is_empty() || filter.availability.contains(&asset.availability)
+            })
+            .skip(filter.offset.unwrap_or(0) as usize)
+            .take(filter.limit.unwrap_or(u32::MAX) as usize)
+            .collect())
     }
 
-    async fn build_web_context(&self, _req: WebContextRequest) -> Result<WebContext> {
-        pending("build_web_context")
+    async fn build_web_context(&self, req: WebContextRequest) -> Result<WebContext> {
+        let max_tokens = req.max_tokens.unwrap_or(400);
+        let tokens = self.asset_tokens().await?;
+        let mut context = WebContext {
+            text: String::new(),
+            tokens: 0,
+            memory_ids: Vec::new(),
+        };
+        if max_tokens == 0 {
+            return Ok(context);
+        }
+        let response = self
+            .search(SearchRequest {
+                query: req.task,
+                scope: req
+                    .project_id
+                    .map_or(ProjectScope::Global, ProjectScope::ProjectAndGlobal),
+                branch_id: None,
+                top_k: None,
+                include_archived: false,
+                filter: SearchFilter::default(),
+                rrf_override: None,
+                record_hits: false,
+            })
+            .await?;
+        let mut seen = HashSet::new();
+        for row in response
+            .core_rules
+            .into_iter()
+            .chain(response.hits.into_iter().map(|hit| hit.memory))
+        {
+            if !seen.insert(row.id) || row.content.is_empty() {
+                continue;
+            }
+            let separator = if context.text.is_empty() { "" } else { "\n\n" };
+            let candidate = format!("{}{separator}{}", context.text, row.content);
+            if tokens.count(&candidate) <= max_tokens as usize {
+                context.text = candidate;
+                context.memory_ids.push(row.id);
+            } else {
+                let shortened = tokens.truncate(&candidate, max_tokens as usize);
+                let prefix = format!("{}{separator}", context.text);
+                if let Some(extra) = shortened.strip_prefix(&prefix)
+                    && !extra.trim().is_empty()
+                {
+                    context.text = shortened;
+                    context.memory_ids.push(row.id);
+                }
+                break;
+            }
+        }
+        context.tokens = tokens.count(&context.text) as u32;
+        Ok(context)
+    }
+}
+
+fn asset_request(
+    query: String,
+    scope: ProjectScope,
+    source_types: Vec<cobalt_core::enums::SourceType>,
+    limit: u32,
+) -> SearchRequest {
+    SearchRequest {
+        query,
+        scope,
+        top_k: Some(limit),
+        branch_id: None,
+        include_archived: false,
+        filter: SearchFilter {
+            source_types,
+            only_reusable: true,
+            ..Default::default()
+        },
+        rrf_override: None,
+        record_hits: false,
+    }
+}
+
+impl SqliteStore {
+    async fn asset_tokens(&self) -> Result<std::sync::Arc<dyn TokenCounter>> {
+        match self.configured_retrieval()? {
+            Some(retrieval) => Ok(retrieval.tokens.clone()),
+            None => Ok(std::sync::Arc::new(TiktokenCounter::new(
+                self.load_settings().await?.token_encoding,
+            ))),
+        }
+    }
+
+    async fn build_assets(
+        &self,
+        rows: Vec<(Memory, f64)>,
+        tokens: std::sync::Arc<dyn TokenCounter>,
+    ) -> Result<Vec<ReusableAsset>> {
+        self.db
+            .read(move |conn| {
+                let tx = conn.unchecked_transaction().map_err(sql_error)?;
+                let mut availability = HashMap::new();
+                let mut project = tx
+                    .prepare("SELECT name, color_hex FROM projects WHERE id = ?1")
+                    .map_err(sql_error)?;
+                rows.into_iter()
+                    .map(|(row, similarity_score)| {
+                        let snippet = row
+                            .reusable_snippet
+                            .filter(|snippet| !snippet.trim().is_empty());
+                        let fallback = if snippet.is_some() {
+                            FileAvailability::SnippetOnly
+                        } else {
+                            FileAvailability::Missing
+                        };
+                        let doc = row
+                            .source_doc_id
+                            .map(|id| source_by_id(&tx, id))
+                            .transpose()?
+                            .flatten();
+                        let (file_path, availability) = if let Some(doc) = doc {
+                            let state = match availability.entry(doc.id) {
+                                std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                                std::collections::hash_map::Entry::Vacant(entry) => {
+                                    *entry.insert(source_availability(&doc, false)?)
+                                }
+                            };
+                            (
+                                Some(doc.file_path),
+                                if state == FileAvailability::Missing {
+                                    fallback
+                                } else {
+                                    state
+                                },
+                            )
+                        } else {
+                            (None, fallback)
+                        };
+                        let (origin_project_name, origin_project_color) = if let Some(id) =
+                            row.project_id
+                        {
+                            project
+                                .query_row([id.to_string()], |row| Ok((row.get(0)?, row.get(1)?)))
+                                .optional()
+                                .map_err(sql_error)?
+                                .unwrap_or_default()
+                        } else {
+                            (None, None)
+                        };
+                        Ok(ReusableAsset {
+                            memory_id: row.id,
+                            summary: tokens.truncate(&row.content, 50),
+                            source_type: row.source_type,
+                            origin_project_id: row.project_id,
+                            origin_project_name,
+                            origin_project_color,
+                            source_doc_id: row.source_doc_id,
+                            file_path,
+                            availability,
+                            output_tokens_saved: snippet
+                                .as_ref()
+                                .map_or(0, |s| i64::try_from(tokens.count(s)).unwrap_or(i64::MAX)),
+                            snippet,
+                            reuse_count: row.reuse_count,
+                            similarity_score,
+                            status: row.status,
+                        })
+                    })
+                    .collect()
+            })
+            .await
     }
 }
