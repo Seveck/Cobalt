@@ -24,18 +24,17 @@ import { MockBadge } from "./MockBadge";
 
 interface NavItem {
   key: NavSection;
-  index: string;
   icon: LucideIcon;
 }
 
 const NAV_ITEMS: readonly NavItem[] = [
-  { key: "brain", index: "01", icon: Network },
-  { key: "library", index: "02", icon: Library },
-  { key: "telemetry", index: "03", icon: Gauge },
-  { key: "connectors", index: "04", icon: Plug },
-  { key: "tools", index: "05", icon: Wrench },
-  { key: "store", index: "06", icon: Store },
-  { key: "settings", index: "07", icon: Settings },
+  { key: "brain", icon: Network },
+  { key: "library", icon: Library },
+  { key: "telemetry", icon: Gauge },
+  { key: "connectors", icon: Plug },
+  { key: "tools", icon: Wrench },
+  { key: "store", icon: Store },
+  { key: "settings", icon: Settings },
 ];
 
 export function Sidebar() {
@@ -85,7 +84,7 @@ export function Sidebar() {
 
       {/* Primary navigation */}
       <nav aria-label={t("app.name")} className="flex flex-1 flex-col gap-0.5 p-2.5">
-        {NAV_ITEMS.map(({ key, index, icon: Icon }) => {
+        {NAV_ITEMS.map(({ key, icon: Icon }) => {
           const active = activeNav === key;
           return (
             <button
@@ -108,13 +107,6 @@ export function Sidebar() {
                   aria-hidden
                 />
                 <span className="truncate">{t(`nav.${key}`)}</span>
-              </span>
-              <span
-                className={`font-mono text-[10px] tabular-nums ${
-                  active ? "text-cobalt-ink" : "text-bone-subtle"
-                }`}
-              >
-                {index}
               </span>
             </button>
           );
