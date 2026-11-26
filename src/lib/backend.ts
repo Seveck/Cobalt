@@ -26,7 +26,7 @@ export const PHASE1_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>
 
 /**
  * Phase 2 commands wired to the real Rust/Tauri backend inside Tauri
- * (see `docs/CONTRACTS.md` §5).
+ * (see `docs/CONTRACTS.md` §5, v1.2.0).
  */
 export const PHASE2_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>([
   "get_graph",
@@ -56,43 +56,86 @@ export const PHASE2_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>
   "set_read_only",
   "get_daemon_status",
   "replay_activity",
+  "get_source_document",
+  "verify_source_document",
 ]);
 
-/** All commands currently routed to real Tauri IPC (Phases 0, 1 & 2). */
+/**
+ * Phase 3 commands wired to the real Rust/Tauri backend inside Tauri
+ * (see `docs/CONTRACTS.md` §5, v1.3.0).
+ */
+export const PHASE3_REAL_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>([
+  "get_archive_impact",
+  "list_projects",
+  "create_project",
+  "update_project",
+  "list_library",
+  "relink_source_document",
+  "set_watched",
+  "promote_file_to_reusable",
+  "get_telemetry_summary",
+  "query_telemetry",
+  "list_connectors",
+  "toggle_connector",
+  "run_doctor",
+  "doctor_fix",
+  "get_mcp_tool_docs",
+  "search_theme_registry",
+  "install_theme",
+  "install_theme_file",
+  "uninstall_theme",
+  "list_installed_themes",
+  "get_theme_manifest",
+  "ingest_paths",
+  "import_past_life",
+  "export_capsule",
+  "import_capsule",
+  "export_backup",
+  "import_backup",
+  "swap_engine",
+  "remove_engine_artifacts",
+  "build_web_context",
+  "submit_quick_note",
+]);
+
+/** All commands routed to real Tauri IPC (Phases 0, 1, 2 & 3 — 100% of CONTRACTS §5). */
 export const REAL_IPC_COMMANDS: ReadonlySet<IpcCommand> = new Set<IpcCommand>([
   ...PHASE1_REAL_COMMANDS,
   ...PHASE2_REAL_COMMANDS,
+  ...PHASE3_REAL_COMMANDS,
 ]);
 
-/** Events emitted by the real Tauri backend in Phases 1 & 2. */
+/** All events emitted by the real Tauri backend (CONTRACTS §4). */
 export const REAL_IPC_EVENTS: ReadonlySet<EventName> = new Set<EventName>([
-  "cobalt://download-progress",
-  "cobalt://vault-status",
   "cobalt://mcp-activity",
   "cobalt://memory-changed",
+  "cobalt://download-progress",
+  "cobalt://engine-swap-progress",
+  "cobalt://ingest-progress",
   "cobalt://read-only-changed",
+  "cobalt://vault-status",
   "cobalt://daemon-status",
 ]);
 
-/** Returns `true` when the given command will be served by `backendMock`. */
+/** Returns `true` only in browser preview (outside Tauri); inside Tauri all commands use real IPC. */
 export function isCommandMocked(command: IpcCommand): boolean {
   return !isTauri() || !REAL_IPC_COMMANDS.has(command);
 }
 
-/** Returns `true` when the given event stream comes from `backendMock`. */
+/** Returns `true` only in browser preview (outside Tauri); inside Tauri all events are real. */
 export function isEventMocked(event: EventName): boolean {
   return !isTauri() || !REAL_IPC_EVENTS.has(event);
 }
 
-/** Returns `true` when running outside Tauri (all commands use `backendMock`). */
+/** Returns `true` when running outside Tauri (browser preview mode). */
 export function isGlobalMockMode(): boolean {
   return !isTauri();
 }
 
 /**
  * Unified typed backend call:
- * - Inside Tauri + Phase 0/1/2 command -> real `call()` from `src/lib/ipc.ts`
- * - Outside Tauri or Phase 3 command -> typed `callBackendMock()`
+ * - Inside Tauri -> real `call()` from `src/lib/ipc.ts` for every command in CONTRACTS §5
+ * - Outside Tauri (browser preview) -> typed `callBackendMock()`
  */
 export function backendCall<C extends IpcCommand>(
   command: C,
@@ -106,8 +149,8 @@ export function backendCall<C extends IpcCommand>(
 
 /**
  * Unified typed backend event subscription:
- * - Inside Tauri + Phase 1/2 event -> real `on()` from `src/lib/ipc.ts`
- * - Outside Tauri or Phase 3 event -> typed `onBackendMock()`
+ * - Inside Tauri -> real `on()` from `src/lib/ipc.ts`
+ * - Outside Tauri (browser preview) -> typed `onBackendMock()`
  */
 export function backendOn<E extends EventName>(
   event: E,

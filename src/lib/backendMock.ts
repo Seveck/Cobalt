@@ -3,6 +3,7 @@ import { IpcError } from "@/lib/ipc";
 import { createDefaultSettings, ENGINE_SIDECAR_BYTES } from "@/lib/format";
 import { MINIMAL_THEME_MANIFEST } from "@/themes/minimal";
 import {
+  AI_CLIENTS,
   BUILTIN_THEME_ID,
   CONTRACT_VERSION,
   DEFAULT_ENGINE_BY_TIER,
@@ -13,17 +14,29 @@ import {
   SCHEMA_VERSION,
   type AppInfo,
   type AppSettings,
+  type ArchiveImpact,
+  type BackupExportRequest,
+  type BackupImportRequest,
+  type BackupManifest,
   type Branch,
   type BranchMergeReport,
+  type CapsuleExportRequest,
+  type CapsuleManifest,
   type ConnectorStatus,
+  type ConnectorToggleRequest,
+  type ConnectorToggleResult,
   type CreateSnapshotArgs,
   type DaemonStatus,
+  type DoctorFixArgs,
+  type DoctorReport,
   type DownloadProgress,
   type DuplicateCluster,
   type EdgeType,
   type EmbeddingModelSpec,
   type EngineInstallRequest,
   type EngineStatus,
+  type EngineSwapReport,
+  type EngineSwapRequest,
   type EventName,
   type EventPayloadMap,
   type FileAvailability,
@@ -34,20 +47,33 @@ import {
   type HardwareTier,
   type IdArgs,
   type IdsArgs,
+  type ImportReport,
+  type IngestReport,
+  type IngestRequest,
   type InstalledTheme,
   type IpcCommand,
   type IpcCommandMap,
   type LibraryFilter,
+  type ListProjectsArgs,
   type McpActivity,
+  type McpToolDoc,
   type Memory,
   type MemoryCategory,
   type MemoryEdge,
   type MergeDuplicatesArgs,
   type NewBranch,
   type NewMemory,
+  type NewProject,
+  type Page,
+  type PastLifeImportRequest,
   type PatchMemoryArgs,
+  type PathArgs,
   type Project,
   type ProjectStats,
+  type PromoteFileRequest,
+  type QuickNoteArgs,
+  type RelinkArgs,
+  type RemoveEngineArtifactsArgs,
   type ReusableAsset,
   type SaveOutcome,
   type SearchHit,
@@ -55,14 +81,25 @@ import {
   type SearchResponse,
   type SetMemoryEncryptedArgs,
   type SetReadOnlyArgs,
+  type SetWatchedArgs,
   type Snapshot,
+  type SourceDocument,
   type SourceType,
+  type TelemetryLog,
   type TelemetryOperation,
+  type TelemetryQuery,
   type TelemetrySummary,
+  type ThemeCard,
+  type ThemeIdArgs,
+  type ThemeManifest,
+  type ThemeSearchArgs,
   type UpdateMemoryRequest,
+  type UpdateProjectArgs,
   type VaultPasswordArgs,
   type VaultStatus,
   type Vec3,
+  type WebContext,
+  type WebContextRequest,
 } from "@/types/contracts";
 
 type ArgsOf<C extends IpcCommand> = IpcCommandMap[C]["args"];
@@ -308,12 +345,18 @@ const GLOBAL_TOPICS: readonly string[] = [
 ];
 
 interface MockStoreState {
+  projects: Project[];
+  sourceDocs: Map<string, SourceDocument>;
   memories: Map<string, Memory>;
   decryptedPlaintext: Map<string, string>;
   edges: MemoryEdge[];
   branches: Branch[];
   snapshots: Snapshot[];
   snapshotBackups: Map<string, Memory[]>;
+  connectors: ConnectorStatus[];
+  installedThemes: InstalledTheme[];
+  themeManifests: Map<string, ThemeManifest>;
+  telemetryLogs: TelemetryLog[];
   vaultInitialized: boolean;
   vaultUnlocked: boolean;
   vaultPassword: string | null;
@@ -476,13 +519,111 @@ function ensureMockState(): MockStoreState {
   snapshotBackups.set(snap1Id, allSnapshotList.slice(0, allSnapshotList.length - 18));
   snapshotBackups.set(snap2Id, allSnapshotList);
 
+  const projects = MOCK_PROJECTS_SEED.map((s) => ({ ...s.project }));
+  const sourceDocs = new Map<string, SourceDocument>();
+  for (let d = 1; d <= 45; d += 1) {
+    const docId = deterministicUuid("0193d000", d);
+    const seed = MOCK_PROJECTS_SEED[(d - 1) % MOCK_PROJECTS_SEED.length]!;
+    const ext = seed.sourceTypes[d % seed.sourceTypes.length] ?? "ts";
+    sourceDocs.set(docId, {
+      id: docId,
+      project_id: seed.project.id,
+      file_path: `${seed.project.root_path ?? "/workspace"}/src/module_${d}.${ext}`,
+      is_dir: false,
+      source_type: ext,
+      file_hash: `mock-doc-hash-${d}`,
+      total_tokens: 900 + (d % 8) * 320,
+      is_watched: d % 4 === 0,
+      updated_at: new Date(MOCK_CREATED_BASE_MS + d * 86_400_000 / 2).toISOString(),
+    });
+  }
+
+  // Mark one archived memory as archived by an agent for previewing Inspector archive banner
+  const archivedSample = [...memories.values()].find((m) => m.status === "archived");
+  if (archivedSample) {
+    archivedSample.version_reason = "archived by cursor: Replaced by newer auth flow";
+    archivedSample.source_client = "cursor";
+  }
+
+  const connectors: ConnectorStatus[] = AI_CLIENTS.map((client, idx) => ({
+    client,
+    detected: idx < 5,
+    config_path:
+      client === "claude_desktop"
+        ? "~/.config/Claude/claude_desktop_config.json"
+        : client === "claude_code"
+          ? "~/.claude.json"
+          : client === "cursor"
+            ? "~/.cursor/mcp.json"
+            : client === "windsurf"
+              ? "~/.codeium/windsurf/mcp_config.json"
+              : client === "cline"
+                ? "~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
+                : client === "gemini_cli"
+                  ? "~/.gemini/settings.json"
+                  : "~/.codex/config.toml",
+    config_format: client === "codex_cli" ? "toml" : "json",
+    connected: client === "claude_code" || client === "cursor",
+    broken: client === "windsurf",
+    last_backup_path: client === "claude_code" ? "~/.claude.json.bak" : null,
+    error: client === "windsurf" ? "Invalid JSON trailing comma detected" : null,
+  }));
+
+  const installedThemes = buildMockInstalledThemes();
+  const themeManifests = new Map<string, ThemeManifest>([
+    [BUILTIN_THEME_ID, MINIMAL_THEME_MANIFEST],
+  ]);
+
+  const sampleNodes = [...memories.values()].slice(0, 12);
+  const telemetryLogs: TelemetryLog[] = Array.from({ length: 18 }, (_, i) => {
+    const ops: TelemetryOperation[] = ["read", "reuse", "write", "update", "handoff", "blocked_firewall"];
+    const clients = ["claude_code", "cursor", "codex_cli", "gemini_cli"];
+    const op = ops[i % ops.length] ?? "read";
+    const client = clients[i % clients.length] ?? "claude_code";
+    const picked = sampleNodes.slice(i % 6, (i % 6) + 3);
+    const injected = op === "read" || op === "reuse" ? 280 + i * 24 : 110;
+    const avoided = op === "read" || op === "reuse" ? 2400 + i * 190 : injected;
+    return {
+      id: deterministicUuid("0193e000", i + 1),
+      timestamp: new Date(Date.now() - i * 2_400_000).toISOString(),
+      client_name: client,
+      operation: op,
+      query_text:
+        op === "read"
+          ? "hybrid RRF retrieval & WAL trigger invariants"
+          : op === "reuse"
+            ? "reusable token firewall & auth middleware"
+            : op === "blocked_firewall"
+              ? "raw 4k-token stack trace dump blocked"
+              : "architecture decision & context handoff",
+      returned_items: picked.map((m, idx) => ({
+        memory_id: m.id,
+        source_doc_id: m.source_doc_id,
+        similarity_score: Number((0.95 - idx * 0.07).toFixed(2)),
+        chunk_tokens: m.chunk_tokens,
+        content_snapshot: m.content.slice(0, 160),
+      })),
+      injected_tokens: injected,
+      avoided_full_tokens: avoided,
+      saved_tokens: Math.max(0, avoided - injected),
+      latency_ms: 11 + (i % 27),
+      project_id: projects[i % projects.length]?.id ?? null,
+    };
+  });
+
   mockState = {
+    projects,
+    sourceDocs,
     memories,
     decryptedPlaintext: new Map(),
     edges,
     branches: [mainBranch],
     snapshots,
     snapshotBackups,
+    connectors,
+    installedThemes,
+    themeManifests,
+    telemetryLogs,
     vaultInitialized: false,
     vaultUnlocked: false,
     vaultPassword: null,
@@ -545,15 +686,17 @@ function buildMockGraphData(query: GraphQuery): GraphData {
       e.weight >= minWeight,
   );
 
-  const projects: ProjectStats[] = MOCK_PROJECTS_SEED.map(({ project }) => {
-    const projectNodes = limitedNodes.filter((n) => n.project_id === project.id);
-    return {
-      project,
-      vector_count: projectNodes.length,
-      total_tokens: projectNodes.reduce((sum, n) => sum + n.chunk_tokens, 0),
-      reusable_count: projectNodes.filter((n) => n.is_reusable).length,
-    };
-  });
+  const projects: ProjectStats[] = state.projects
+    .filter((p) => !p.is_archived)
+    .map((project) => {
+      const projectNodes = limitedNodes.filter((n) => n.project_id === project.id);
+      return {
+        project,
+        vector_count: projectNodes.length,
+        total_tokens: projectNodes.reduce((sum, n) => sum + n.chunk_tokens, 0),
+        reusable_count: projectNodes.filter((n) => n.is_reusable).length,
+      };
+    });
 
   return {
     nodes: limitedNodes,
@@ -781,6 +924,7 @@ async function runSimulatedInstallMock(req: EngineInstallRequest): Promise<Engin
 }
 
 function buildMockLibrary(filter: LibraryFilter): ReusableAsset[] {
+  const state = ensureMockState();
   const graph = buildMockGraphData({
     branch_id: null,
     include_archived: true,
@@ -795,6 +939,15 @@ function buildMockLibrary(filter: LibraryFilter): ReusableAsset[] {
     .filter((node) => node.is_reusable)
     .map((node): ReusableAsset => {
       const proj = node.project_id ? projectMap.get(node.project_id) : undefined;
+      const doc = node.source_doc_id ? state.sourceDocs.get(node.source_doc_id) : undefined;
+      const tail = node.source_doc_id ? parseInt(node.source_doc_id.slice(-2), 16) || 0 : 0;
+      const availability: FileAvailability = !node.source_doc_id
+        ? "snippet_only"
+        : tail % 11 === 0
+          ? "missing"
+          : tail % 7 === 0
+            ? "modified"
+            : "available";
       return {
         memory_id: node.id,
         summary: node.preview,
@@ -803,11 +956,11 @@ function buildMockLibrary(filter: LibraryFilter): ReusableAsset[] {
         origin_project_name: proj?.name ?? null,
         origin_project_color: proj?.color_hex ?? null,
         source_doc_id: node.source_doc_id,
-        file_path: proj
-          ? `${proj.root_path ?? "/workspace"}/snippets/${node.id.slice(-6)}.${node.source_type}`
-          : null,
-        availability: "available",
-        snippet: `// Reusable ${node.source_type} fragment (${node.chunk_tokens} tokens)`,
+        file_path: doc?.file_path ?? null,
+        availability,
+        snippet:
+          state.memories.get(node.id)?.reusable_snippet ??
+          `// Reusable ${node.source_type} fragment (${node.chunk_tokens} tokens)`,
         reuse_count: node.reuse_count,
         output_tokens_saved: node.reuse_count * node.chunk_tokens,
         similarity_score: node.confidence,
@@ -822,6 +975,12 @@ function buildMockLibrary(filter: LibraryFilter): ReusableAsset[] {
       if (
         filter.project_ids.length > 0 &&
         (!asset.origin_project_id || !filter.project_ids.includes(asset.origin_project_id))
+      ) {
+        return false;
+      }
+      if (
+        filter.availability.length > 0 &&
+        !filter.availability.includes(asset.availability)
       ) {
         return false;
       }
@@ -931,51 +1090,6 @@ function buildMockTelemetrySummary(): TelemetrySummary {
       },
     ],
   };
-}
-
-function buildMockConnectors(): ConnectorStatus[] {
-  return [
-    {
-      client: "claude_code",
-      detected: true,
-      config_path: "~/.claude.json",
-      config_format: "json",
-      connected: true,
-      broken: false,
-      last_backup_path: null,
-      error: null,
-    },
-    {
-      client: "cursor",
-      detected: true,
-      config_path: "~/.cursor/mcp.json",
-      config_format: "json",
-      connected: false,
-      broken: false,
-      last_backup_path: null,
-      error: null,
-    },
-    {
-      client: "codex_cli",
-      detected: true,
-      config_path: "~/.codex/config.toml",
-      config_format: "toml",
-      connected: false,
-      broken: false,
-      last_backup_path: null,
-      error: null,
-    },
-    {
-      client: "gemini_cli",
-      detected: false,
-      config_path: null,
-      config_format: "json",
-      connected: false,
-      broken: false,
-      last_backup_path: null,
-      error: null,
-    },
-  ];
 }
 
 function buildMockInstalledThemes(): InstalledTheme[] {
@@ -1823,7 +1937,18 @@ export async function callBackendMock<C extends IpcCommand>(
       return payload as ResultOf<C>;
     }
 
-    // ---- Phase 3 (still mocked in Tauri until Phase 3 lands) ----
+    // ---- Phase 2/3 browser preview handlers ----
+    case "get_source_document": {
+      const { id } = args as IdArgs;
+      const doc = state.sourceDocs.get(id);
+      if (!doc) {
+        throw new IpcError(command, {
+          kind: "not_found",
+          message: `Source document ${id} not found`,
+        });
+      }
+      return { ...doc } as ResultOf<C>;
+    }
     case "verify_source_document": {
       const { id } = args as IdArgs;
       const tail = parseInt(id.slice(-2), 16) || 0;
@@ -1831,20 +1956,740 @@ export async function callBackendMock<C extends IpcCommand>(
         tail % 11 === 0 ? "missing" : tail % 7 === 0 ? "modified" : "available";
       return availability as ResultOf<C>;
     }
+    case "get_archive_impact": {
+      const { id } = args as IdArgs;
+      const mem = state.memories.get(id);
+      if (!mem) {
+        throw new IpcError(command, { kind: "not_found", message: `Memory ${id} not found` });
+      }
+      const impact: ArchiveImpact = {
+        memory_id: mem.id,
+        preview: mem.is_encrypted ? "[Encrypted]" : mem.content.slice(0, 140),
+        is_core_pin: mem.is_core_pin,
+        is_reusable: mem.is_reusable,
+        hit_count: mem.hit_count,
+        reuse_count: mem.reuse_count,
+        last_accessed_at: mem.last_accessed_at,
+        other_clients:
+          mem.hit_count > 3
+            ? [
+                {
+                  client_name: "cursor",
+                  uses: Math.max(2, Math.floor(mem.hit_count / 2)),
+                  last_used_at: new Date(Date.now() - 3_600_000 * 6).toISOString(),
+                },
+                {
+                  client_name: "claude_code",
+                  uses: Math.max(1, Math.floor(mem.hit_count / 3)),
+                  last_used_at: new Date(Date.now() - 86_400_000 * 2).toISOString(),
+                },
+              ]
+            : [],
+      };
+      return impact as ResultOf<C>;
+    }
+    case "list_projects": {
+      const { include_archived } = args as ListProjectsArgs;
+      const allMems = [...state.memories.values()];
+      const list: ProjectStats[] = state.projects
+        .filter((p) => include_archived || !p.is_archived)
+        .map((project) => {
+          const pMems = allMems.filter((m) => m.project_id === project.id);
+          return {
+            project: { ...project },
+            vector_count: pMems.length,
+            total_tokens: pMems.reduce((s, m) => s + m.chunk_tokens, 0),
+            reusable_count: pMems.filter((m) => m.is_reusable).length,
+          };
+        });
+      return list as ResultOf<C>;
+    }
+    case "create_project": {
+      assertWritable(command);
+      const req = args as NewProject;
+      const now = new Date().toISOString();
+      const proj: Project = {
+        id: nextMockUuid("01930099"),
+        name: req.name.trim(),
+        root_path: req.root_path,
+        color_hex: req.color_hex ?? "#3B82F6",
+        is_archived: false,
+        created_at: now,
+        updated_at: now,
+      };
+      state.projects.push(proj);
+      return { ...proj } as ResultOf<C>;
+    }
+    case "update_project": {
+      assertWritable(command);
+      const { id, patch } = args as UpdateProjectArgs;
+      const proj = state.projects.find((p) => p.id === id);
+      if (!proj) {
+        throw new IpcError(command, { kind: "not_found", message: `Project ${id} not found` });
+      }
+      if (patch.name !== undefined && patch.name !== null) proj.name = patch.name;
+      if (patch.root_path !== undefined) proj.root_path = patch.root_path;
+      if (patch.color_hex !== undefined && patch.color_hex !== null) proj.color_hex = patch.color_hex;
+      if (patch.is_archived !== undefined && patch.is_archived !== null) {
+        proj.is_archived = patch.is_archived;
+      }
+      proj.updated_at = new Date().toISOString();
+      return { ...proj } as ResultOf<C>;
+    }
     case "list_library": {
       return buildMockLibrary(args as LibraryFilter) as ResultOf<C>;
+    }
+    case "relink_source_document": {
+      assertWritable(command);
+      const { source_doc_id, new_path } = args as RelinkArgs;
+      const doc = state.sourceDocs.get(source_doc_id);
+      if (!doc) {
+        throw new IpcError(command, {
+          kind: "not_found",
+          message: `Source document ${source_doc_id} not found`,
+        });
+      }
+      doc.file_path = new_path;
+      doc.updated_at = new Date().toISOString();
+      return { ...doc } as ResultOf<C>;
+    }
+    case "set_watched": {
+      assertWritable(command);
+      const { source_doc_id, watched } = args as SetWatchedArgs;
+      const doc = state.sourceDocs.get(source_doc_id);
+      if (!doc) {
+        throw new IpcError(command, {
+          kind: "not_found",
+          message: `Source document ${source_doc_id} not found`,
+        });
+      }
+      doc.is_watched = watched;
+      doc.updated_at = new Date().toISOString();
+      return { ...doc } as ResultOf<C>;
+    }
+    case "promote_file_to_reusable": {
+      assertWritable(command);
+      const req = args as PromoteFileRequest;
+      const activeBranch = getActiveBranch(state);
+      const now = new Date().toISOString();
+      const docId = nextMockUuid("0193d900");
+      const ext = (req.path.split(".").pop()?.toLowerCase() ?? "other") as SourceType;
+      const safeType: SourceType = [
+        "md", "sql", "bash", "rs", "ts", "js", "py", "java", "json", "yaml", "toml",
+        "html", "css", "dockerfile", "pdf", "image", "note", "other",
+      ].includes(ext)
+        ? ext
+        : "other";
+      const doc: SourceDocument = {
+        id: docId,
+        project_id: req.project_id,
+        file_path: req.path,
+        is_dir: false,
+        source_type: safeType,
+        file_hash: `mock-promoted-${docId}`,
+        total_tokens: 640,
+        is_watched: false,
+        updated_at: now,
+      };
+      state.sourceDocs.set(docId, doc);
+      const memId = nextMockUuid("0193b900");
+      const mem: Memory = {
+        id: memId,
+        branch_id: activeBranch.id,
+        project_id: req.project_id,
+        source_doc_id: docId,
+        content: req.summary?.trim() || `Reusable asset promoted from ${req.path}`,
+        content_hash: `mock-sha-${memId}`,
+        source_type: safeType,
+        category: "code",
+        confidence: 1.0,
+        status: "active",
+        superseded_by: null,
+        version_reason: null,
+        is_core_pin: false,
+        is_reusable: true,
+        reusable_snippet: `// Promoted from ${req.path}`,
+        reuse_count: 0,
+        is_encrypted: false,
+        ciphertext: null,
+        nonce: null,
+        chunk_tokens: 95,
+        hit_count: 0,
+        relevance_score: 1.0,
+        pos_x: 12,
+        pos_y: 8,
+        pos_z: -14,
+        created_at: now,
+        updated_at: now,
+        last_accessed_at: null,
+        source_client: "cobalt_ui",
+      };
+      state.memories.set(memId, mem);
+      emitMockEvent("cobalt://memory-changed", {
+        kind: "created",
+        memory_ids: [memId],
+        source_client: "cobalt_ui",
+      });
+      return { ...mem } as ResultOf<C>;
     }
     case "get_telemetry_summary": {
       return buildMockTelemetrySummary() as ResultOf<C>;
     }
+    case "query_telemetry": {
+      const q = args as TelemetryQuery;
+      const needle = q.text?.trim().toLowerCase() ?? "";
+      const filtered = state.telemetryLogs.filter((log) => {
+        if (q.client_name && log.client_name !== q.client_name) return false;
+        if (q.project_id && log.project_id !== q.project_id) return false;
+        if (q.operations.length > 0 && !q.operations.includes(log.operation)) return false;
+        if (needle) {
+          const inQuery = log.query_text?.toLowerCase().includes(needle) ?? false;
+          const inClient = log.client_name.toLowerCase().includes(needle);
+          if (!inQuery && !inClient) return false;
+        }
+        return true;
+      });
+      const offset = q.offset ?? 0;
+      const limit = q.limit ?? 25;
+      const page: Page<TelemetryLog> = {
+        items: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+      };
+      return page as ResultOf<C>;
+    }
     case "list_connectors": {
-      return buildMockConnectors() as ResultOf<C>;
+      return state.connectors.map((c) => ({ ...c })) as ResultOf<C>;
+    }
+    case "toggle_connector": {
+      const { client, enable } = args as ConnectorToggleRequest;
+      const target = state.connectors.find((c) => c.client === client);
+      if (!target) {
+        throw new IpcError(command, { kind: "not_found", message: `Client ${client} not found` });
+      }
+      const backupPath = target.config_path ? `${target.config_path}.cobalt.bak` : null;
+      target.connected = enable;
+      target.broken = false;
+      target.error = null;
+      if (backupPath) target.last_backup_path = backupPath;
+      const res: ConnectorToggleResult = {
+        status: { ...target },
+        backup_path: backupPath,
+      };
+      return res as ResultOf<C>;
+    }
+    case "run_doctor": {
+      const report: DoctorReport = {
+        generated_at: new Date().toISOString(),
+        healthy: state.connectors.every((c) => !c.broken),
+        checks: [
+          {
+            id: "daemon_socket",
+            label_key: "doctor.checks.daemon_socket",
+            status: "ok",
+            detail: "~/.cobalt/daemon.sock responding (12ms)",
+            fixable: false,
+          },
+          {
+            id: "sqlite_wal",
+            label_key: "doctor.checks.sqlite_wal",
+            status: "ok",
+            detail: "SQLite WAL + FTS5 integrity verified",
+            fixable: false,
+          },
+          {
+            id: "embedding_model",
+            label_key: "doctor.checks.embedding_model",
+            status: "ok",
+            detail: `${mockEngineStatus.model_id} (${mockEngineStatus.dimensions}d)`,
+            fixable: false,
+          },
+          {
+            id: "connector_configs",
+            label_key: "doctor.checks.connector_configs",
+            status: state.connectors.some((c) => c.broken) ? "warning" : "ok",
+            detail: state.connectors.some((c) => c.broken)
+              ? "1 client configuration has syntax warnings"
+              : "All detected MCP client configurations are valid",
+            fixable: state.connectors.some((c) => c.broken),
+          },
+        ],
+      };
+      return report as ResultOf<C>;
+    }
+    case "doctor_fix": {
+      const { check_id } = args as DoctorFixArgs;
+      if (check_id === "connector_configs") {
+        for (const c of state.connectors) {
+          c.broken = false;
+          c.error = null;
+        }
+      }
+      return callBackendMock("run_doctor") as Promise<ResultOf<C>>;
+    }
+    case "get_mcp_tool_docs": {
+      const defaults: Array<[string, string]> = [
+        [
+          "search_memory",
+          "Search the user's persistent memory (shared by all their AI tools) BEFORE reading large files, re-asking for context, or re-deriving past decisions.",
+        ],
+        [
+          "search_reusable_assets",
+          "Call BEFORE writing boilerplate, utilities, auth/config modules, schemas, or reusable components from scratch.",
+        ],
+        [
+          "save_memory",
+          "Save a durable, atomic memory WITHOUT being asked whenever you make a decision, fix a bug, learn a preference, or create a reusable asset.",
+        ],
+        [
+          "update_memory",
+          "Replace a memory that is outdated or wrong, creating a new version and marking the old one as superseded.",
+        ],
+        [
+          "create_handoff",
+          "Leave a short-lived baton for the next AI session when you stop mid-task (< 250 tokens).",
+        ],
+        [
+          "resume_handoff",
+          "Load the latest active handoff for the project to pick up where another AI session left off.",
+        ],
+        [
+          "list_project_rules",
+          "Call once at the start of every session to load the user's Nuclear Laws and stable preferences.",
+        ],
+        [
+          "archive_memory",
+          "Archive a wrong or obsolete memory in two steps (confirm=false dry run first to see which other agents rely on it).",
+        ],
+      ];
+      const docs: McpToolDoc[] = defaults.map(([name, default_description]) => ({
+        name,
+        default_description,
+        override_description: mockSettings.mcp.tool_docstring_overrides[name] ?? null,
+      }));
+      return docs as ResultOf<C>;
+    }
+    case "search_theme_registry": {
+      const { query } = args as ThemeSearchArgs;
+      const needle = query?.trim().toLowerCase() ?? "";
+      const catalog: ThemeCard[] = [
+        {
+          entry: {
+            id: "cobalt-atlas",
+            name: "Cobalt Atlas",
+            author: "Cobalt Studio",
+            version: "1.1.0",
+            description: "High-contrast obsidian blueprint palette with crisp cyan halos.",
+            size_bytes: 184_320,
+            unpacked_size_bytes: 420_000,
+            hardware_tier: "eco",
+            layout_type: "project_clusters",
+            preview_url: "",
+            download_url: "https://registry.cobalt.invalid/cobalt-atlas-1.1.0.cobalt-theme",
+            sha256: "0000000000000000000000000000000000000000000000000000000000000001",
+          },
+          compatibility: "compatible",
+          installed: state.installedThemes.some((t) => t.id === "cobalt-atlas"),
+          installed_version:
+            state.installedThemes.find((t) => t.id === "cobalt-atlas")?.version ?? null,
+        },
+        {
+          entry: {
+            id: "mineral-amber",
+            name: "Mineral Amber",
+            author: "Studio Norte",
+            version: "1.0.2",
+            description: "Warm archival brass & deep slate neural layout designed for long reading sessions.",
+            size_bytes: 1_420_000,
+            unpacked_size_bytes: 3_100_000,
+            hardware_tier: "balanced",
+            layout_type: "neural_net",
+            preview_url: "",
+            download_url: "https://registry.cobalt.invalid/mineral-amber-1.0.2.cobalt-theme",
+            sha256: "0000000000000000000000000000000000000000000000000000000000000002",
+          },
+          compatibility: mockSettings.hardware_tier === "eco" ? "degraded" : "compatible",
+          installed: state.installedThemes.some((t) => t.id === "mineral-amber"),
+          installed_version:
+            state.installedThemes.find((t) => t.id === "mineral-amber")?.version ?? null,
+        },
+        {
+          entry: {
+            id: "aurora-cortex",
+            name: "Aurora Cortex",
+            author: "Lumen Works",
+            version: "2.0.0",
+            description: "Volumetric shaders and bloom accents crafted for discrete GPUs.",
+            size_bytes: 4_850_000,
+            unpacked_size_bytes: 11_200_000,
+            hardware_tier: "ultra",
+            layout_type: "brain",
+            preview_url: "",
+            download_url: "https://registry.cobalt.invalid/aurora-cortex-2.0.0.cobalt-theme",
+            sha256: "0000000000000000000000000000000000000000000000000000000000000003",
+          },
+          compatibility:
+            mockSettings.hardware_tier === "ultra"
+              ? "compatible"
+              : mockSettings.hardware_tier === "balanced"
+                ? "degraded"
+                : "incompatible",
+          installed: state.installedThemes.some((t) => t.id === "aurora-cortex"),
+          installed_version:
+            state.installedThemes.find((t) => t.id === "aurora-cortex")?.version ?? null,
+        },
+      ];
+      return catalog.filter(
+        (c) =>
+          !needle ||
+          c.entry.name.toLowerCase().includes(needle) ||
+          (c.entry.description?.toLowerCase().includes(needle) ?? false) ||
+          c.entry.author.toLowerCase().includes(needle),
+      ) as ResultOf<C>;
+    }
+    case "install_theme": {
+      const { theme_id } = args as ThemeIdArgs;
+      const cards = await callBackendMock("search_theme_registry", { query: null });
+      const match = cards.find((c) => c.entry.id === theme_id);
+      if (!match) {
+        throw new IpcError(command, { kind: "not_found", message: `Theme ${theme_id} not found` });
+      }
+      const installed: InstalledTheme = {
+        id: match.entry.id,
+        name: match.entry.name,
+        author: match.entry.author,
+        version: match.entry.version,
+        size_bytes: match.entry.size_bytes,
+        hardware_tier: match.entry.hardware_tier,
+        local_path: `~/.cobalt/themes/${match.entry.id}`,
+        installed_at: new Date().toISOString(),
+      };
+      state.installedThemes = [
+        ...state.installedThemes.filter((t) => t.id !== installed.id),
+        installed,
+      ];
+      const paletteOverride =
+        theme_id === "mineral-amber"
+          ? {
+              ...MINIMAL_THEME_MANIFEST.palette,
+              background: "#0B0A08",
+              node: "#D4A359",
+              edge: "#5C4420",
+              reusable: "#34B37E",
+            }
+          : theme_id === "aurora-cortex"
+            ? {
+                ...MINIMAL_THEME_MANIFEST.palette,
+                background: "#060812",
+                node: "#38BDF8",
+                edge: "#1E3A8A",
+                reusable: "#C084FC",
+              }
+            : {
+                ...MINIMAL_THEME_MANIFEST.palette,
+                background: "#070B12",
+                node: "#60A5FA",
+                edge: "#1D4ED8",
+              };
+      state.themeManifests.set(theme_id, {
+        ...MINIMAL_THEME_MANIFEST,
+        id: match.entry.id,
+        name: match.entry.name,
+        author: match.entry.author,
+        version: match.entry.version,
+        description: match.entry.description,
+        hardware_tier: match.entry.hardware_tier,
+        layout_type: match.entry.layout_type,
+        palette: paletteOverride,
+      });
+      return installed as ResultOf<C>;
+    }
+    case "install_theme_file": {
+      const { path } = args as PathArgs;
+      const base = path.split(/[\\/]/).pop()?.replace(/\.cobalt-theme$/i, "") || "local-theme";
+      const id = base.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+      const installed: InstalledTheme = {
+        id,
+        name: base,
+        author: "Local Package",
+        version: "1.0.0",
+        size_bytes: 512_000,
+        hardware_tier: "eco",
+        local_path: `~/.cobalt/themes/${id}`,
+        installed_at: new Date().toISOString(),
+      };
+      state.installedThemes = [
+        ...state.installedThemes.filter((t) => t.id !== id),
+        installed,
+      ];
+      state.themeManifests.set(id, {
+        ...MINIMAL_THEME_MANIFEST,
+        id,
+        name: base,
+        author: "Local Package",
+        description: `Installed from ${path}`,
+      });
+      return installed as ResultOf<C>;
+    }
+    case "uninstall_theme": {
+      const { theme_id } = args as ThemeIdArgs;
+      if (theme_id === BUILTIN_THEME_ID) {
+        throw new IpcError(command, {
+          kind: "invalid_input",
+          message: "Built-in theme cannot be uninstalled.",
+        });
+      }
+      state.installedThemes = state.installedThemes.filter((t) => t.id !== theme_id);
+      state.themeManifests.delete(theme_id);
+      return undefined as ResultOf<C>;
     }
     case "list_installed_themes": {
-      return buildMockInstalledThemes() as ResultOf<C>;
+      return state.installedThemes.map((t) => ({ ...t })) as ResultOf<C>;
     }
     case "get_theme_manifest": {
-      return MINIMAL_THEME_MANIFEST as ResultOf<C>;
+      const { theme_id } = args as ThemeIdArgs;
+      const manifest = state.themeManifests.get(theme_id) ?? MINIMAL_THEME_MANIFEST;
+      return { ...manifest } as ResultOf<C>;
+    }
+    case "ingest_paths": {
+      assertWritable(command);
+      const req = args as IngestRequest;
+      const jobId = nextMockUuid("01937000");
+      for (let i = 0; i < req.paths.length; i += 1) {
+        emitMockEvent("cobalt://ingest-progress", {
+          job_id: jobId,
+          processed: i + 1,
+          total: req.paths.length,
+          current_path: req.paths[i] ?? null,
+          stage: "embedding",
+        });
+        await sleep(120);
+      }
+      const report: IngestReport = {
+        documents_created: req.paths.length,
+        documents_updated: 0,
+        documents_unchanged: 0,
+        memories_created: req.paths.length * 3,
+        memories_superseded: 0,
+        skipped_ignored: 0,
+        redacted_secrets: 0,
+        total_tokens: req.paths.length * 640,
+        errors: [],
+      };
+      emitMockEvent("cobalt://memory-changed", {
+        kind: "created",
+        memory_ids: [],
+        source_client: "cobalt_ui",
+      });
+      return report as ResultOf<C>;
+    }
+    case "import_past_life": {
+      assertWritable(command);
+      const req = args as PastLifeImportRequest;
+      const jobId = nextMockUuid("01937100");
+      emitMockEvent("cobalt://ingest-progress", {
+        job_id: jobId,
+        processed: 1,
+        total: 2,
+        current_path: req.path,
+        stage: "parsing",
+      });
+      await sleep(180);
+      emitMockEvent("cobalt://ingest-progress", {
+        job_id: jobId,
+        processed: 2,
+        total: 2,
+        current_path: req.path,
+        stage: "completed",
+      });
+      const report: IngestReport = {
+        documents_created: 1,
+        documents_updated: 0,
+        documents_unchanged: 0,
+        memories_created: 12,
+        memories_superseded: 1,
+        skipped_ignored: 0,
+        redacted_secrets: 1,
+        total_tokens: 2140,
+        errors: [],
+      };
+      return report as ResultOf<C>;
+    }
+    case "export_capsule": {
+      const req = args as CapsuleExportRequest;
+      const proj = req.project_id
+        ? (state.projects.find((p) => p.id === req.project_id) ?? null)
+        : null;
+      const manifest: CapsuleManifest = {
+        format_version: 1,
+        schema_version: SCHEMA_VERSION,
+        app_version: "0.1.0",
+        created_at: new Date().toISOString(),
+        project: proj,
+        memory_count: req.memory_ids.length || 24,
+        source_document_count: 6,
+        embedding_model_id: mockEngineStatus.model_id,
+        dimensions: mockEngineStatus.dimensions,
+        checksums: { "memories.json": "sha256:mock" },
+      };
+      return manifest as ResultOf<C>;
+    }
+    case "import_capsule": {
+      assertWritable(command);
+      const report: ImportReport = {
+        inserted: 14,
+        skipped_identical: 3,
+        superseded: 1,
+        isolated: 0,
+        review_branch: null,
+        reembedded: 0,
+        projects_created: 1,
+        warnings: [],
+      };
+      return report as ResultOf<C>;
+    }
+    case "export_backup": {
+      const req = args as BackupExportRequest;
+      const manifest: BackupManifest = {
+        format_version: 1,
+        schema_version: SCHEMA_VERSION,
+        app_version: "0.1.0",
+        created_at: new Date().toISOString(),
+        source_os: "browser",
+        embedding_model_id: mockEngineStatus.model_id,
+        dimensions: mockEngineStatus.dimensions,
+        vector_engine: mockEngineStatus.engine,
+        encrypted: Boolean(req.password),
+        counts: {
+          projects: state.projects.length,
+          branches: state.branches.length,
+          source_documents: state.sourceDocs.size,
+          memories: state.memories.size,
+          memory_edges: state.edges.length,
+          handoffs: 0,
+          telemetry_logs: req.include_history ? state.telemetryLogs.length : 0,
+          snapshots: state.snapshots.length,
+        },
+        checksums: { "cobalt.db": "sha256:mock" },
+        theme_ids: state.installedThemes.map((t) => t.id),
+      };
+      return manifest as ResultOf<C>;
+    }
+    case "import_backup": {
+      assertWritable(command);
+      const req = args as BackupImportRequest;
+      const report: ImportReport = {
+        inserted: 42,
+        skipped_identical: 120,
+        superseded: 2,
+        isolated: 1,
+        review_branch: "backup-review",
+        reembedded: 42,
+        projects_created: 1,
+        warnings: req.password ? [] : [],
+      };
+      return report as ResultOf<C>;
+    }
+    case "swap_engine": {
+      const req = args as EngineSwapRequest;
+      const swapId = nextMockUuid("01938000");
+      const fromEngine = mockEngineStatus.engine;
+      const fromModel = mockEngineStatus.model_id;
+      const total = state.memories.size;
+      const startedAt = new Date().toISOString();
+      const phases: Array<[EngineSwapReport["rolled_back"] extends boolean ? Parameters<typeof emitMockEvent<"cobalt://engine-swap-progress">>[1]["phase"] : never, number]> = [
+        ["queueing_writes", 0],
+        ["staging", Math.round(total * 0.2)],
+        ["reindexing", Math.round(total * 0.65)],
+        ["verifying", total],
+        ["swapping", total],
+        ["completed", total],
+      ];
+      for (const [phase, processed] of phases) {
+        emitMockEvent("cobalt://engine-swap-progress", {
+          swap_id: swapId,
+          phase,
+          processed,
+          total,
+          queued_writes: 0,
+          message: null,
+        });
+        await sleep(160);
+      }
+      const nextModel = MOCK_EMBEDDING_MODELS.find((m) => m.id === req.target_model_id);
+      const oldBytes = mockEngineStatus.installed_bytes;
+      mockEngineStatus = {
+        engine: req.target_engine,
+        engine_state: "running",
+        model_id: req.target_model_id,
+        model_state: "installed",
+        dimensions: nextModel?.dimensions ?? 384,
+        vector_count: total,
+        installed_bytes: (nextModel?.size_bytes ?? 124_151_398) + ENGINE_SIDECAR_BYTES[req.target_engine],
+        sidecar_endpoint: req.external_endpoint,
+        last_error: null,
+      };
+      mockSettings = {
+        ...mockSettings,
+        vector_engine: req.target_engine,
+        embedding_model_id: req.target_model_id,
+      };
+      persistMockSettings(mockSettings);
+      const report: EngineSwapReport = {
+        swap_id: swapId,
+        from_engine: fromEngine,
+        to_engine: req.target_engine,
+        from_model_id: fromModel,
+        to_model_id: req.target_model_id,
+        reembedded: total,
+        verified_count: total,
+        rolled_back: false,
+        started_at: startedAt,
+        finished_at: new Date().toISOString(),
+        reclaimable_bytes: fromModel !== req.target_model_id || fromEngine !== req.target_engine ? oldBytes : 0,
+      };
+      return report as ResultOf<C>;
+    }
+    case "remove_engine_artifacts": {
+      const req = args as RemoveEngineArtifactsArgs;
+      const modelBytes =
+        MOCK_EMBEDDING_MODELS.find((m) => m.id === req.model_id)?.size_bytes ?? 0;
+      const engineBytes = req.engine ? ENGINE_SIDECAR_BYTES[req.engine] : 0;
+      return (modelBytes + engineBytes || 124_151_398) as ResultOf<C>;
+    }
+    case "build_web_context": {
+      const req = args as WebContextRequest;
+      const top = [...state.memories.values()]
+        .filter((m) => !m.is_encrypted && m.status === "active" && (!req.project_id || m.project_id === req.project_id || m.project_id === null))
+        .slice(0, 6);
+      const lines = [
+        `# Cobalt Context`,
+        `Task: ${req.task}`,
+        ``,
+        ...top.map((m) => `- [${m.category}] ${m.content}`),
+      ];
+      const text = lines.join("\n");
+      const ctx: WebContext = {
+        text,
+        tokens: Math.min(req.max_tokens ?? 1200, Math.round(text.split(/\s+/).length * 1.3)),
+        memory_ids: top.map((m) => m.id),
+      };
+      return ctx as ResultOf<C>;
+    }
+    case "submit_quick_note": {
+      const req = args as QuickNoteArgs;
+      return callBackendMock("save_memory", {
+        content: req.content,
+        category: "note",
+        project_id: req.project_id,
+        branch_id: null,
+        source_doc_id: null,
+        source_type: "note",
+        confidence: 1.0,
+        is_core_pin: false,
+        is_reusable: false,
+        reusable_snippet: null,
+        source_client: "quick_note",
+      }) as Promise<ResultOf<C>>;
     }
     default: {
       throw new IpcError(command, {

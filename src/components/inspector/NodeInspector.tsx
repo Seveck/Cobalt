@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  AlertTriangle,
   Archive,
   Check,
+  Copy,
   Edit3,
   Eye,
   EyeOff,
   FileCheck2,
+  FolderSync,
   GitBranch,
   History,
   KeyRound,
@@ -14,28 +17,32 @@ import {
   Lock,
   LockOpen,
   Pin,
+  Radio,
   RefreshCw,
   Repeat,
   RotateCcw,
   Save,
   ShieldAlert,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
-import { backendCall, isCommandMocked } from "@/lib/backend";
+import { backendCall } from "@/lib/backend";
+import { copyToClipboard, pickSinglePath } from "@/lib/dialogs";
 import { IpcError } from "@/lib/ipc";
 import {
   useBranchesStore,
   useMemoryStore,
   useSettingsStore,
 } from "@/stores";
-import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
 import {
   MEMORY_CATEGORIES,
+  type ArchiveImpact,
   type FileAvailability,
   type Memory,
   type MemoryCategory,
+  type SourceDocument,
   type Uuid,
 } from "@/types/contracts";
 
@@ -57,6 +64,30 @@ function formatDate(iso: string): string {
   }
 }
 
+/**
+ * Parse `version_reason` written by MCP tool #8 `archive_memory` (MCP_SPEC §2.8):
+ * `"archived by <client>: <reason>"`.
+ */
+function parseArchivedByReason(
+  versionReason: string | null,
+  fallbackClient: string | null,
+): { agent: string | null; reason: string | null } {
+  if (versionReason) {
+    const match = /^archived by ([^:]+):\s*(.*)$/i.exec(versionReason.trim());
+    if (match) {
+      return {
+        agent: match[1]?.trim() || fallbackClient,
+        reason: match[2]?.trim() || null,
+      };
+    }
+    return {
+      agent: fallbackClient,
+      reason: versionReason.trim() || null,
+    };
+  }
+  return { agent: fallbackClient, reason: null };
+}
+
 export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
   const { t } = useTranslation();
 
@@ -71,11 +102,14 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
 
   const [memory, setMemory] = useState<Memory | null>(null);
   const [history, setHistory] = useState<Memory[]>([]);
+  const [sourceDoc, setSourceDoc] = useState<SourceDocument | null>(null);
   const [diskStatus, setDiskStatus] = useState<FileAvailability | null>(null);
+  const [archiveImpact, setArchiveImpact] = useState<ArchiveImpact | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [copiedPath, setCopiedPath] = useState(false);
 
   // Content editing (`update_memory`)
   const [editingContent, setEditingContent] = useState(false);
@@ -97,7 +131,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
 
   const flashNotice = useCallback((msg: string) => {
     setNotice(msg);
-    setTimeout(() => setNotice(null), 2600);
+    window.setTimeout(() => setNotice(null), 2600);
   }, []);
 
   const loadDetails = useCallback(async () => {
@@ -106,6 +140,8 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
     setRevealedPlaintext(null);
     setEditingContent(false);
     setConfirmDelete(false);
+    setSourceDoc(null);
+    setArchiveImpact(null);
 
     try {
       const [mem, hist] = await Promise.all([
@@ -118,15 +154,25 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
       setConfidenceDraft(mem.confidence);
       setSnippetDraft(mem.reusable_snippet ?? "");
 
+      // Load archive impact (which AI agents depend on this memory)
+      void backendCall("get_archive_impact", { id: mem.id })
+        .then(setArchiveImpact)
+        .catch(() => setArchiveImpact(null));
+
+      // Load real source document & disk availability
       if (!mem.source_doc_id) {
         setDiskStatus("snippet_only");
       } else {
-        try {
-          const status = await backendCall("verify_source_document", {
-            id: mem.source_doc_id,
-          });
-          setDiskStatus(status);
-        } catch {
+        const [docRes, statusRes] = await Promise.allSettled([
+          backendCall("get_source_document", { id: mem.source_doc_id }),
+          backendCall("verify_source_document", { id: mem.source_doc_id }),
+        ]);
+        if (docRes.status === "fulfilled") {
+          setSourceDoc(docRes.value);
+        }
+        if (statusRes.status === "fulfilled") {
+          setDiskStatus(statusRes.value);
+        } else {
           setDiskStatus("snippet_only");
         }
       }
@@ -220,6 +266,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
     try {
       if (memory.status === "archived") {
         await backendCall("restore_memories", { ids: [memory.id] });
+        flashNotice(t("inspector.restoredNotice"));
       } else {
         await backendCall("archive_memories", { ids: [memory.id] });
       }
@@ -244,6 +291,60 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
+    }
+  };
+
+  const handleToggleWatch = async (watched: boolean) => {
+    if (!sourceDoc || readOnly) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await backendCall("set_watched", {
+        source_doc_id: sourceDoc.id,
+        watched,
+      });
+      setSourceDoc(updated);
+      flashNotice(t("inspector.saved"));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRelinkSource = async () => {
+    if (!sourceDoc || readOnly) return;
+    const newPath = await pickSinglePath({
+      title: t("library.relinkDialogTitle"),
+      defaultPath: sourceDoc.file_path,
+      fallbackPlaceholder: sourceDoc.file_path,
+    });
+    if (!newPath) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await backendCall("relink_source_document", {
+        source_doc_id: sourceDoc.id,
+        new_path: newPath,
+      });
+      setSourceDoc(updated);
+      const status = await backendCall("verify_source_document", { id: updated.id });
+      setDiskStatus(status);
+      flashNotice(t("library.relinkedNotice"));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCopyPath = async () => {
+    if (!sourceDoc) return;
+    const ok = await copyToClipboard(sourceDoc.file_path);
+    if (ok) {
+      setCopiedPath(true);
+      window.setTimeout(() => setCopiedPath(false), 1800);
     }
   };
 
@@ -335,7 +436,9 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
           ? "border-cinnabar-rule bg-cinnabar-wash text-cinnabar"
           : "border-cobalt-rule bg-cobalt-wash text-cobalt-ink";
 
-  const verifyIsMocked = Boolean(memory?.source_doc_id) && isCommandMocked("verify_source_document");
+  const archivedMeta = memory
+    ? parseArchivedByReason(memory.version_reason, memory.source_client)
+    : null;
 
   return (
     <aside className="flex h-full w-full max-w-[420px] flex-col border-l border-rule-strong bg-surface text-bone shadow-[-12px_0_32px_rgba(0,0,0,0.65)]">
@@ -401,6 +504,38 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
           <p className="py-8 text-center text-xs text-bone-muted">{t("inspector.notFound")}</p>
         ) : (
           <>
+            {/* Archived-by-agent banner (MCP_SPEC §2.8) with direct Restore */}
+            {memory.status === "archived" && (
+              <div className="space-y-2.5 rounded-[2px] border border-ochre-rule bg-ochre-wash p-3">
+                <div className="flex items-start gap-2 text-xs text-ochre">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden />
+                  <div className="min-w-0">
+                    <div className="font-semibold">
+                      {archivedMeta?.agent
+                        ? archivedMeta.reason
+                          ? t("inspector.archivedByAgentReason", {
+                              agent: archivedMeta.agent,
+                              reason: archivedMeta.reason,
+                            })
+                          : t("inspector.archivedByAgent", { agent: archivedMeta.agent })
+                        : archivedMeta?.reason
+                          ? t("inspector.archivedWithReason", { reason: archivedMeta.reason })
+                          : t("inspector.archivedBanner")}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={readOnly || busy}
+                  onClick={() => void handleArchiveToggle()}
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-[2px] border border-ochre bg-ochre px-3 py-1.5 font-mono text-[11px] font-semibold text-void transition-colors hover:opacity-90 disabled:opacity-45"
+                >
+                  <RotateCcw size={12} aria-hidden />
+                  {t("inspector.restoreMemoryButton")}
+                </button>
+              </div>
+            )}
+
             {/* Quick badges & telemetry strip */}
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
@@ -453,6 +588,40 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                 </div>
               </div>
             </div>
+
+            {/* Agents using this memory (`get_archive_impact`) */}
+            {archiveImpact && (
+              <section className="space-y-2 rounded-[2px] border border-rule bg-void p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-bone-subtle">
+                    <Users size={11} className="text-cobalt-ink" aria-hidden />
+                    {t("inspector.agentsUsingTitle")}
+                  </h3>
+                  <span className="font-mono text-[10px] tabular-nums text-bone-subtle">
+                    {archiveImpact.other_clients.length}
+                  </span>
+                </div>
+
+                {archiveImpact.other_clients.length === 0 ? (
+                  <p className="text-[11px] text-bone-subtle">{t("inspector.noAgentsUsing")}</p>
+                ) : (
+                  <div className="divide-y divide-rule">
+                    {archiveImpact.other_clients.map((client) => (
+                      <div
+                        key={client.client_name}
+                        className="flex items-center justify-between gap-2 py-1.5 font-mono text-[11px]"
+                      >
+                        <span className="font-medium text-bone">{client.client_name}</span>
+                        <span className="tabular-nums text-bone-muted">
+                          {t("inspector.agentUsesCount", { count: client.uses })} ·{" "}
+                          {formatDate(client.last_used_at)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* Content / Encryption section */}
             <section className="space-y-2.5">
@@ -612,6 +781,74 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
               )}
             </section>
 
+            {/* Real Source Document (`get_source_document` + `verify_source_document`) */}
+            <section className="space-y-2 rounded-[2px] border border-rule bg-surface-2 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-bone-subtle">
+                  <FileCheck2 size={11} aria-hidden />
+                  {t("inspector.sourceDocSection")}
+                </span>
+                {diskStatus && (
+                  <span
+                    className={`rounded-[2px] border px-1.5 py-0.5 font-mono text-[10px] uppercase ${diskStatusBadgeClass}`}
+                  >
+                    {t(`availability.${diskStatus}`)}
+                  </span>
+                )}
+              </div>
+
+              {sourceDoc ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5 rounded-[2px] border border-rule bg-void px-2.5 py-1.5">
+                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-bone">
+                      {sourceDoc.file_path}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyPath()}
+                      title={t("library.copyPath")}
+                      className="shrink-0 p-0.5 text-bone-subtle hover:text-bone"
+                    >
+                      {copiedPath ? (
+                        <Check size={11} className="text-verdigris" aria-hidden />
+                      ) : (
+                        <Copy size={11} aria-hidden />
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <label className="inline-flex items-center gap-2 text-bone-muted">
+                      <Radio
+                        size={11}
+                        className={sourceDoc.is_watched ? "text-verdigris" : "text-bone-subtle"}
+                        aria-hidden
+                      />
+                      <span>{t("inspector.watchFile")}</span>
+                      <Toggle
+                        checked={sourceDoc.is_watched}
+                        disabled={readOnly || busy}
+                        ariaLabel={t("inspector.watchFile")}
+                        onChange={(checked) => void handleToggleWatch(checked)}
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      disabled={readOnly || busy}
+                      onClick={() => void handleRelinkSource()}
+                      className="inline-flex items-center gap-1 rounded-[2px] border border-rule-strong bg-surface px-2 py-1 font-mono text-[10px] text-bone-muted hover:border-ochre-rule hover:text-ochre disabled:opacity-45"
+                    >
+                      <FolderSync size={10} aria-hidden />
+                      {t("library.relink")}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[11px] text-bone-subtle">{t("inspector.noSourceDoc")}</p>
+              )}
+            </section>
+
             {/* Governance Controls (`patch_memory`) */}
             <section className="space-y-3 border-t border-rule pt-4">
               <h3 className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-bone-subtle">
@@ -683,7 +920,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                 />
               </div>
 
-              {/* Mark Reusable + Disk Status */}
+              {/* Mark Reusable */}
               <div className="space-y-2.5 rounded-[2px] border border-rule bg-surface-2 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -701,24 +938,6 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                     ariaLabel={t("inspector.markReusable")}
                     onChange={(is_reusable) => void handlePatch({ is_reusable })}
                   />
-                </div>
-
-                {/* Disk availability status */}
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-rule pt-2">
-                  <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-bone-subtle">
-                    <FileCheck2 size={11} aria-hidden />
-                    {t("inspector.diskStatus")}
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    {diskStatus && (
-                      <span
-                        className={`rounded-[2px] border px-1.5 py-0.5 font-mono text-[10px] uppercase ${diskStatusBadgeClass}`}
-                      >
-                        {t(`availability.${diskStatus}`)}
-                      </span>
-                    )}
-                    {verifyIsMocked && <MockBadge />}
-                  </div>
                 </div>
 
                 {memory.is_reusable && (
@@ -826,6 +1045,19 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
 
             {/* Archive & Delete Actions */}
             <section className="space-y-2 border-t border-rule pt-4">
+              {memory.status !== "archived" &&
+                archiveImpact &&
+                archiveImpact.other_clients.length > 0 && (
+                  <p className="flex items-center gap-1.5 rounded-[2px] border border-ochre-rule/60 bg-ochre-wash/50 px-2.5 py-1.5 text-[11px] text-ochre">
+                    <AlertTriangle size={12} className="shrink-0" aria-hidden />
+                    <span>
+                      {t("inspector.archiveImpactWarning", {
+                        count: archiveImpact.other_clients.length,
+                      })}
+                    </span>
+                  </p>
+                )}
+
               <div className="flex items-center gap-2">
                 {!memory.is_core_pin && (
                   <button

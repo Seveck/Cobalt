@@ -5,7 +5,11 @@ import type {
   DownloadProgress,
   EmbeddingModelSpec,
   EngineInstallRequest,
+  EngineKind,
   EngineStatus,
+  EngineSwapProgress,
+  EngineSwapReport,
+  EngineSwapRequest,
   HardwareProfile,
 } from "@/types/contracts";
 
@@ -16,6 +20,9 @@ export interface HardwareState {
   downloadProgress: DownloadProgress | null;
   isInstalling: boolean;
   isCancelling: boolean;
+  swapProgress: EngineSwapProgress | null;
+  swapReport: EngineSwapReport | null;
+  isSwapping: boolean;
   loading: boolean;
   error: string | null;
   loadAll: () => Promise<void>;
@@ -24,9 +31,17 @@ export interface HardwareState {
   loadEngineStatus: () => Promise<EngineStatus | null>;
   installEngine: (req: EngineInstallRequest) => Promise<EngineStatus | null>;
   cancelDownload: () => Promise<void>;
+  swapEngine: (req: EngineSwapRequest) => Promise<EngineSwapReport | null>;
+  removeEngineArtifacts: (
+    engine: EngineKind | null,
+    modelId: string | null,
+  ) => Promise<number | null>;
   setDownloadProgress: (progress: DownloadProgress | null) => void;
+  setSwapProgress: (progress: EngineSwapProgress | null) => void;
+  clearSwapReport: () => void;
   clearError: () => void;
   subscribeDownloadProgress: () => Promise<UnlistenFn>;
+  subscribeEngineSwapProgress: () => Promise<UnlistenFn>;
 }
 
 export const useHardwareStore = create<HardwareState>((set, get) => ({
@@ -36,6 +51,9 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
   downloadProgress: null,
   isInstalling: false,
   isCancelling: false,
+  swapProgress: null,
+  swapReport: null,
+  isSwapping: false,
   loading: false,
   error: null,
 
@@ -115,11 +133,53 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
     }
   },
 
+  swapEngine: async (req) => {
+    set({ isSwapping: true, error: null, swapProgress: null, swapReport: null });
+    try {
+      const report = await backendCall("swap_engine", req);
+      const engineStatus = await backendCall("get_engine_status");
+      set({ swapReport: report, engineStatus, isSwapping: false });
+      return report;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ isSwapping: false, error: message });
+      return null;
+    }
+  },
+
+  removeEngineArtifacts: async (engine, modelId) => {
+    set({ error: null });
+    try {
+      const reclaimed = await backendCall("remove_engine_artifacts", {
+        engine,
+        model_id: modelId,
+      });
+      await get().loadEngineStatus();
+      set((state) => ({
+        swapReport: state.swapReport
+          ? { ...state.swapReport, reclaimable_bytes: 0 }
+          : state.swapReport,
+      }));
+      return reclaimed;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ error: message });
+      return null;
+    }
+  },
+
   setDownloadProgress: (downloadProgress) => set({ downloadProgress }),
+  setSwapProgress: (swapProgress) => set({ swapProgress }),
+  clearSwapReport: () => set({ swapReport: null, swapProgress: null }),
   clearError: () => set({ error: null }),
 
   subscribeDownloadProgress: () =>
     backendOn("cobalt://download-progress", (payload) => {
       set({ downloadProgress: payload });
+    }),
+
+  subscribeEngineSwapProgress: () =>
+    backendOn("cobalt://engine-swap-progress", (payload) => {
+      set({ swapProgress: payload });
     }),
 }));
