@@ -3,6 +3,12 @@
     "name": "Cobalt",
     "tagline": "Tu segundo cerebro local, compartido por todas tus IAs"
   },
+  "common": {
+    "close": "Cerrar",
+    "cancel": "Cancelar",
+    "apply": "Aplicar",
+    "refresh": "Actualizar"
+  },
   "languages": {
     "es": "Español (ES)",
     "en": "English (EN)",
@@ -23,11 +29,11 @@
     "contract": "Contratos v{{version}}",
     "browserPreview": "Vista previa en navegador: usando adaptador simulado local.",
     "mockBadge": "MOCK",
-    "mockTooltip": "Esta vista usa datos simulados (Phase 1 backendMock).",
+    "mockTooltip": "Esta vista usa datos simulados (Fase 3 / vista previa en navegador).",
     "loading": "Cargando Cobalt…",
     "branch": "Rama",
     "readOnly": "Solo lectura",
-    "phasePreviewBadge": "Vista previa Fase 1"
+    "phasePreviewBadge": "Vista previa Fase 3"
   },
   "tiers": {
     "eco": "Eco",
@@ -60,6 +66,17 @@
     "doc": "Documentación",
     "note": "Nota",
     "ocr": "OCR"
+  },
+  "statuses": {
+    "active": "Activo",
+    "superseded": "Reemplazado",
+    "archived": "Archivado"
+  },
+  "availability": {
+    "available": "En disco",
+    "modified": "Modificado",
+    "snippet_only": "Solo fragmento",
+    "missing": "Ausente en disco"
   },
   "onboarding": {
     "badge": "Configuración inicial",
@@ -124,7 +141,7 @@
     "balancedFpsCap": "Balanceado · 60 FPS máx.",
     "fpsUncapped": "Ultra · FPS libres",
     "resetCamera": "Restablecer cámara",
-    "hoverHint": "Arrastra para rotar · Rueda para zoom · Pasa el cursor sobre un nodo",
+    "hoverHint": "Arrastra para rotar · Rueda para zoom · Haz clic en un nodo para inspeccionar",
     "corePin": "Ley Nuclear",
     "reusable": "Reutilizable",
     "globalScope": "Global",
@@ -133,7 +150,178 @@
     "confidence": "{{value}}% confianza",
     "webglFallbackTitle": "WebGL no disponible",
     "webglFallbackDesc": "No se pudo inicializar el lienzo 3D en este entorno.",
-    "legendTitle": "Leyenda"
+    "legendTitle": "Leyenda",
+    "writable": "Escritura",
+    "toggleReadOnlyHint": "Alternar bloqueo global de Solo Lectura para escrituras MCP y UI",
+    "daemonOnline": "Daemon · {{clients}} IA",
+    "daemonOffline": "Daemon inactivo",
+    "daemonTooltip": "Daemon local de Cobalt ({{clients}} clientes MCP conectados)",
+    "layouts": {
+      "label": "Disposición 3D",
+      "galaxy": "Galaxia",
+      "brain": "Cerebro",
+      "neural_net": "Red Neuronal",
+      "knowledge_tree": "Árbol",
+      "project_clusters": "Clústeres",
+      "custom_mesh": "Personalizado"
+    },
+    "clusterMetric": {
+      "label": "Métrica de tamaño de clúster",
+      "vectors": "Vectores",
+      "tokens": "Tokens"
+    }
+  },
+  "filterDock": {
+    "title": "Dock de Filtros Visuales",
+    "visualOnlyBadge": "Solo visual · sin efecto en MCP",
+    "soloHint": "Shift+clic o icono de mira para aislamiento Solo",
+    "filtersButton": "Filtros",
+    "searchPlaceholder": "Filtrar vista previa…",
+    "clearSearch": "Limpiar búsqueda de filtro",
+    "onlyReusable": "Solo Reutilizables",
+    "projects": "Proyectos",
+    "categories": "Categorías",
+    "status": "Estado",
+    "sourceTypes": "Tipos",
+    "soloAction": "Aislar (Solo)",
+    "soloBadge": "Solo",
+    "chipTooltip": "Clic para alternar · Shift+clic para Solo",
+    "visibleCount": "{{visible}} / {{total}} visibles",
+    "reset": "Restablecer"
+  },
+  "synaptic": {
+    "simulatePulse": "Probar pulso",
+    "simulateHint": "Dispara un pulso sináptico MCP simulado (vista previa)",
+    "toggleFeed": "Alternar historial reciente",
+    "replay": "Replay",
+    "matchedNodes": "{{count}} nodos iluminados",
+    "savedTokens": "{{count}} tokens ahorrados",
+    "ops": {
+      "read": "Lectura",
+      "write": "Escritura",
+      "update": "Actualización",
+      "reuse": "Reúso",
+      "handoff": "Relevo",
+      "blocked_firewall": "Bloqueado"
+    }
+  },
+  "inspector": {
+    "title": "Inspector de Nodo",
+    "loading": "Cargando memoria…",
+    "notFound": "No se pudo cargar la memoria.",
+    "readOnlyNotice": "Modo Solo Lectura activo — la edición y cambios están deshabilitados.",
+    "saved": "Cambios guardados",
+    "encrypted": "Cifrado",
+    "tokensLabel": "Tokens",
+    "hitsLabel": "Accesos",
+    "reusesLabel": "Reúsos",
+    "contentSection": "Contenido",
+    "editContent": "Editar",
+    "encrypt": "Cifrar",
+    "decrypt": "Descifrar",
+    "encryptedNotice": "Memoria cifrada en la bóveda",
+    "decryptedNotice": "Memoria descifrada",
+    "encryptedHidden": "El contenido está cifrado con AES-256-GCM y es invisible para MCP.",
+    "revealPlaintext": "Revelar texto",
+    "hidePlaintext": "Ocultar texto",
+    "vaultSetupTitle": "Configurar clave de bóveda",
+    "vaultUnlockTitle": "Desbloquear bóveda",
+    "vaultPasswordPlaceholder": "Introduce la clave de la bóveda…",
+    "vaultConfirm": "Desbloquear",
+    "versionReasonLabel": "Motivo de la versión",
+    "versionReasonPlaceholder": "¿Por qué se actualizó esta memoria?",
+    "defaultReason": "Editado desde el Inspector de Nodo",
+    "saveNewVersion": "Guardar versión",
+    "writeAction": {
+      "inserted": "Nueva memoria insertada",
+      "updated_existing": "Memoria existente actualizada",
+      "superseded": "Nueva versión creada (anterior reemplazada)",
+      "duplicate": "Ya existe contenido idéntico"
+    },
+    "governanceSection": "Gobernanza",
+    "categoryLabel": "Categoría",
+    "confidenceLabel": "Confianza",
+    "corePinHint": "Nunca decae y siempre se inyecta primero.",
+    "markReusable": "Marcar Reutilizable",
+    "reusableHint": "Indexado en la Biblioteca de Activos entre proyectos.",
+    "diskStatus": "Estado en disco",
+    "reusableSnippetLabel": "Fragmento reutilizable",
+    "reusableSnippetPlaceholder": "Fragmento conciso y portable…",
+    "saveSnippet": "Guardar fragmento",
+    "historySection": "Historial de Versiones",
+    "noHistory": "Sin historial de versiones disponible.",
+    "reasonPrefix": "Motivo",
+    "archive": "Archivar",
+    "restore": "Restaurar",
+    "delete": "Eliminar",
+    "confirmDelete": "Confirmar borrado",
+    "updatedAt": "Actualizado {{date}}"
+  },
+  "rag": {
+    "title": "Depurador RAG",
+    "shortLabel": "RAG",
+    "subtitle": "Inspecciona puntajes híbridos Vector + BM25 RRF y costo de tokens.",
+    "queryPlaceholder": "Escribe una consulta de prueba…",
+    "run": "Buscar",
+    "scopeLabel": "Ámbito",
+    "scopeAll": "Todos los proyectos + Global",
+    "scopeProjectOnly": "Solo proyecto",
+    "topKLabel": "Top K",
+    "rrfOverride": "Anular pesos RRF",
+    "vectorWeight": "Peso Vector",
+    "ftsWeight": "Peso FTS",
+    "includeArchived": "Incluir archivados",
+    "emptyHint": "Ejecuta una búsqueda para ver rangos vectoriales, BM25, fusión RRF y costo en tokens.",
+    "injectedTokens": "Tokens inyectados",
+    "savedTokens": "Tokens ahorrados",
+    "avoidedTokens": "Tokens evitados",
+    "latency": "Latencia",
+    "coreRulesCount": "Leyes Nucleares inyectadas ({{count}})",
+    "hitsCount": "Resultados ordenados ({{count}})",
+    "noHits": "Ninguna memoria coincidió con la consulta.",
+    "finalScore": "puntaje"
+  },
+  "timeTravel": {
+    "title": "Snapshots · Time-Travel",
+    "shortLabel": "Snapshots",
+    "labelPlaceholder": "Etiqueta del snapshot…",
+    "defaultLabel": "Punto de control manual",
+    "create": "Crear snapshot",
+    "loading": "Cargando snapshots…",
+    "empty": "Aún no hay snapshots. Crea uno para restaurar estados anteriores.",
+    "sliderAria": "Seleccionar snapshot en el tiempo",
+    "memoryCount": "{{count}} memorias",
+    "restore": "Restaurar",
+    "confirmRestore": "Confirmar restauración",
+    "delete": "Eliminar snapshot"
+  },
+  "branches": {
+    "title": "Ramas de Memoria",
+    "active": "Activa",
+    "newPlaceholder": "Nombre de nueva rama…",
+    "create": "Crear",
+    "mergeIntoParent": "Fusionar en rama padre",
+    "discard": "Descartar rama",
+    "confirmDiscard": "¿Descartar?",
+    "mergeReport": "Fusionadas {{merged}} · Reemplazadas {{superseded}} · Omitidas {{skipped}}"
+  },
+  "cleanBrain": {
+    "title": "Limpiar Cerebro",
+    "shortLabel": "Limpiar",
+    "subtitle": "Detecta y fusiona memorias duplicadas o en conflicto.",
+    "rescan": "Reescanear duplicados",
+    "scanning": "Analizando clústeres semánticos…",
+    "cleanTitle": "El cerebro está limpio",
+    "cleanDesc": "No se detectaron duplicados ni conflictos.",
+    "mergedNotice": "{{count}} clúster(es) fusionado(s).",
+    "similarity": "{{value}}% similitud",
+    "keepBadge": "Conservar",
+    "selectKeep": "Elegir principal",
+    "mergeCluster": "Fusionar {{count}} en principal",
+    "kind": {
+      "duplicate": "Duplicado",
+      "conflict": "Conflicto"
+    }
   },
   "settings": {
     "title": "Ajustes",
@@ -175,7 +363,7 @@
     "compressionRatio": "Ratio de compresión",
     "byClient": "Actividad por cliente IA",
     "topNodes": "Memorias más consultadas",
-    "comingSoon": "El streaming en vivo y la reproducción histórica (Replay) llegarán en Fase 2 y 3."
+    "comingSoon": "Las gráficas históricas completas y controles de Replay llegan en Fase 3."
   },
   "connectors": {
     "title": "Conectores MCP",

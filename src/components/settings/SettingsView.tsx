@@ -24,6 +24,7 @@ export function SettingsView() {
   const saving = useSettingsStore((s) => s.saving);
   const patchSettings = useSettingsStore((s) => s.patchSettings);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
+  const setReadOnly = useSettingsStore((s) => s.setReadOnly);
 
   const profile = useHardwareStore((s) => s.profile);
   const models = useHardwareStore((s) => s.models);
@@ -177,7 +178,7 @@ export function SettingsView() {
                 disabled={saving}
                 ariaLabelledBy={readOnlyLabelId}
                 onChange={(checked) => {
-                  void patchSettings({ read_only: checked }).then(showSavedFlash);
+                  void setReadOnly(checked).then(showSavedFlash);
                 }}
               />
             </div>

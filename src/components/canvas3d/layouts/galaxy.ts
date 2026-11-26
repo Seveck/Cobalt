@@ -1,4 +1,4 @@
-import type { LayoutFn, LayoutResult, Vec3 } from "@/types/contracts";
+import type { LayoutFn, LayoutResult, Vec3, VirtualAnchor } from "@/types/contracts";
 
 /**
  * Pure deterministic `galaxy` layout (`LayoutFn`).
@@ -24,13 +24,13 @@ export const galaxyLayout: LayoutFn = ({ nodes, params }) => {
     const radius = Math.sqrt(t) * spread * 1.9;
     const theta = i * goldenAngle;
     const y = (Math.sin(i * 0.37) * 0.5 + (t - 0.5) * 0.4) * params.level_spacing;
-    nodePositions[node.id] = [
-      Math.cos(theta) * radius,
-      y,
-      Math.sin(theta) * radius,
-    ];
+    nodePositions[node.id] = [Math.cos(theta) * radius, y, Math.sin(theta) * radius];
   }
 
-  const result: LayoutResult = { nodePositions };
+  const virtualAnchors: VirtualAnchor[] | undefined = params.show_virtual_anchors
+    ? [{ id: "anchor:galaxy:core", label: "Core", position: [0, 0, 0], kind: "root" }]
+    : undefined;
+
+  const result: LayoutResult = { nodePositions, virtualAnchors };
   return result;
 };
