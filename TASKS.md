@@ -85,6 +85,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [ ] Credenciales para Qdrant remoto / Chroma con autenticación (hoy solo endpoint)
 - [ ] Mover snapshots y memorias cifradas entre equipos (hoy los backups los excluyen y lo informan)
 - [ ] Botón "Borrar por origen" para limpiar datos de prueba
+- [x] Ingesta de carpetas grandes (2026-11-26): exclusiones por defecto ampliadas, binarios detectados sin leerlos enteros, texto > 2 MiB omitido y reportado, progreso por fragmento, `cancel_ingest` y barra de progreso global con Cancelar
 
 ## Fase 3.5 — Asistente conversacional, Personas y Estudio [PARALELO] (decidida 2026-11-25)
 Objetivo: que Cobalt sirva también a quien no programa (organizar notas, estudiar), con un chat que
