@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.3.1";
+export const CONTRACT_VERSION = "1.3.2";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -1188,6 +1188,8 @@ export interface IpcCommandMap {
   list_installed_themes: { args: void; result: InstalledTheme[] };
   get_theme_manifest: { args: ThemeIdArgs; result: ThemeManifest };
   ingest_paths: { args: IngestRequest; result: IngestReport };
+  /** Cancels a running ingest/import by `IngestProgress.job_id`; `false` if not running. */
+  cancel_ingest: { args: IdArgs; result: boolean };
   import_past_life: { args: PastLifeImportRequest; result: IngestReport };
   export_capsule: { args: CapsuleExportRequest; result: CapsuleManifest };
   import_capsule: { args: PathArgs; result: ImportReport };

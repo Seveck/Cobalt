@@ -1,4 +1,8 @@
-# Cobalt — Frozen Contracts (v1.3.1)
+# Cobalt — Frozen Contracts (v1.3.2)
+
+> v1.3.2 (Phase 3 fix, additive): `IngestService::cancel_job` + IPC `cancel_ingest`; ingest
+> progress is emitted per chunk/embedding batch; folder walks skip binaries (sniffed from the first
+> bytes) and text files > 2 MiB (reported); wider default `.memoryignore` rules.
 
 > v1.3.1 (Phase 3, additive): `DeletionImpact` + IPC `get_deletion_impact`. Users can permanently
 > delete memories from the UI; the dialog must state it is irreversible and list every consequence
@@ -284,7 +288,7 @@ a typed mock adapter clearly labelled as such, removed in Phase 3).
 | 0 | `app_info` |
 | 1 | `get_hardware_profile`, `get_settings`, `update_settings`, `list_embedding_models`, `install_engine`, `cancel_download`, `get_engine_status`, `vault_status`, `vault_setup`, `vault_unlock`, `vault_lock` |
 | 2 | `get_graph`, `get_memory`, `get_memory_history`, `save_memory`, `update_memory`, `patch_memory`, `delete_memory`, `set_memory_encrypted`, `reveal_memory`, `search_memories`, `list_branches`, `create_branch`, `switch_branch`, `merge_branch`, `discard_branch`, `list_snapshots`, `create_snapshot`, `restore_snapshot`, `delete_snapshot`, `find_duplicates`, `merge_duplicates`, `archive_memories`, `restore_memories`, `get_read_only`, `set_read_only`, `get_daemon_status`, `replay_activity`, `get_source_document`, `verify_source_document` |
-| 3 | `get_archive_impact`, `get_deletion_impact`, `list_projects`, `create_project`, `update_project`, `list_library`, `relink_source_document`, `set_watched`, `promote_file_to_reusable`, `get_telemetry_summary`, `query_telemetry`, `list_connectors`, `toggle_connector`, `run_doctor`, `doctor_fix`, `get_mcp_tool_docs`, `search_theme_registry`, `install_theme`, `install_theme_file`, `uninstall_theme`, `list_installed_themes`, `get_theme_manifest`, `ingest_paths`, `import_past_life`, `export_capsule`, `import_capsule`, `export_backup`, `import_backup`, `swap_engine`, `remove_engine_artifacts`, `build_web_context`, `submit_quick_note` |
+| 3 | `get_archive_impact`, `get_deletion_impact`, `list_projects`, `create_project`, `update_project`, `list_library`, `relink_source_document`, `set_watched`, `promote_file_to_reusable`, `get_telemetry_summary`, `query_telemetry`, `list_connectors`, `toggle_connector`, `run_doctor`, `doctor_fix`, `get_mcp_tool_docs`, `search_theme_registry`, `install_theme`, `install_theme_file`, `uninstall_theme`, `list_installed_themes`, `get_theme_manifest`, `ingest_paths`, `cancel_ingest`, `import_past_life`, `export_capsule`, `import_capsule`, `export_backup`, `import_backup`, `swap_engine`, `remove_engine_artifacts`, `build_web_context`, `submit_quick_note` |
 
 ---
 

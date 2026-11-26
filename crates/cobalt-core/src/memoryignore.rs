@@ -52,6 +52,43 @@ pub const DEFAULT_IGNORES: &[&str] = &[
     "package-lock.json",
     "*.min.js",
     "*.map",
+    // Caches, build outputs and dependency trees of common ecosystems.
+    "site-packages/",
+    ".cache/",
+    "coverage/",
+    ".turbo/",
+    ".parcel-cache/",
+    ".svelte-kit/",
+    ".nuxt/",
+    ".gradle/",
+    ".pytest_cache/",
+    ".mypy_cache/",
+    ".tox/",
+    "*.pyc",
+    // Databases, binaries, model weights, archives and media (never useful as memories).
+    "*.sqlite3",
+    "*.so",
+    "*.dll",
+    "*.dylib",
+    "*.exe",
+    "*.bin",
+    "*.pack",
+    "*.onnx",
+    "*.pt",
+    "*.pth",
+    "*.safetensors",
+    "*.parquet",
+    "*.zip",
+    "*.tar",
+    "*.gz",
+    "*.7z",
+    "*.rar",
+    "*.iso",
+    "*.mp4",
+    "*.mov",
+    "*.mkv",
+    "*.mp3",
+    "*.wav",
 ];
 
 /// Compiled matcher for one root directory.
@@ -141,6 +178,11 @@ mod tests {
         assert!(!mi.is_ignored(Path::new("Cargo.lock"), false));
         assert!(mi.is_ignored(Path::new("yarn.lock"), false));
         assert!(!mi.is_ignored(&root.join("src/main.rs"), false));
+        assert!(mi.is_ignored(&root.join(".rag/db/chroma.sqlite3"), false));
+        assert!(mi.is_ignored(&root.join("venv/lib/python3/site-packages/x.py"), false));
+        assert!(mi.is_ignored(&root.join("lib/libtorch.so"), false));
+        assert!(!mi.is_ignored(&root.join("docs/manual.pdf"), false));
+        assert!(!mi.is_ignored(&root.join("shots/board.png"), false));
         assert!(!mi.is_ignored(Path::new("/elsewhere/.env"), false));
     }
 

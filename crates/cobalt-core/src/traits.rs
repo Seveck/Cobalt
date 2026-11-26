@@ -296,6 +296,10 @@ pub trait IngestService: Send + Sync {
         progress: ProgressSink<IngestProgress>,
     ) -> Result<IngestReport>;
     async fn promote_file_to_reusable(&self, req: PromoteFileRequest) -> Result<Memory>;
+    /// Requests cancellation of a running ingest/import job (`IngestProgress::job_id`).
+    /// Documents already committed stay; the job stops before the next document.
+    /// Returns `false` if no such job is running.
+    async fn cancel_job(&self, job_id: Id) -> Result<bool>;
     /// Starts the `notify` watcher over `source_documents.is_watched = 1`.
     async fn start_watcher(&self) -> Result<()>;
     async fn stop_watcher(&self) -> Result<()>;

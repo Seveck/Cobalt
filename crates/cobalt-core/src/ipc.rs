@@ -81,6 +81,7 @@ pub mod commands {
     pub const LIST_INSTALLED_THEMES: &str = "list_installed_themes";
     pub const GET_THEME_MANIFEST: &str = "get_theme_manifest";
     pub const INGEST_PATHS: &str = "ingest_paths";
+    pub const CANCEL_INGEST: &str = "cancel_ingest";
     pub const IMPORT_PAST_LIFE: &str = "import_past_life";
     pub const EXPORT_CAPSULE: &str = "export_capsule";
     pub const IMPORT_CAPSULE: &str = "import_capsule";
