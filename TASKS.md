@@ -86,6 +86,61 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [ ] Mover snapshots y memorias cifradas entre equipos (hoy los backups los excluyen y lo informan)
 - [ ] Botón "Borrar por origen" para limpiar datos de prueba
 
+## Fase 3.5 — Asistente conversacional, Personas y Estudio [PARALELO] (decidida 2026-11-25)
+Objetivo: que Cobalt sirva también a quien no programa (organizar notas, estudiar), con un chat que
+consulta y **actúa** sobre el cerebro. Se construye después de la Fase 3 (sus importadores alimentan el chat).
+- [ ] [CLAUDE] Proveedores de modelo elegibles por el usuario en Ajustes: local (Ollama) y APIs propias
+      (Claude, Gemini, OpenAI, OpenRouter/compatibles OpenAI). API keys guardadas cifradas (Bóveda /
+      llavero del SO), nunca en texto plano; aviso claro de qué fragmentos se envían al proveedor elegido
+- [ ] [CLAUDE] Motor del asistente con herramientas internas seguras: buscar nodos (con citas), crear
+      tablas/agrupaciones (p. ej. "proyectos de este mes" con sus nodos), mover/reasignar nodos,
+      editar, archivar (dos pasos), etiquetar; toda acción queda versionada y es reversible
+- [ ] [CLAUDE] Contratos v2: entidad **Personas** (tabla `people`: yo por defecto, familiares, colegas…),
+      `memories.owner_id`; las IAs por MCP solo usan memorias del usuario salvo petición explícita
+- [ ] [CODEX] Store: Personas + reasignación, consultas agregadas por periodo/proyecto/persona,
+      tarjetas con repaso espaciado (algoritmo tipo SM-2/FSRS) y generación/corrección de cuestionarios
+- [ ] [GEMINI] Panel de chat (lateral y a pantalla completa) con respuestas que citan nodos (se iluminan
+      en el 3D), tablas interactivas, confirmación visible de acciones; zonas por persona en el 3D;
+      clic en nodo → "decirle al chat" sobre ese nodo
+- [ ] [GEMINI] Modo Estudio: preguntas con citas, tarjetas + repaso espaciado, cuestionarios,
+      resúmenes por tema/periodo
+- [ ] [CLAUDE+GEMINI] **Módulos y perfiles (anti-saturación)**: núcleo fijo (capturar, buscar, cerebro, chat);
+      cada función extra es un módulo activable (Estudio, Desarrollo/MCP, Reuniones, Diario, Investigación,
+      Voz…). El onboarding pregunta "¿para qué usarás Cobalt?" y enciende solo lo necesario; la interfaz
+      sugiere activar un módulo cuando el uso real lo indica (p. ej. tras importar PDFs de clase → Estudio),
+      nunca lo impone. Opciones avanzadas siempre en Modo Pro; la vista 3D puede ser secundaria (lista/tabla)
+- [ ] [CLAUDE+GEMINI] **Modo Voz del asistente**: el usuario habla o escribe; el agente busca todo lo
+      relacionado en Cobalt y **responde en voz alta** (con las citas visibles e iluminadas en el 3D).
+      Voz local por defecto (STT Whisper.cpp + TTS Piper / voz del SO, sin nube) y voces de proveedor
+      opcionales con la clave del usuario; atajo "pulsar para hablar", velocidad/voz configurables, ES/EN
+- [ ] [CLAUDE+CODEX] **Motores totalmente personalizables**: (1) conectores incluidos pgvector, Weaviate, Milvus,
+      Pinecone, Elasticsearch/OpenSearch y Redis con endpoint + credenciales cifradas (cierra "credenciales
+      para Qdrant remoto / Chroma"); (2) **protocolo abierto de motores** (JSON-RPC stdio/HTTP: upsert, search,
+      delete, count, health) documentado en `docs/ENGINE_PLUGIN_SPEC.md` para que cualquiera escriba un
+      adaptador como plugin y lo registre en Ajustes; (3) embeddings a medida: cualquier ONNX de Hugging Face
+      (SHA-256 fijado al añadirlo), Ollama y APIs compatibles con OpenAI. Todo usa el swap atómico con rollback
+- [ ] Posicionamiento ampliado: memoria personal y multi-IA para cualquier persona (notas, estudio y
+      desarrollo), con ahorro de tokens medible y cero telemetría
+
+## Fase 4 — Auditoría, pulido y empaquetado [PARALELO]
+- [ ] [CODEX] Benchmarks, RAM Eco, OCR/re-vectorización, precisión de ahorro, cobertura
+- [ ] [GEMINI] Auditoría visual, FPS/fugas WebGL, traducciones 100 %
+- [ ] [CLAUDE] **Limpieza total de datos de ejemplo (obligatorio antes de v1.0):** eliminar `src/lib/backendMock.ts`, el grafo simulado (~300 nodos), proyectos/telemetría/temas ficticios y el badge MOCK; verificar que una instalación nueva arranca con el cerebro vacío (0 memorias, 0 proyectos) y sin datos precargados
+- [ ] [CLAUDE] E2E completo, empaquetado `.AppImage/.deb/.rpm`, `.msi/.exe`, `.dmg`, `README.md`, reporte v1.0
+
+## Fase 5 — Expansión por módulos (post-v1, todo opcional y oculto si no se usa)
+Orden sugerido; se prioriza según el uso real de los usuarios.
+- [ ] Categorías y plantillas por perfil (Estudio, Personal, Trabajo); "activos reutilizables" generalizados a plantillas
+- [ ] Extensión de navegador (guardar página/fragmento/resaltado + puente "Copiar contexto" para IAs web)
+- [ ] Notas de voz con transcripción local; captura de pantalla con OCR por atajo
+- [ ] Importadores: Notion, Evernote, Apple Notes, Google Keep, OneNote, Kindle, Zotero, correo (.mbox)
+- [ ] Estudio avanzado: mapa de dominio, ruta de estudio por fecha de examen, modo "explícamelo", material de curso (PDF/diapositivas/YouTube), exportar a Anki
+- [ ] Trabajo: reuniones (transcripción → decisiones/tareas/personas), pendientes derivados, diario + resumen semanal, calendario .ics (solo lectura)
+- [ ] Investigación y escritura: fuentes con citas (BibTeX/Zotero), borradores citando nodos, vista de evolución de una idea
+- [ ] Personal: Personas como mini-CRM; salud/finanzas/recetas solo en Bóveda cifrada
+- [ ] Ahorro en lenguaje simple (tiempo y dinero), más idiomas (PT, FR), accesibilidad (lector de pantalla, alto contraste)
+- [ ] Futuro lejano: app móvil compañera (sync cifrada) y cerebros compartidos familia/equipo con permisos
+
 ## Propuestas pendientes de decisión (auditoría de problemáticas, 2026-11-25)
 - [ ] Búsqueda que sigue el grafo (vecinos a 1 salto) + arista `depends_on` (punto 5)
 - [ ] Detector de contradicciones al guardar (`possible_conflicts`) y sección "Contradicciones" en Limpiar Cerebro (punto 6)
