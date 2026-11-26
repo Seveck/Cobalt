@@ -30,6 +30,8 @@ instructions file (backup `.bak-<stamp>` first; removal deletes only the block):
 - Claude Code (`~/.claude/settings.json` `hooks`): `SessionStart`, `PostToolUse` (matcher
   `Edit|Write|MultiEdit|NotebookEdit|Bash`), `Stop`, `SessionEnd`. Event JSON arrives on stdin.
 - Codex CLI (`~/.codex/config.toml`): `notify = ["<cobalt>", "--hook", "codex"]` (JSON as last arg).
+- Gemini CLI (`~/.gemini/settings.json` `hooks`, timeouts in ms): `SessionStart`, `AfterTool` (matcher
+  `write_file|replace|run_shell_command`), `AfterAgent` (`prompt_response` → handoff), `SessionEnd`.
 - The hook process never blocks the client: it forwards the event over the authenticated local
   socket (`{"cobalt_hook": {...}}` after the handshake) and exits; if the daemon is down the event
   is appended to `~/.cobalt/hook-queue.jsonl` and replayed at the next daemon start. Always exits 0.

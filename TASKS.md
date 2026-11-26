@@ -94,7 +94,8 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] [CLAUDE] Proyectos indexados y vigilados al detectarse; memorias de IA marcadas "archivo cambiado" cuando su documento se actualizó después
 - [x] [CODEX] Vigilante: reemplazo atómico de fragmentos al cambiar un archivo, archivado al borrarlo, archivos nuevos en carpetas vigiladas, nunca reescribe memorias de IA/usuario
 - [x] [GEMINI] Panel "Captura automática", feed en vivo de la CLI con pulsos en el 3D, insignia "El archivo cambió desde que se guardó"
-- [ ] Pendiente: Gemini CLI y otros clientes sin sistema de hooks (solo instrucciones globales); los hooks apuntan al binario actual (reinstalar al instalar la versión final)
+- [x] Hooks de Gemini CLI (`~/.gemini/settings.json`: SessionStart, AfterTool, AfterAgent, SessionEnd)
+- [ ] Pendiente: hooks de Antigravity (`agy`, vía plugin `hooks.json`; formato por verificar) y de Cursor/Windsurf/Cline (sin sistema de hooks: solo instrucciones); los hooks apuntan al binario actual (reinstalar al instalar la versión final)
 
 ## Fase 3.5 — Asistente conversacional, Personas y Estudio [PARALELO] (decidida 2026-11-25)
 Objetivo: que Cobalt sirva también a quien no programa (organizar notas, estudiar), con un chat que

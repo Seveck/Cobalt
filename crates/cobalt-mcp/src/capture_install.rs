@@ -40,6 +40,7 @@ fn hooks_file(client: AiClient, dirs: &PlatformDirs) -> Option<PathBuf> {
     match client {
         AiClient::ClaudeCode => Some(dirs.home.join(".claude").join("settings.json")),
         AiClient::CodexCli => Some(dirs.home.join(".codex").join("config.toml")),
+        AiClient::GeminiCli => Some(dirs.home.join(".gemini").join("settings.json")),
         _ => None,
     }
 }
@@ -143,7 +144,15 @@ const CLAUDE_EVENTS: [(&str, Option<&str>); 4] = [
     ("SessionEnd", None),
 ];
 
-fn is_ours(entry: &Value) -> bool {
+/// Gemini CLI events (timeouts in milliseconds there, seconds in Claude Code).
+const GEMINI_EVENTS: [(&str, Option<&str>); 4] = [
+    ("SessionStart", None),
+    ("AfterTool", Some("write_file|replace|run_shell_command")),
+    ("AfterAgent", None),
+    ("SessionEnd", None),
+];
+
+fn is_ours_for(entry: &Value, source: &str) -> bool {
     entry
         .get("hooks")
         .and_then(Value::as_array)
@@ -151,17 +160,65 @@ fn is_ours(entry: &Value) -> bool {
             hs.iter().any(|h| {
                 h.get("command")
                     .and_then(Value::as_str)
-                    .is_some_and(|c| c.contains(HOOK_FLAG) && c.contains("claude"))
+                    .is_some_and(|c| c.contains(HOOK_FLAG) && c.ends_with(source))
             })
         })
 }
 
-fn claude_hooks_enabled(doc: &Value) -> bool {
-    CLAUDE_EVENTS.iter().all(|(ev, _)| {
+fn json_hooks_enabled(doc: &Value, events: &[(&str, Option<&str>)], source: &str) -> bool {
+    events.iter().all(|(ev, _)| {
         doc.pointer(&format!("/hooks/{ev}"))
             .and_then(Value::as_array)
-            .is_some_and(|a| a.iter().any(is_ours))
+            .is_some_and(|a| a.iter().any(|e| is_ours_for(e, source)))
     })
+}
+
+/// Adds or removes Cobalt's entries in a `{"hooks": {Event: [...]}}` JSON settings file,
+/// leaving every other hook and setting untouched.
+fn edit_json_hooks(
+    raw: &str,
+    path: &Path,
+    events: &[(&str, Option<&str>)],
+    source: &str,
+    timeout: u64,
+    exe: &Path,
+    enable: bool,
+) -> Result<String> {
+    let mut doc: Value = if raw.trim().is_empty() {
+        json!({})
+    } else {
+        serde_json::from_str(raw).map_err(|e| {
+            CobaltError::InvalidInput(format!("{} is not valid JSON: {e}", path.display()))
+        })?
+    };
+    let root = doc
+        .as_object_mut()
+        .ok_or_else(|| CobaltError::InvalidInput("settings must be a JSON object".into()))?;
+    let hooks = root.entry("hooks").or_insert_with(|| json!({}));
+    let hooks = hooks
+        .as_object_mut()
+        .ok_or_else(|| CobaltError::InvalidInput("\"hooks\" must be an object".into()))?;
+    for (event, matcher) in events {
+        let list = hooks.entry(*event).or_insert_with(|| json!([]));
+        let list = list
+            .as_array_mut()
+            .ok_or_else(|| CobaltError::InvalidInput(format!("hooks.{event} must be an array")))?;
+        list.retain(|e| !is_ours_for(e, source));
+        if enable {
+            let mut entry = json!({ "hooks": [{ "type": "command", "command": hook_command(exe, source), "timeout": timeout }] });
+            if let Some(m) = matcher {
+                entry["matcher"] = json!(m);
+            }
+            list.push(entry);
+        }
+    }
+    hooks.retain(|_, v| !v.as_array().is_some_and(Vec::is_empty));
+    if hooks.is_empty() {
+        root.remove("hooks");
+    }
+    let mut out = serde_json::to_string_pretty(&doc)?;
+    out.push('\n');
+    Ok(out)
 }
 
 fn codex_notify_state(raw: &str, exe: &Path) -> (bool, bool) {
@@ -188,7 +245,13 @@ fn hooks_status(client: AiClient, dirs: &PlatformDirs, exe: &Path) -> CaptureSta
     let (enabled, detail) = match client {
         AiClient::ClaudeCode => (
             serde_json::from_str::<Value>(&raw)
-                .map(|d| claude_hooks_enabled(&d))
+                .map(|d| json_hooks_enabled(&d, &CLAUDE_EVENTS, "claude"))
+                .unwrap_or(false),
+            None,
+        ),
+        AiClient::GeminiCli => (
+            serde_json::from_str::<Value>(&raw)
+                .map(|d| json_hooks_enabled(&d, &GEMINI_EVENTS, "gemini"))
                 .unwrap_or(false),
             None,
         ),
@@ -228,38 +291,13 @@ fn toggle_hooks(
     let raw = std::fs::read_to_string(&path).unwrap_or_default();
     match client {
         AiClient::ClaudeCode => {
-            let mut doc: Value = if raw.trim().is_empty() {
-                json!({})
-            } else {
-                serde_json::from_str(&raw).map_err(|e| {
-                    CobaltError::InvalidInput(format!("{} is not valid JSON: {e}", path.display()))
-                })?
-            };
-            let root = doc.as_object_mut().ok_or_else(|| {
-                CobaltError::InvalidInput("settings.json must be an object".into())
-            })?;
-            let hooks = root.entry("hooks").or_insert_with(|| json!({}));
-            let hooks = hooks
-                .as_object_mut()
-                .ok_or_else(|| CobaltError::InvalidInput("\"hooks\" must be an object".into()))?;
-            for (event, matcher) in CLAUDE_EVENTS {
-                let list = hooks.entry(event).or_insert_with(|| json!([]));
-                let list = list.as_array_mut().ok_or_else(|| {
-                    CobaltError::InvalidInput(format!("hooks.{event} must be an array"))
-                })?;
-                list.retain(|e| !is_ours(e));
-                if enable {
-                    let mut entry = json!({ "hooks": [{ "type": "command", "command": hook_command(exe, "claude"), "timeout": 5 }] });
-                    if let Some(m) = matcher {
-                        entry["matcher"] = json!(m);
-                    }
-                    list.push(entry);
-                }
-            }
-            hooks.retain(|_, v| !v.as_array().is_some_and(Vec::is_empty));
+            let out = edit_json_hooks(&raw, &path, &CLAUDE_EVENTS, "claude", 5, exe, enable)?;
             backup(&path)?;
-            let mut out = serde_json::to_string_pretty(&doc)?;
-            out.push('\n');
+            write(&path, &out)?;
+        }
+        AiClient::GeminiCli => {
+            let out = edit_json_hooks(&raw, &path, &GEMINI_EVENTS, "gemini", 5000, exe, enable)?;
+            backup(&path)?;
             write(&path, &out)?;
         }
         AiClient::CodexCli => {
@@ -458,6 +496,40 @@ mod tests {
             "notify-send done"
         );
         assert!(doc["hooks"].get("PostToolUse").is_none());
+    }
+
+    #[test]
+    fn gemini_hooks_use_milliseconds_and_keep_settings() {
+        let root = tempfile::tempdir().unwrap();
+        let d = dirs(root.path());
+        let exe = root.path().join("cobalt");
+        let file = hooks_file(AiClient::GeminiCli, &d).unwrap();
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(
+            &file,
+            r#"{"theme":"Dracula","mcpServers":{"cobalt":{"command":"x"}}}"#,
+        )
+        .unwrap();
+        assert!(
+            toggle_hooks(AiClient::GeminiCli, true, &d, &exe)
+                .unwrap()
+                .enabled
+        );
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(doc["theme"], "Dracula");
+        assert_eq!(
+            doc["hooks"]["AfterTool"][0]["matcher"],
+            "write_file|replace|run_shell_command"
+        );
+        assert_eq!(doc["hooks"]["AfterAgent"][0]["hooks"][0]["timeout"], 5000);
+        assert!(
+            !toggle_hooks(AiClient::GeminiCli, false, &d, &exe)
+                .unwrap()
+                .enabled
+        );
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert!(doc.get("hooks").is_none());
+        assert_eq!(doc["mcpServers"]["cobalt"]["command"], "x");
     }
 
     #[test]

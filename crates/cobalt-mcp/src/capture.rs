@@ -94,6 +94,7 @@ impl Daemon {
         ctx.client_name = match env.source.as_str() {
             "claude" => "claude-code".into(),
             "codex" => "codex".into(),
+            "gemini" => "gemini-cli".into(),
             "git" => "git".into(),
             other => short(other, 32),
         };
@@ -151,6 +152,48 @@ impl Daemon {
                         };
                         let message = str_at(p, "/transcript_path")
                             .and_then(|t| last_assistant_message(Path::new(t)));
+                        activity.detail = message.as_deref().map(|m| short(&scrub(m).text, 160));
+                        activity.files = self.session_files(&session);
+                        self.auto_handoff(
+                            &ctx,
+                            &resolved,
+                            &session,
+                            message.as_deref(),
+                            &activity.files,
+                            event == "SessionEnd",
+                        )
+                        .await;
+                    }
+                    _ => return Ok(()),
+                }
+            }
+            "gemini" => {
+                let event = str_at(p, "/hook_event_name").unwrap_or_default();
+                match event {
+                    "SessionStart" => activity.kind = CliActivityKind::SessionStart,
+                    "AfterTool" => {
+                        let tool = str_at(p, "/tool_name").unwrap_or_default();
+                        if tool == "run_shell_command" {
+                            activity.kind = CliActivityKind::Command;
+                            activity.detail = str_at(p, "/tool_input/command")
+                                .map(|c| short(&scrub(c).text, 160));
+                        } else {
+                            activity.kind = CliActivityKind::FileEdit;
+                            let file = str_at(p, "/tool_input/file_path")
+                                .or_else(|| str_at(p, "/tool_input/absolute_path"));
+                            if let Some(f) = file {
+                                activity.files.push(f.to_owned());
+                                self.track_file(&session, f);
+                            }
+                        }
+                    }
+                    "AfterAgent" | "SessionEnd" => {
+                        activity.kind = if event == "AfterAgent" {
+                            CliActivityKind::TurnEnd
+                        } else {
+                            CliActivityKind::SessionEnd
+                        };
+                        let message = str_at(p, "/prompt_response").map(str::to_owned);
                         activity.detail = message.as_deref().map(|m| short(&scrub(m).text, 160));
                         activity.files = self.session_files(&session);
                         self.auto_handoff(
