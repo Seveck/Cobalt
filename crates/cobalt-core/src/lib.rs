@@ -46,7 +46,7 @@ pub use ids::{Id, MAIN_BRANCH_ID, MAIN_BRANCH_NAME, Timestamp};
 pub const CONTRACT_VERSION: &str = "1.12.0";
 
 /// SQLite schema version (`PRAGMA user_version`) expected by this build.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Number of canonical tables in the schema (virtual `vec_memories` included).
 pub const CANONICAL_TABLE_COUNT: usize = 12;
