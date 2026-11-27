@@ -325,9 +325,16 @@ fn load_ocr_engine(
         cobalt_core::enums::OcrEngineKind::Ocrs => Ok(Arc::new(
             cobalt_ingest::OcrsEngine::from_paths(&files.detection, &files.recognition)?,
         )),
-        cobalt_core::enums::OcrEngineKind::PaddleOcr => Err(cobalt_core::CobaltError::Unsupported(
-            "PaddleOCR engine lands with cobalt-ingest f17".into(),
-        )),
+        cobalt_core::enums::OcrEngineKind::PaddleOcr => {
+            let dictionary = files.dictionary.as_ref().ok_or_else(|| {
+                cobalt_core::CobaltError::Integrity("PaddleOCR dictionary missing".into())
+            })?;
+            Ok(Arc::new(cobalt_ingest::PaddleOcrEngine::from_files(
+                &files.detection,
+                &files.recognition,
+                dictionary,
+            )?))
+        }
     }
 }
 

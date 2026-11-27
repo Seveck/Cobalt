@@ -189,7 +189,8 @@ Behavior you must know:
   mistakes, with handwriting and also with computer-made text (small or stylized fonts, low
   resolution, blur, tables). Treat exact values in them (numbers, names, codes) as possibly
   wrong and confirm with the user or the original file before relying on them.
-  The current OCR model reads only basic Latin letters: accents, ñ, ü, ¿ and ¡ come out wrong.
+  The user chooses the OCR engine: `ocrs` reads only basic Latin letters (accents, ñ, ü, ¿, ¡
+  come out wrong); PaddleOCR reads accents, ñ, ü and ¿ (not ¡).
 - **Duplicates are handled for you** (Check-Before-Write merges or versions near-duplicates): do
   not search just to avoid duplicates.
 - **`archive_memory` is two-step:** call with `confirm=false` (dry run: shows which other AIs use

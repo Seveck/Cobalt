@@ -363,8 +363,13 @@ selectable only in Pro mode (`PRO_ENGLISH_MODELS`). Defaults come from
 - Two engines (v1.8.0), chosen by the user (`capture.ocr_model_id`; changing it rebuilds ingest):
   - `ocrs-latin` (`ocrs`, pure Rust): basic Latin only (no accents/ñ/¿¡).
   - `paddleocr-latin` (`paddle_ocr`, PP-OCRv5 mobile det + latin rec via ONNX Runtime, Apache-2.0):
-    full Latin script incl. á é í ó ú ñ ü ¿ ¡; needs `recognition-dict.yml` (the model's
-    `inference.yml`). Implemented by `cobalt_ingest::PaddleOcrEngine`.
+    full Latin script incl. á é í ó ú ñ ü ¿ (its dictionary lacks `¡`); needs
+    `recognition-dict.yml` (the model's `inference.yml`). Implemented by
+    `cobalt_ingest::PaddleOcrEngine` on the ONNX Runtime fastembed already ships (+199 KiB).
+  - Measured on an i3-8130U (6 fixtures, character error rate, warm time, peak RSS delta):
+    Spanish 15.2 % vs 1.0 %; 12 px text 2.8 % vs 0 %; code 2.5 % vs 3.8 %; English/rotated 0 % both;
+    PaddleOCR warm reads ~0.25–0.72 s vs ~0.48–0.97 s and ~130–166 MiB vs ~175–199 MiB peak
+    (two-column page: 256 vs 199 MiB).
 
 ## 7. Process model & local endpoints (`cobalt_core::paths`)
 
