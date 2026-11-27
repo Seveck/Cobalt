@@ -63,6 +63,14 @@ async fn resolve_project_for(
     if let Some(project) = store.resolve_project_by_path(first, false).await? {
         return Ok(Some(project.id));
     }
+    // A linked git worktree belongs to the project of its main checkout.
+    if let Some(main) = cobalt_mcp::project::main_checkout_path(std::path::Path::new(first))
+        && let Some(project) = store
+            .resolve_project_by_path(&main.to_string_lossy(), false)
+            .await?
+    {
+        return Ok(Some(project.id));
+    }
     let is_dir = tokio::fs::metadata(first)
         .await
         .map(|m| m.is_dir())

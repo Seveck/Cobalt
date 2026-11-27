@@ -112,6 +112,23 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// For a path inside a linked git worktree (`git worktree add`), the same path inside the
+/// main checkout. `None` for main checkouts, submodules and paths outside git.
+pub fn main_checkout_path(path: &Path) -> Option<std::path::PathBuf> {
+    let worktree = path.ancestors().find(|dir| dir.join(".git").exists())?;
+    let dot_git = std::fs::read_to_string(worktree.join(".git")).ok()?; // a dir fails here
+    let gitdir = Path::new(dot_git.trim().strip_prefix("gitdir:")?.trim());
+    let gitdir = worktree.join(gitdir); // relative gitdirs are relative to the worktree
+    // Only linked worktrees have `commondir` (submodules do not).
+    let common = std::fs::read_to_string(gitdir.join("commondir")).ok()?;
+    let common = std::fs::canonicalize(gitdir.join(common.trim())).ok()?;
+    if common.file_name()? != ".git" {
+        return None; // bare repository: no main checkout
+    }
+    let main = common.parent()?;
+    Some(main.join(path.strip_prefix(worktree).ok()?))
+}
+
 /// Directories too broad to be a project (home, filesystem root).
 fn is_too_broad(path: &str) -> bool {
     let p = Path::new(path);
@@ -174,6 +191,18 @@ impl Daemon {
                 created: false,
             });
         }
+        // A linked git worktree belongs to the project of its main checkout.
+        if let Some(main) = main_checkout_path(Path::new(path))
+            && let Some(project) = self
+                .store()
+                .resolve_project_by_path(&main.to_string_lossy(), false)
+                .await?
+        {
+            return Ok(Resolved::Project {
+                project,
+                created: false,
+            });
+        }
         Ok(
             match self.store().resolve_project_by_path(path, true).await? {
                 Some(project) => Resolved::Project {
@@ -201,6 +230,33 @@ mod tests {
             Some("C:/Users/a/app")
         );
         assert_eq!(uri_to_path("https://x"), None);
+    }
+
+    #[test]
+    fn linked_worktrees_map_to_the_main_checkout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let main = tmp.path().join("app");
+        let wt = tmp.path().join("app-agent");
+        let admin = main.join(".git/worktrees/app-agent");
+        std::fs::create_dir_all(&admin).unwrap();
+        std::fs::create_dir_all(wt.join("src")).unwrap();
+        std::fs::write(admin.join("commondir"), "../..\n").unwrap();
+        std::fs::write(wt.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+        let main = std::fs::canonicalize(&main).unwrap();
+
+        assert_eq!(main_checkout_path(&wt), Some(main.clone()));
+        assert_eq!(main_checkout_path(&wt.join("src")), Some(main.join("src")));
+        // The main checkout itself and submodules (no commondir) are left alone.
+        assert_eq!(main_checkout_path(&main), None);
+        let sub = tmp.path().join("sub");
+        std::fs::create_dir_all(main.join(".git/modules/sub")).unwrap();
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(
+            sub.join(".git"),
+            format!("gitdir: {}\n", main.join(".git/modules/sub").display()),
+        )
+        .unwrap();
+        assert_eq!(main_checkout_path(&sub), None);
     }
 
     #[test]
