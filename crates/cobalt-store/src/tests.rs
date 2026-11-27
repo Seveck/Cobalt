@@ -124,7 +124,8 @@ async fn migration_sets_canonical_schema_and_connection_pragmas() {
         let tables = stmt.query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<Vec<String>>>().unwrap();
         assert_eq!(tables, [
             "app_config", "branches", "handoffs", "installed_themes", "memories", "memories_fts",
-            "memory_edges", "projects", "snapshots", "source_documents", "telemetry_logs", "usage_hourly",
+            "memory_edges", "memory_proposals", "projects", "snapshots", "source_documents",
+            "telemetry_logs", "usage_hourly",
         ]);
         let main = crate::repositories::branch(conn, None)?;
         assert_eq!(main.id, MAIN_BRANCH_ID);
@@ -1025,4 +1026,5 @@ async fn pruning_removes_archived_ingest_vectors_and_keeps_linked_vectors() {
         .unwrap();
 }
 
+mod proposals;
 mod similarity;

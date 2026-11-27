@@ -238,7 +238,7 @@ pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {
             )
             .map_err(sql_error)?;
         }
-        1 | 2 | SCHEMA_VERSION => {}
+        1..=SCHEMA_VERSION => {}
         _ => {
             return Err(CobaltError::Integrity(format!(
                 "SQLite schema version {version} is incompatible with version {SCHEMA_VERSION}"
@@ -251,6 +251,10 @@ pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {
     }
     if (1..3).contains(&version) {
         crate::telemetry::migrate_token_savings(&tx)?;
+    }
+    if version < 4 {
+        tx.execute_batch(include_str!("memory_proposals.sql"))
+            .map_err(sql_error)?;
     }
     if version < SCHEMA_VERSION {
         tx.pragma_update(None, "user_version", SCHEMA_VERSION)
