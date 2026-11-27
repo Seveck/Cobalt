@@ -76,7 +76,7 @@ Changing anything here requires a contract version bump made by [CLAUDE] in all 
 
 ---
 
-## 2. SQLite canonical schema (`SCHEMA_VERSION = 2`, `PRAGMA user_version = 2`; v1 databases migrate by adding §2.1)
+## 2. SQLite canonical schema (`SCHEMA_VERSION = 3`, `PRAGMA user_version = 3`; v1→v2 adds §2.1, v2→v3 recomputes token savings — see §2.2)
 
 Owner of migrations: **[CODEX]** (`crates/cobalt-store`). The DDL below is normative: column
 names, types, nullability, defaults and `CHECK`s must match exactly. Extra *indexes* are
@@ -285,6 +285,18 @@ CREATE TABLE usage_hourly (
 - Local days/hours = UTC hour shifted by `utc_offset_minutes` (half-hour offsets round to the hour
   bucket). `memories_created` per day comes from `memories.created_at` (exact).
 - `git` commits recorded by hooks count as `write` requests of client `git`; the UI may hide them.
+
+### 2.2 Token-savings accounting (schema v3)
+
+What "saved tokens" means, deliberately conservative:
+- `read` (search): each unique source document returned credits `min(total_tokens, 2000)`
+  (`READ_AVOIDED_CAP_PER_DOCUMENT`), only once per client per 30 minutes
+  (`READ_DEDUP_WINDOW_SECS`); memories without a document credit their own `chunk_tokens`.
+- `reuse`: credits the asset tokens the AI did not have to write (`output_tokens_saved`).
+- `write`, `update`, `handoff`, `blocked_firewall`: credit nothing.
+- `saved = max(0, avoided − injected)`. `injected` counts the larger of the text and the
+  structured JSON actually returned.
+- The v2→v3 migration and v1/v2 backup imports recompute past rows with these rules.
 
 ### Domain invariants (enforced by `cobalt-store`)
 
