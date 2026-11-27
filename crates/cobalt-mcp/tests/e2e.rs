@@ -476,3 +476,94 @@ async fn mcp_end_to_end_over_socket_and_http() {
     assert_eq!(status, 200);
     assert!(body.contains("/api/v1/search"));
 }
+
+/// `cobalt --mcp-stdio` survives a daemon restart: the bridge reconnects, replays the MCP
+/// handshake silently and the client keeps working without re-initializing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stdio_bridge_survives_daemon_restart() {
+    use tokio::io::AsyncBufReadExt;
+
+    let home = tempfile::tempdir().unwrap();
+    let base = SqliteStore::open_at(home.path().join("cobalt.db"))
+        .await
+        .unwrap();
+    let config = Arc::new(ConfigManager::load(Arc::new(base.clone())).await.unwrap());
+    let spec = Catalog::builtin()
+        .unwrap()
+        .model("multilingual-e5-small")
+        .unwrap()
+        .spec
+        .clone();
+    let tokens = Arc::new(TiktokenCounter::new(TokenEncoding::Cl100kBase));
+    let store = base
+        .with_sqlite_vec(Arc::new(BagOfWords(spec)), tokens.clone())
+        .await
+        .unwrap();
+    let recorder = Arc::new(Recorder::default());
+    let daemon = Daemon::new(
+        Arc::new(store),
+        config,
+        tokens,
+        home.path().to_path_buf(),
+        recorder.clone(),
+    );
+
+    let socket = SocketServer::start(daemon.clone()).await.unwrap();
+    let (mut to_bridge, bridge_in) = tokio::io::duplex(1 << 16);
+    let (bridge_out, from_bridge) = tokio::io::duplex(1 << 16);
+    let first = connect_existing(home.path()).await.unwrap();
+    let bridge_home = home.path().to_path_buf();
+    let bridge = tokio::spawn(async move {
+        cobalt_mcp::socket::run_bridge(
+            &bridge_home,
+            None,
+            first,
+            tokio::io::BufReader::new(bridge_in),
+            bridge_out,
+        )
+        .await
+    });
+    let mut replies = tokio::io::BufReader::new(from_bridge).lines();
+    let mut ask = async |msg: Value| {
+        let mut line = serde_json::to_vec(&msg).unwrap();
+        line.push(b'\n');
+        to_bridge.write_all(&line).await.unwrap();
+    };
+    let next = async |replies: &mut tokio::io::Lines<_>| -> Value {
+        let line = tokio::time::timeout(std::time::Duration::from_secs(20), replies.next_line())
+            .await
+            .expect("bridge reply")
+            .unwrap()
+            .unwrap();
+        serde_json::from_str(&line).unwrap()
+    };
+
+    ask(json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "bridge-client", "version": "1" } } })).await;
+    assert_eq!(next(&mut replies).await["id"], 1);
+    ask(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))
+        .await;
+
+    // Daemon restart: every bridge connection is closed, a new server takes the socket.
+    drop(socket);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let _socket = SocketServer::start(daemon.clone()).await.unwrap();
+
+    // The client just keeps going: no "connection closed", no replayed initialize reply.
+    ask(json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }))
+        .await;
+    let tools = next(&mut replies).await;
+    assert_eq!(tools["id"], 2, "{tools}");
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 8);
+    // The new daemon connection knows who the client is: the handshake was replayed.
+    ask(json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "search_memory", "arguments": { "query": "redis", "project": "global" } } })).await;
+    assert_eq!(next(&mut replies).await["id"], 3);
+    let last = recorder.activity.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(last.client_name, "bridge-client");
+
+    drop(to_bridge);
+    tokio::time::timeout(std::time::Duration::from_secs(5), bridge)
+        .await
+        .expect("bridge ends when the client closes stdin")
+        .unwrap()
+        .unwrap();
+}

@@ -8,6 +8,7 @@
 //! (regenerated at every daemon start, owner-only permissions). Every following line is an
 //! MCP JSON-RPC message, relayed verbatim in both directions.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -135,12 +136,16 @@ impl SocketServer {
 }
 
 async fn accept_loop(listener: Listener, daemon: Arc<Daemon>, token: String) {
+    // Owned by this task: stopping the server (abort) drops the set and closes every bridge
+    // connection, exactly like a daemon restart does.
+    let mut connections = tokio::task::JoinSet::new();
     loop {
+        while connections.try_join_next().is_some() {}
         match listener.accept().await {
             Ok(conn) => {
                 let daemon = daemon.clone();
                 let token = token.clone();
-                tokio::spawn(async move {
+                connections.spawn(async move {
                     if let Err(err) = serve_connection(conn, daemon, &token).await {
                         tracing::debug!(%err, "bridge connection closed");
                     }
@@ -289,32 +294,256 @@ async fn handshake(stream: &Stream, token: String, cwd: Option<String>) -> Resul
 
 /// `cobalt --mcp-stdio`: relays stdin/stdout JSON-RPC lines to the daemon and back.
 pub async fn run_stdio_bridge(home: &Path, daemon_exe: &Path) -> Result<()> {
-    let stream = connect_authenticated(home, daemon_exe).await?;
-    let mut send = &stream;
+    // Release builds restart a missing daemon; dev builds wait, because `tauri dev` owns the
+    // app process and a headless copy would take over its single instance.
+    let respawn = (!cfg!(debug_assertions)).then_some(daemon_exe);
+    let first = connect_authenticated(home, daemon_exe).await?;
+    run_bridge(
+        home,
+        respawn,
+        first,
+        BufReader::new(tokio::io::stdin()),
+        tokio::io::stdout(),
+    )
+    .await
+}
 
-    let upstream = async {
-        let mut stdin = BufReader::new(tokio::io::stdin()).lines();
-        while let Some(line) = stdin.next_line().await? {
-            send.write_all(line.as_bytes()).await?;
-            send.write_all(b"\n").await?;
-            send.flush().await?;
+/// Id of the `initialize` the bridge replays after reconnecting (its response is dropped).
+const REPLAY_ID: &str = "cobalt-bridge-reinit";
+/// A request waiting for the daemon to come back fails after this long.
+const OFFLINE_REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
+/// Release builds start the daemon again when it has been gone this long.
+const RESPAWN_AFTER: Duration = Duration::from_secs(10);
+
+/// Error sent for a request the daemon will never answer (it went away mid-call).
+fn restart_error(id: &serde_json::Value) -> String {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": { "code": -32000, "message": "Cobalt daemon restarted; retry the request" }
+    })
+    .to_string()
+}
+
+/// MCP session state the bridge must replay after a daemon restart.
+#[derive(Default)]
+struct BridgeSession {
+    initialize: Option<serde_json::Value>,
+    initialized: Option<String>,
+    /// Client requests sent to the daemon and not answered yet, keyed by serialized id.
+    in_flight: std::collections::HashMap<String, serde_json::Value>,
+}
+
+impl BridgeSession {
+    /// Remembers what a client line means for replay and pending answers.
+    fn outgoing(&mut self, line: &str) {
+        let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) else {
+            return;
+        };
+        match (msg.get("method").and_then(|m| m.as_str()), msg.get("id")) {
+            (Some("initialize"), Some(id)) => {
+                self.in_flight.insert(id.to_string(), id.clone());
+                self.initialize = Some(msg);
+            }
+            (Some("notifications/initialized"), None) => self.initialized = Some(line.to_owned()),
+            (Some(_), Some(id)) => {
+                self.in_flight.insert(id.to_string(), id.clone());
+            }
+            _ => {}
         }
-        Ok::<_, CobaltError>(())
-    };
-    let downstream = async {
-        let mut stdout = tokio::io::stdout();
-        let mut lines = BufReader::new(&stream).lines();
-        while let Some(line) = lines.next_line().await? {
-            stdout.write_all(line.as_bytes()).await?;
-            stdout.write_all(b"\n").await?;
-            stdout.flush().await?;
+    }
+
+    /// `false` when the daemon line must not reach the client (the replayed `initialize`).
+    fn incoming(&mut self, line: &str) -> bool {
+        let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) else {
+            return true;
+        };
+        if msg.get("method").is_some() {
+            return true; // server → client request or notification
         }
-        Ok::<_, CobaltError>(())
-    };
-    // The client closing stdin (or the daemon closing the socket) ends the bridge.
-    tokio::select! {
-        r = upstream => r,
-        r = downstream => r,
+        match msg.get("id") {
+            Some(id) if id.as_str() == Some(REPLAY_ID) => false,
+            Some(id) => {
+                self.in_flight.remove(&id.to_string());
+                true
+            }
+            None => true,
+        }
+    }
+
+    /// Lines that rebuild the session on a fresh daemon connection.
+    fn replay(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if let Some(init) = &self.initialize {
+            let mut init = init.clone();
+            init["id"] = serde_json::Value::from(REPLAY_ID);
+            lines.push(init.to_string());
+            lines.extend(self.initialized.clone());
+        }
+        lines
+    }
+}
+
+/// Why one daemon connection ended.
+enum LinkEnd {
+    ClientGone,
+    DaemonGone,
+}
+
+async fn write_line<W: tokio::io::AsyncWrite + Unpin>(out: &mut W, line: &str) -> Result<()> {
+    out.write_all(line.as_bytes()).await?;
+    out.write_all(b"\n").await?;
+    out.flush().await?;
+    Ok(())
+}
+
+/// Relays between the client and the daemon, reconnecting (and replaying the MCP handshake)
+/// whenever the daemon restarts, so the client never sees "connection closed".
+pub async fn run_bridge<I, O>(
+    home: &Path,
+    respawn: Option<&Path>,
+    first: Stream,
+    input: I,
+    mut output: O,
+) -> Result<()>
+where
+    I: tokio::io::AsyncBufRead + Unpin + Send + 'static,
+    O: tokio::io::AsyncWrite + Unpin,
+{
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(256);
+    tokio::spawn(async move {
+        let mut lines = input.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if tx.send(line).await.is_err() {
+                break;
+            }
+        }
+    });
+    let mut session = BridgeSession::default();
+    let mut stream = first;
+    // Client lines not delivered yet (sent before anything newer from stdin).
+    let mut backlog = VecDeque::new();
+    loop {
+        match relay(&stream, &mut rx, &mut output, &mut session, &mut backlog).await? {
+            LinkEnd::ClientGone => return Ok(()),
+            LinkEnd::DaemonGone => {
+                tracing::info!("daemon connection lost; reconnecting");
+                for id in std::mem::take(&mut session.in_flight).into_values() {
+                    write_line(&mut output, &restart_error(&id)).await?;
+                }
+                match reconnect(home, respawn, &mut rx, &mut output, &mut backlog).await? {
+                    Some(fresh) => stream = fresh,
+                    None => return Ok(()),
+                }
+                let mut send = &stream;
+                for line in session.replay() {
+                    write_line(&mut send, &line).await?;
+                }
+            }
+        }
+    }
+}
+
+/// One daemon connection: delivers the backlog first, then relays both ways.
+async fn relay<O: tokio::io::AsyncWrite + Unpin>(
+    stream: &Stream,
+    rx: &mut tokio::sync::mpsc::Receiver<String>,
+    output: &mut O,
+    session: &mut BridgeSession,
+    backlog: &mut VecDeque<String>,
+) -> Result<LinkEnd> {
+    let mut send = stream;
+    let mut lines = BufReader::new(stream).lines();
+    loop {
+        let line = match backlog.pop_front() {
+            Some(line) => line,
+            None => tokio::select! {
+                msg = rx.recv() => match msg {
+                    Some(line) => line,
+                    None => return Ok(LinkEnd::ClientGone),
+                },
+                got = lines.next_line() => match got {
+                    Ok(Some(line)) => {
+                        if session.incoming(&line) {
+                            write_line(output, &line).await?;
+                        }
+                        continue;
+                    }
+                    Ok(None) | Err(_) => return Ok(LinkEnd::DaemonGone),
+                },
+            },
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+        if write_line(&mut send, &line).await.is_err() {
+            backlog.push_front(line);
+            return Ok(LinkEnd::DaemonGone);
+        }
+        session.outgoing(&line);
+    }
+}
+
+/// Tries one authenticated connection without starting a daemon.
+async fn try_connect(home: &Path) -> Option<Stream> {
+    let stream = Stream::connect(socket_name(home).ok()?).await.ok()?;
+    let token = read_token(home).ok()?;
+    let cwd = std::env::current_dir()
+        .ok()
+        .map(|d| d.to_string_lossy().into_owned());
+    handshake(&stream, token, cwd)
+        .await
+        .ok()
+        .filter(|ok| *ok)
+        .map(|_| stream)
+}
+
+/// Waits for the daemon to come back. Client lines arriving meanwhile join the backlog; a
+/// request older than [`OFFLINE_REQUEST_TIMEOUT`] is answered with an error and dropped.
+/// `None` when the client left.
+async fn reconnect<O: tokio::io::AsyncWrite + Unpin>(
+    home: &Path,
+    respawn: Option<&Path>,
+    rx: &mut tokio::sync::mpsc::Receiver<String>,
+    output: &mut O,
+    backlog: &mut VecDeque<String>,
+) -> Result<Option<Stream>> {
+    let lost = tokio::time::Instant::now();
+    let mut since: VecDeque<tokio::time::Instant> = backlog.iter().map(|_| lost).collect();
+    let mut spawned = false;
+    loop {
+        if let Some(stream) = try_connect(home).await {
+            return Ok(Some(stream));
+        }
+        if let Some(exe) = respawn
+            && !spawned
+            && lost.elapsed() >= RESPAWN_AFTER
+        {
+            spawned = spawn_daemon(exe).is_ok();
+        }
+        while since
+            .front()
+            .is_some_and(|t| t.elapsed() >= OFFLINE_REQUEST_TIMEOUT)
+        {
+            since.pop_front();
+            if let Some(line) = backlog.pop_front()
+                && let Ok(serde_json::Value::Object(msg)) = serde_json::from_str(&line)
+                && let Some(id) = msg.get("id")
+                && msg.contains_key("method")
+            {
+                write_line(output, &restart_error(id)).await?;
+            }
+        }
+        tokio::select! {
+            msg = rx.recv() => match msg {
+                Some(line) => {
+                    backlog.push_back(line);
+                    since.push_back(tokio::time::Instant::now());
+                }
+                None => return Ok(None),
+            },
+            () = tokio::time::sleep(Duration::from_millis(250)) => {}
+        }
     }
 }
 
