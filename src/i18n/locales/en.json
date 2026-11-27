@@ -188,14 +188,26 @@
     "emptyConnectAction": "Connect an AI",
     "emptyProjectAction": "Create project",
     "layouts": {
-      "label": "3D Layout",
+      "label": "3D Layouts",
+      "panelSubtitle": "Switch how your memories arrange in space.",
+      "collapsePanel": "Collapse layouts panel",
+      "expandPanel": "Expand layouts panel",
       "galaxy": "Galaxy",
       "brain": "Brain",
       "neural_net": "Neural Net",
       "knowledge_tree": "Tree",
-      "project_clusters": "Projects (spheres)",
-      "project_islands": "Project islands",
-      "custom_mesh": "Custom"
+      "project_clusters": "Projects",
+      "project_islands": "Islands",
+      "custom_mesh": "Custom",
+      "descriptions": {
+        "galaxy": "Star cloud grouped by topic similarity",
+        "brain": "Two hemispheres organized by category",
+        "neural_net": "Connected layers ordered by importance",
+        "knowledge_tree": "Branches from projects down to each note",
+        "project_clusters": "Separate spheres for each project",
+        "project_islands": "Flat islands separated by project",
+        "custom_mesh": "3D shape defined by the active theme"
+      }
     },
     "clusterMetric": {
       "label": "Cluster size metric",

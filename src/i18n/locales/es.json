@@ -188,14 +188,26 @@
     "emptyConnectAction": "Conectar una IA",
     "emptyProjectAction": "Crear proyecto",
     "layouts": {
-      "label": "Disposición 3D",
+      "label": "Disposiciones 3D",
+      "panelSubtitle": "Elige cómo se organizan tus memorias en el espacio.",
+      "collapsePanel": "Contraer panel de disposiciones",
+      "expandPanel": "Expandir panel de disposiciones",
       "galaxy": "Galaxia",
       "brain": "Cerebro",
       "neural_net": "Red Neuronal",
       "knowledge_tree": "Árbol",
-      "project_clusters": "Proyectos (esferas)",
-      "project_islands": "Islas por proyecto",
-      "custom_mesh": "Personalizado"
+      "project_clusters": "Proyectos",
+      "project_islands": "Islas",
+      "custom_mesh": "Personalizado",
+      "descriptions": {
+        "galaxy": "Nube estelar agrupada por afinidad",
+        "brain": "Dos hemisferios organizados por categoría",
+        "neural_net": "Capas conectadas según su importancia",
+        "knowledge_tree": "Ramas desde tus proyectos hacia cada nota",
+        "project_clusters": "Esferas separadas para cada proyecto",
+        "project_islands": "Islas planas separadas por proyecto",
+        "custom_mesh": "Forma 3D definida por el tema activo"
+      }
     },
     "clusterMetric": {
       "label": "Métrica de tamaño de clúster",

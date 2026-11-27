@@ -41,7 +41,7 @@ import { TimeTravelBar } from "@/components/tools/TimeTravelBar";
 import { BUILTIN_THEME_ID, type GraphNode, type ProjectContainer } from "@/types/contracts";
 import { BrainScene, type PulseVisibilitySummary } from "./BrainScene";
 import { FilterDock } from "./FilterDock";
-import { LayoutSwitcher } from "./LayoutSwitcher";
+import { LayoutsPanel } from "./LayoutsPanel";
 import { NodeTooltip, type TooltipPointer } from "./NodeTooltip";
 import { PulseEdgeIndicator } from "./PulseEdgeIndicator";
 import { SynapticHud } from "./SynapticHud";
@@ -332,16 +332,8 @@ export function BrainCanvas() {
             )}
           </div>
 
-          {/* Top-right: 5-Layout Switcher + Governance Tools + Camera Reset */}
+          {/* Top-right: Connections toggle + Governance Tools + Camera Reset */}
           <div className="pointer-events-auto flex flex-wrap items-center gap-1.5">
-            <LayoutSwitcher
-              activeLayout={activeLayout}
-              clusterSizeMetric={clusterSizeMetric}
-              hasCustomMesh={Boolean(manifest.mesh_path)}
-              onSelectLayout={setActiveLayout}
-              onSelectSizeMetric={setClusterSizeMetric}
-            />
-
             <button
               type="button"
               onClick={toggleShowConnections}
@@ -609,6 +601,15 @@ export function BrainCanvas() {
           )}
         </div>
       </div>
+
+      {/* Collapsible Layouts Panel on the right edge of the 3D view */}
+      <LayoutsPanel
+        activeLayout={activeLayout}
+        clusterSizeMetric={clusterSizeMetric}
+        hasCustomMesh={Boolean(manifest.mesh_path)}
+        onSelectLayout={setActiveLayout}
+        onSelectSizeMetric={setClusterSizeMetric}
+      />
 
       {/* Contextual Right Slide-Over Drawer (Node Inspector / RAG Debugger / Clean Brain) */}
       {activeDrawer === "inspector" && selectedNodeId && (
