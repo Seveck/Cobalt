@@ -279,7 +279,7 @@ export function WelcomeGreeting() {
               <PeriodIcon size={11} aria-hidden />
               <span>{t(`welcome.period.${period}`)}</span>
             </div>
-            <h2 className="mt-0.5 truncate font-display text-lg font-medium tracking-tight text-bone">
+            <h2 className="mt-0.5 truncate text-lg font-semibold tracking-tight text-bone">
               {greetingText}
             </h2>
           </div>

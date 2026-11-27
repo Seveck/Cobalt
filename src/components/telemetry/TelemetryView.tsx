@@ -295,7 +295,7 @@ export function TelemetryView() {
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+              <h1 className="text-2xl font-semibold tracking-tight text-bone sm:text-3xl">
                 {t("telemetry.title")}
               </h1>
             </div>
@@ -351,7 +351,7 @@ export function TelemetryView() {
             <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-[2px] border border-cobalt-rule bg-cobalt-wash text-cobalt-ink">
               <BarChart3 size={20} aria-hidden />
             </div>
-            <h2 className="mt-4 font-display text-xl font-medium tracking-tight text-bone">
+            <h2 className="mt-4 text-xl font-semibold tracking-tight text-bone">
               {t("telemetry.emptyTitle")}
             </h2>
             <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-bone-muted">
@@ -468,24 +468,24 @@ export function TelemetryView() {
                                 <stop offset="95%" stopColor="#79A8FF" stopOpacity={0.02} />
                               </linearGradient>
                             </defs>
-                            <CartesianGrid stroke="#23262F" strokeDasharray="3 3" />
+                            <CartesianGrid stroke="var(--color-rule, #23262F)" strokeDasharray="3 3" />
                             <XAxis
                               dataKey="label"
-                              stroke="#6F6C65"
-                              tick={{ fill: "#A4A096", fontSize: 11 }}
+                              stroke="var(--color-bone-subtle, #6F6C65)"
+                              tick={{ fill: "var(--color-bone-muted, #A4A096)", fontSize: 11 }}
                             />
                             <YAxis
-                              stroke="#6F6C65"
-                              tick={{ fill: "#A4A096", fontSize: 11 }}
+                              stroke="var(--color-bone-subtle, #6F6C65)"
+                              tick={{ fill: "var(--color-bone-muted, #A4A096)", fontSize: 11 }}
                               width={56}
                             />
                             <Tooltip
                               contentStyle={{
-                                backgroundColor: "#111317",
-                                borderColor: "#363C4A",
-                                borderRadius: 2,
+                                backgroundColor: "var(--color-surface, #111317)",
+                                borderColor: "var(--color-rule-strong, #363C4A)",
+                                borderRadius: "var(--cobalt-radius, 2px)",
                                 fontSize: 12,
-                                color: "#ECE9E1",
+                                color: "var(--color-bone, #ECE9E1)",
                               }}
                             />
                             <Area
@@ -522,24 +522,24 @@ export function TelemetryView() {
                       ) : (
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={breakdownData}>
-                            <CartesianGrid stroke="#23262F" strokeDasharray="3 3" />
+                            <CartesianGrid stroke="var(--color-rule, #23262F)" strokeDasharray="3 3" />
                             <XAxis
                               dataKey="name"
-                              stroke="#6F6C65"
-                              tick={{ fill: "#A4A096", fontSize: 11 }}
+                              stroke="var(--color-bone-subtle, #6F6C65)"
+                              tick={{ fill: "var(--color-bone-muted, #A4A096)", fontSize: 11 }}
                             />
                             <YAxis
-                              stroke="#6F6C65"
-                              tick={{ fill: "#A4A096", fontSize: 11 }}
+                              stroke="var(--color-bone-subtle, #6F6C65)"
+                              tick={{ fill: "var(--color-bone-muted, #A4A096)", fontSize: 11 }}
                               width={54}
                             />
                             <Tooltip
                               contentStyle={{
-                                backgroundColor: "#111317",
-                                borderColor: "#363C4A",
-                                borderRadius: 2,
+                                backgroundColor: "var(--color-surface, #111317)",
+                                borderColor: "var(--color-rule-strong, #363C4A)",
+                                borderRadius: "var(--cobalt-radius, 2px)",
                                 fontSize: 12,
-                                color: "#ECE9E1",
+                                color: "var(--color-bone, #ECE9E1)",
                               }}
                             />
                             <Bar dataKey="tokens" radius={[2, 2, 0, 0]}>
@@ -571,32 +571,32 @@ export function TelemetryView() {
                     <div className="h-44 w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={clientRankingData} layout="vertical">
-                          <CartesianGrid stroke="#23262F" strokeDasharray="3 3" />
+                          <CartesianGrid stroke="var(--color-rule, #23262F)" strokeDasharray="3 3" />
                           <XAxis
                             type="number"
-                            stroke="#6F6C65"
-                            tick={{ fill: "#A4A096", fontSize: 10 }}
+                            stroke="var(--color-bone-subtle, #6F6C65)"
+                            tick={{ fill: "var(--color-bone-muted, #A4A096)", fontSize: 10 }}
                           />
                           <YAxis
                             type="category"
                             dataKey="name"
-                            stroke="#6F6C65"
-                            tick={{ fill: "#ECE9E1", fontSize: 11 }}
+                            stroke="var(--color-bone-subtle, #6F6C65)"
+                            tick={{ fill: "var(--color-bone, #ECE9E1)", fontSize: 11 }}
                             width={96}
                           />
                           <Tooltip
                             contentStyle={{
-                              backgroundColor: "#111317",
-                              borderColor: "#363C4A",
-                              borderRadius: 2,
+                              backgroundColor: "var(--color-surface, #111317)",
+                              borderColor: "var(--color-rule-strong, #363C4A)",
+                              borderRadius: "var(--cobalt-radius, 2px)",
                               fontSize: 12,
-                              color: "#ECE9E1",
+                              color: "var(--color-bone, #ECE9E1)",
                             }}
                           />
                           <Bar
                             dataKey="saved"
                             name={t("telemetry.chartSaved")}
-                            fill="#0047AB"
+                            fill="var(--color-cobalt, #0047AB)"
                             radius={[0, 2, 2, 0]}
                           />
                         </BarChart>

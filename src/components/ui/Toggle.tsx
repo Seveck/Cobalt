@@ -38,7 +38,7 @@ export function Toggle({
       <span
         aria-hidden
         className={`inline-block h-3.5 w-3.5 rounded-[1px] transition-transform duration-150 ${
-          checked ? "translate-x-[18px] bg-bone" : "translate-x-[2px] bg-bone-muted"
+          checked ? "translate-x-[18px] bg-on-accent" : "translate-x-[2px] bg-bone-muted"
         }`}
       />
     </button>

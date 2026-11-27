@@ -170,6 +170,64 @@ pub struct ThemeManifest {
     /// Required when `layout_type` is `custom_mesh`; must be `meshes/<name>.glb`.
     #[serde(default)]
     pub mesh_path: Option<String>,
+    /// Whole-app interface style (THEME_SPEC v1.2). `None` = the 3D brain only; the app chrome
+    /// keeps the default style.
+    #[serde(default)]
+    pub ui: Option<ThemeUi>,
+}
+
+/// App chrome style generated from a few inputs (THEME_SPEC §3.1, v1.2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThemeUi {
+    pub mode: UiMode,
+    /// OKLCH hue of the neutral surfaces, 0–360.
+    pub base_hue: f64,
+    /// How much of that hue the neutrals carry, 0 (grey) – 100.
+    pub base_tint: f64,
+    /// Lightness spread between background, surfaces and text, 0–100.
+    pub contrast: f64,
+    /// `#RRGGBB`; used only for interactive elements, selection and focus.
+    pub accent: String,
+    /// Corner radius in px, 0–16.
+    pub radius: f64,
+    pub density: UiDensity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiMode {
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiDensity {
+    Compact,
+    Comfortable,
+    Spacious,
+}
+
+impl ThemeUi {
+    /// Range checks applied when a theme is installed.
+    pub fn validate(&self) -> crate::error::Result<()> {
+        let in_range = |v: f64, max: f64| v.is_finite() && (0.0..=max).contains(&v);
+        let hex = self.accent.len() == 7
+            && self.accent.starts_with('#')
+            && self.accent[1..].bytes().all(|b| b.is_ascii_hexdigit());
+        if in_range(self.base_hue, 360.0)
+            && in_range(self.base_tint, 100.0)
+            && in_range(self.contrast, 100.0)
+            && in_range(self.radius, 16.0)
+            && hex
+        {
+            Ok(())
+        } else {
+            Err(crate::error::CobaltError::InvalidInput(
+                "theme ui values out of range".into(),
+            ))
+        }
+    }
 }
 
 /// Remote `registry.json` (fetched into memory only, never written to disk).

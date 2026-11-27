@@ -1,0 +1,74 @@
+{
+  "id": "grafito",
+  "name": "Grafito",
+  "author": "Cobalt",
+  "version": "1.0.0",
+  "description": "Grises cálidos y un solo acento cobalto: sobrio, denso y claro.",
+  "hardware_tier": "eco",
+  "layout_type": "galaxy",
+  "layout_params": {
+    "level_spacing": 18,
+    "radial_spread": 40,
+    "show_virtual_anchors": true,
+    "semantic_edges_mode": "hover_only"
+  },
+  "palette": {
+    "background": "#0F0A06",
+    "node": "#72ABD9",
+    "core_pin": "#E2B33C",
+    "reusable": "#A78BFA",
+    "edge": "#473323",
+    "text": "#EEEAE7",
+    "pulse_read": "#60A5FA",
+    "pulse_reuse": "#A78BFA",
+    "pulse_write": "#34D399",
+    "pulse_update": "#FBBF24",
+    "pulse_blocked": "#F87171",
+    "category_colors": {
+      "preference": "#B2A662",
+      "decision": "#64B79E",
+      "code": "#72ABD9",
+      "doc": "#BB93CB",
+      "note": "#D78F85",
+      "ocr": "#3D6EF0"
+    }
+  },
+  "node_geometry": {
+    "shape": "point",
+    "base_size": 0.6,
+    "scale_by_hits": true,
+    "detail": 1
+  },
+  "camera": {
+    "position": [
+      0,
+      40,
+      160
+    ],
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "fov": 55,
+    "auto_rotate": false,
+    "auto_rotate_speed": 0.3
+  },
+  "shaders": {
+    "node_vertex": null,
+    "node_fragment": null,
+    "edge_vertex": null,
+    "edge_fragment": null,
+    "background_fragment": null
+  },
+  "mesh_path": null,
+  "ui": {
+    "mode": "dark",
+    "base_hue": 60,
+    "base_tint": 18,
+    "contrast": 55,
+    "accent": "#3D6EF0",
+    "radius": 6,
+    "density": "comfortable"
+  }
+}

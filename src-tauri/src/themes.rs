@@ -21,7 +21,33 @@ pub const DEFAULT_REGISTRY_URL: &str =
     "https://raw.githubusercontent.com/Seveck/cobalt-themes/main/registry.json";
 /// Bundled fallback used when the registry is unreachable (development / offline).
 const FALLBACK_REGISTRY: &str = include_str!("../themes/registry.fallback.json");
-const BUILTIN_MANIFEST: &str = include_str!("../../src/themes/minimal/manifest.json");
+/// Themes bundled with Cobalt, in `BUILTIN_THEME_IDS` order (THEME_SPEC v1.2).
+const BUILTIN_MANIFESTS: [(&str, &str); 5] = [
+    (
+        "cobalt-minimal",
+        include_str!("../../src/themes/minimal/manifest.json"),
+    ),
+    (
+        "grafito",
+        include_str!("../../src/themes/grafito/manifest.json"),
+    ),
+    (
+        "porcelana",
+        include_str!("../../src/themes/porcelana/manifest.json"),
+    ),
+    (
+        "abisal",
+        include_str!("../../src/themes/abisal/manifest.json"),
+    ),
+    (
+        "niebla",
+        include_str!("../../src/themes/niebla/manifest.json"),
+    ),
+];
+
+pub fn is_builtin(id: &str) -> bool {
+    cobalt_core::config::BUILTIN_THEME_IDS.contains(&id)
+}
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 const MAX_PREVIEW_BYTES: u64 = 1024 * 1024;
 const MAX_SHADER_BYTES: u64 = 256 * 1024;
@@ -248,10 +274,13 @@ fn validate_manifest(m: &ThemeManifest, files: &[(String, Vec<u8>)]) -> Result<(
             m.id
         )));
     }
-    if m.id == cobalt_core::config::BUILTIN_THEME_ID {
+    if is_builtin(&m.id) {
         return Err(CobaltError::Conflict(
-            "the built-in theme id is reserved".into(),
+            "built-in theme ids are reserved".into(),
         ));
+    }
+    if let Some(ui) = &m.ui {
+        ui.validate()?;
     }
     let has = |p: &str| files.iter().any(|(n, _)| n == p);
     let s = &m.shaders;
@@ -316,28 +345,39 @@ pub fn install_package(themes_dir: &Path, package: &[u8]) -> Result<InstalledThe
     result
 }
 
-pub fn builtin_manifest() -> Result<ThemeManifest> {
-    Ok(serde_json::from_str(BUILTIN_MANIFEST)?)
+pub fn builtin_manifest(id: &str) -> Result<ThemeManifest> {
+    let raw = BUILTIN_MANIFESTS
+        .iter()
+        .find(|(bid, _)| *bid == id)
+        .map(|(_, raw)| *raw)
+        .ok_or_else(|| CobaltError::NotFound(format!("built-in theme {id}")))?;
+    Ok(serde_json::from_str(raw)?)
 }
 
-pub fn builtin_installed() -> Result<InstalledTheme> {
-    let m = builtin_manifest()?;
-    Ok(InstalledTheme {
-        id: m.id,
-        name: m.name,
-        author: m.author,
-        version: m.version,
-        size_bytes: BUILTIN_MANIFEST.len() as i64,
-        hardware_tier: m.hardware_tier,
-        local_path: "builtin".into(),
-        installed_at: chrono::DateTime::UNIX_EPOCH,
-    })
+/// Every bundled theme, always "installed".
+pub fn builtin_installed() -> Result<Vec<InstalledTheme>> {
+    BUILTIN_MANIFESTS
+        .iter()
+        .map(|(id, raw)| {
+            let m = builtin_manifest(id)?;
+            Ok(InstalledTheme {
+                id: m.id,
+                name: m.name,
+                author: m.author,
+                version: m.version,
+                size_bytes: raw.len() as i64,
+                hardware_tier: m.hardware_tier,
+                local_path: "builtin".into(),
+                installed_at: chrono::DateTime::UNIX_EPOCH,
+            })
+        })
+        .collect()
 }
 
 /// Reads an installed theme's manifest (never trusting anything outside its folder).
 pub fn read_manifest(themes_dir: &Path, id: &str) -> Result<ThemeManifest> {
-    if id == cobalt_core::config::BUILTIN_THEME_ID {
-        return builtin_manifest();
+    if is_builtin(id) {
+        return builtin_manifest(id);
     }
     validate_entry_path(THEME_MANIFEST_FILE)?;
     if id.contains('/') || id.contains('\\') || id.contains("..") {
@@ -349,9 +389,9 @@ pub fn read_manifest(themes_dir: &Path, id: &str) -> Result<ThemeManifest> {
 }
 
 pub fn uninstall(themes_dir: &Path, id: &str) -> Result<PathBuf> {
-    if id == cobalt_core::config::BUILTIN_THEME_ID {
+    if is_builtin(id) {
         return Err(CobaltError::Conflict(
-            "the built-in theme cannot be uninstalled".into(),
+            "built-in themes cannot be uninstalled".into(),
         ));
     }
     if id.contains('/') || id.contains('\\') || id.contains("..") || id.is_empty() {
@@ -368,6 +408,24 @@ pub fn uninstall(themes_dir: &Path, id: &str) -> Result<PathBuf> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn builtin_themes_parse_and_whole_app_ones_have_valid_ui() {
+        let installed = builtin_installed().unwrap();
+        assert_eq!(installed.len(), cobalt_core::config::BUILTIN_THEME_IDS.len());
+        for id in cobalt_core::config::BUILTIN_THEME_IDS {
+            let m = builtin_manifest(id).unwrap();
+            assert_eq!(m.id, id);
+            assert!(is_builtin(id));
+            if id != cobalt_core::config::BUILTIN_THEME_ID {
+                m.ui.as_ref().expect("whole-app theme").validate().unwrap();
+            }
+        }
+        assert!(matches!(
+            uninstall(Path::new("/nonexistent"), "grafito"),
+            Err(CobaltError::Conflict(_))
+        ));
+    }
     use std::io::Write;
 
     fn webp() -> Vec<u8> {

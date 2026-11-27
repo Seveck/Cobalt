@@ -28,17 +28,18 @@ export const NODE_POINT_VERTEX_SHADER = /* glsl */ `
     float pulse = clamp(aPulse.a, 0.0, 1.0);
     float pulsePresence = smoothstep(0.0, 0.08, pulse);
 
-    // Extra sprite canvas space for halos (Nuclear Law, focus reticle, or 3-4x synaptic pulse halo)
+    // Extra sprite canvas space for halos (Nuclear Law, focus reticle, or lab-style AI pulse + expanding ring)
     float hasNonPulseAura = max(aMeta.x, step(0.5, aMeta.z));
     float normalExpand = mix(1.0, 1.75, hasNonPulseAura);
-    float pulseExpand = mix(3.4, 4.2, pulse);
+    // Keep wide room as the ring expands outward while pulse decays from 1 -> 0
+    float pulseExpand = mix(4.6, 4.0, pulse);
     float auraExpand = mix(normalExpand, pulseExpand, pulsePresence);
 
     float computedSize = aSize * auraExpand * uScaleFactor / dist;
 
-    // Guarantee pulsing nodes are never smaller than 10 px on screen (24 px halo canvas)
-    float pulseMinPx = max(uMinPointSize, 24.0);
-    float pulseMaxPx = max(uMaxPointSize * 3.0, 132.0);
+    // Guarantee pulsing nodes have enough sprite pixels for the radial glow + expanding ring
+    float pulseMinPx = max(uMinPointSize, 32.0);
+    float pulseMaxPx = max(uMaxPointSize * 3.4, 152.0);
     float minPx = mix(uMinPointSize, pulseMinPx, pulsePresence);
     float maxPx = mix(uMaxPointSize, pulseMaxPx, pulsePresence);
 
@@ -110,30 +111,28 @@ export const NODE_POINT_FRAGMENT_SHADER = /* glsl */ `
       alpha = max(alpha, reticle * 0.92);
     }
 
-    // Synaptic live mode pulse: white-hot core + luminous 3-4x halo + expanding sonar rings
+    // Synaptic live mode pulse (style-lab visual):
+    // white core radial glow + accent halo + single expanding fading ring over ~6 s
     if (pulse > 0.005) {
-      float whiteCore = (1.0 - smoothstep(0.0, discRadius * 1.12, r)) * smoothstep(0.0, 0.22, pulse);
-      float coreBloom = exp(-pow(r / 0.175, 2.0)) * pulse;
-      float innerHalo = exp(-pow(max(0.0, r - discRadius * 0.7) / 0.145, 1.75)) * pulse * 0.94;
-      float outerHalo = (1.0 - smoothstep(discRadius, 0.5, r)) * pulse * 0.52;
+      float progress = 1.0 - pulse;
+      float glowRadius = mix(0.24, 0.42, pulse);
+      float tGlow = clamp(r / max(0.001, glowRadius), 0.0, 1.0);
 
-      // Two staggered expanding rings radiating from core to halo rim
-      float phase1 = fract(uTime * 0.6);
-      float phase2 = fract(uTime * 0.6 + 0.5);
-      float ring1Pos = mix(discRadius, 0.485, phase1);
-      float ring2Pos = mix(discRadius, 0.485, phase2);
-      float ring1 = exp(-pow((r - ring1Pos) / 0.027, 2.0)) * (1.0 - smoothstep(0.55, 1.0, phase1));
-      float ring2 = exp(-pow((r - ring2Pos) / 0.027, 2.0)) * (1.0 - smoothstep(0.55, 1.0, phase2));
-      float expandingRing = max(ring1, ring2 * 0.76) * pulse;
+      // 3-stop radial gradient: #ffffff (0) -> accent (0.25) -> transparent (1.0)
+      float whiteCore = (1.0 - smoothstep(0.0, 0.28, tGlow)) * smoothstep(0.0, 0.14, pulse);
+      float accentHalo = pow(1.0 - tGlow, 1.85) * smoothstep(0.0, 0.12, pulse) * (0.55 + 0.45 * pulse);
 
-      vec3 pulseTint = mix(vPulse.rgb, vec3(1.0), 0.24 * pulse);
-      vec3 ringCol = mix(vPulse.rgb, vec3(1.0), 0.58);
-      float haloStrength = clamp(innerHalo + outerHalo, 0.0, 1.0);
+      // Crisp ring expanding outward from core to rim as pulse fades (1 -> 0 over ~6 s)
+      float ringPos = mix(0.13, 0.475, pow(progress, 0.78));
+      float expandingRing = exp(-pow((r - ringPos) / 0.018, 2.0)) * pulse;
 
-      col = mix(col, pulseTint, clamp(pulse * 0.88 + haloStrength * 0.92, 0.0, 1.0));
-      col = mix(col, ringCol, clamp(expandingRing * 0.96, 0.0, 1.0));
-      col = mix(col, vec3(1.0), clamp(whiteCore * 0.96 + coreBloom * 0.48, 0.0, 1.0));
-      alpha = max(alpha, clamp(haloStrength + expandingRing * 0.98 + whiteCore * 0.98, 0.0, 1.0));
+      vec3 haloColor = mix(vPulse.rgb, vec3(1.0), 0.14 * pulse);
+      vec3 ringColor = mix(vPulse.rgb, vec3(1.0), 0.25);
+
+      col = mix(col, haloColor, clamp(accentHalo * 0.96 + pulse * 0.55, 0.0, 1.0));
+      col = mix(col, vec3(1.0), clamp(whiteCore * 0.98, 0.0, 1.0));
+      col = mix(col, ringColor, clamp(expandingRing * 0.96, 0.0, 1.0));
+      alpha = max(alpha, clamp(accentHalo * 0.92 + whiteCore * 0.98 + expandingRing * 0.95, 0.0, 1.0));
     } else if (vPulse.a < -0.005) {
       // Very faint internal change flicker: subtle disc tint only, no halo or size expansion
       float flicker = clamp(-vPulse.a, 0.0, 1.0);

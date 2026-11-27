@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { backendOn } from "@/lib/backend";
 import { isTauri } from "@/lib/ipc";
+import { applyThemeToRoot } from "@/lib/themeEngine";
 import {
   useBranchesStore,
   useCliActivityStore,
@@ -62,8 +63,13 @@ function DesktopApp() {
 
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const loadBranches = useBranchesStore((s) => s.loadBranches);
+  const activeManifest = useThemeStore((s) => s.manifest);
   const loadInstalledThemes = useThemeStore((s) => s.loadInstalledThemes);
   const setActiveTheme = useThemeStore((s) => s.setActiveTheme);
+
+  useEffect(() => {
+    applyThemeToRoot(activeManifest);
+  }, [activeManifest]);
   const pushActivity = useTelemetryStore((s) => s.pushActivity);
   const ingestActivity = useSynapticStore((s) => s.ingestActivity);
   const pulseMemoryChange = useSynapticStore((s) => s.pulseMemoryChange);

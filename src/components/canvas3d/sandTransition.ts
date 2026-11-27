@@ -9,7 +9,7 @@ export const SAND_SPEED_VARIATION = 0.16;
 /** Total duration (seconds) for the plain fade used when reduced motion is enabled. */
 export const REDUCED_MOTION_FADE_SEC = 0.28;
 
-const MAX_ARC_OFFSET_WORLD = 24;
+const MAX_ARC_OFFSET_WORLD = 26;
 
 /**
  * Stable deterministic 32-bit FNV-1a hash with Murmur3 avalanche finalizer.
@@ -109,8 +109,9 @@ export function prepareSandTransition({
 
     const randDelay = (h1 & 0xffff) / 0xffff;
     const randSpeed = ((h1 >>> 16) & 0xffff) / 0xffff;
-    const randAngle = ((h2 & 0xffff) / 0xffff) * Math.PI * 2;
-    const randArcMag = 0.55 + (((h2 >>> 16) & 0xffff) / 0xffff) * 0.45;
+    const sideSign = (h2 & 1) === 0 ? 1 : -1;
+    const randVerticalSkew = (((h2 >>> 1) & 0x7fff) / 0x7fff) * 0.44 - 0.22;
+    const randArcMag = 0.72 + (((h2 >>> 16) & 0xffff) / 0xffff) * 0.48;
 
     const px = prevPositions[i3] ?? 0;
     const py = prevPositions[i3 + 1] ?? 0;
@@ -173,13 +174,13 @@ export function prepareSandTransition({
     const p2y = uz * p1x - ux * p1z;
     const p2z = ux * p1y - uy * p1x;
 
-    const cosA = Math.cos(randAngle);
-    const sinA = Math.sin(randAngle);
-    const amp = Math.min(moveDist * (0.1 + 0.08 * randArcMag), MAX_ARC_OFFSET_WORLD);
+    // Horizontal-biased sideways arc (like the style-lab sine sweep) with subtle 3D depth
+    const baseAmp = Math.max(moveDist * 0.18, Math.min(moveDist * 0.45, 11));
+    const amp = Math.min(baseAmp * randArcMag, MAX_ARC_OFFSET_WORLD);
 
-    arcOffsets[i3] = (p1x * cosA + p2x * sinA) * amp;
-    arcOffsets[i3 + 1] = (p1y * cosA + p2y * sinA) * amp;
-    arcOffsets[i3 + 2] = (p1z * cosA + p2z * sinA) * amp;
+    arcOffsets[i3] = (p1x * sideSign + p2x * randVerticalSkew) * amp;
+    arcOffsets[i3 + 1] = (p1y * sideSign + p2y * randVerticalSkew) * amp;
+    arcOffsets[i3 + 2] = (p1z * sideSign + p2z * randVerticalSkew) * amp;
   }
 
   return maxEndTimeSec;
@@ -221,8 +222,8 @@ export function stepSandTransition(
     } else {
       // Cubic ease-in-out
       const u = rawT < 0.5 ? 4 * rawT * rawT * rawT : 1 - Math.pow(-2 * rawT + 2, 3) / 2;
-      // Smooth perpendicular arc envelope: 0 at start & landing, peaks mid-flight
-      const arcScale = 4 * u * (1 - u);
+      // Smooth sine sideways-arc envelope: 0 at start & landing, peaks mid-flight (style-lab)
+      const arcScale = Math.sin(u * Math.PI);
 
       const px = prevPositions[i3] ?? 0;
       const py = prevPositions[i3 + 1] ?? 0;

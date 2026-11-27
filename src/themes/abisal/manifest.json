@@ -1,0 +1,74 @@
+{
+  "id": "abisal",
+  "name": "Abisal",
+  "author": "Cobalt",
+  "version": "1.0.0",
+  "description": "Azul petróleo profundo con acento turquesa; hace brillar el cerebro 3D.",
+  "hardware_tier": "eco",
+  "layout_type": "galaxy",
+  "layout_params": {
+    "level_spacing": 18,
+    "radial_spread": 40,
+    "show_virtual_anchors": true,
+    "semantic_edges_mode": "hover_only"
+  },
+  "palette": {
+    "background": "#000E12",
+    "node": "#D7907F",
+    "core_pin": "#E2B33C",
+    "reusable": "#A78BFA",
+    "edge": "#00414B",
+    "text": "#DFECEF",
+    "pulse_read": "#60A5FA",
+    "pulse_reuse": "#A78BFA",
+    "pulse_write": "#34D399",
+    "pulse_update": "#FBBF24",
+    "pulse_blocked": "#F87171",
+    "category_colors": {
+      "preference": "#79A9DB",
+      "decision": "#BF92C6",
+      "code": "#D7907F",
+      "doc": "#ACA864",
+      "note": "#5FB7A5",
+      "ocr": "#2AA7A0"
+    }
+  },
+  "node_geometry": {
+    "shape": "point",
+    "base_size": 0.6,
+    "scale_by_hits": true,
+    "detail": 1
+  },
+  "camera": {
+    "position": [
+      0,
+      40,
+      160
+    ],
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "fov": 55,
+    "auto_rotate": false,
+    "auto_rotate_speed": 0.3
+  },
+  "shaders": {
+    "node_vertex": null,
+    "node_fragment": null,
+    "edge_vertex": null,
+    "edge_fragment": null,
+    "background_fragment": null
+  },
+  "mesh_path": null,
+  "ui": {
+    "mode": "dark",
+    "base_hue": 210,
+    "base_tint": 55,
+    "contrast": 50,
+    "accent": "#2AA7A0",
+    "radius": 8,
+    "density": "comfortable"
+  }
+}

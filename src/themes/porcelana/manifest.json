@@ -1,0 +1,74 @@
+{
+  "id": "porcelana",
+  "name": "Porcelana",
+  "author": "Cobalt",
+  "version": "1.0.0",
+  "description": "Claro, frío y aireado, con acento índigo.",
+  "hardware_tier": "eco",
+  "layout_type": "galaxy",
+  "layout_params": {
+    "level_spacing": 18,
+    "radial_spread": 40,
+    "show_virtual_anchors": true,
+    "semantic_edges_mode": "hover_only"
+  },
+  "palette": {
+    "background": "#EEF9FF",
+    "node": "#9A623C",
+    "core_pin": "#B7791F",
+    "reusable": "#7C3AED",
+    "edge": "#A9CADB",
+    "text": "#121618",
+    "pulse_read": "#2563EB",
+    "pulse_reuse": "#7C3AED",
+    "pulse_write": "#059669",
+    "pulse_update": "#D97706",
+    "pulse_blocked": "#DC2626",
+    "category_colors": {
+      "preference": "#5D6FA6",
+      "decision": "#955C80",
+      "code": "#9A623C",
+      "doc": "#647B3E",
+      "note": "#128184",
+      "ocr": "#4B5EE8"
+    }
+  },
+  "node_geometry": {
+    "shape": "point",
+    "base_size": 0.6,
+    "scale_by_hits": true,
+    "detail": 1
+  },
+  "camera": {
+    "position": [
+      0,
+      40,
+      160
+    ],
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "fov": 55,
+    "auto_rotate": false,
+    "auto_rotate_speed": 0.3
+  },
+  "shaders": {
+    "node_vertex": null,
+    "node_fragment": null,
+    "edge_vertex": null,
+    "edge_fragment": null,
+    "background_fragment": null
+  },
+  "mesh_path": null,
+  "ui": {
+    "mode": "light",
+    "base_hue": 230,
+    "base_tint": 22,
+    "contrast": 60,
+    "accent": "#4B5EE8",
+    "radius": 10,
+    "density": "spacious"
+  }
+}

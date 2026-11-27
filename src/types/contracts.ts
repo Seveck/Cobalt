@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.10.0";
+export const CONTRACT_VERSION = "1.11.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -125,6 +125,9 @@ export interface ErrorPayload {
 export const MAIN_BRANCH_ID: Uuid = "00000000-0000-7000-8000-000000000001";
 export const MAIN_BRANCH_NAME = "main";
 export const BUILTIN_THEME_ID = "cobalt-minimal";
+
+/** Themes bundled with Cobalt (THEME_SPEC v1.2); always installed, not uninstallable. */
+export const BUILTIN_THEME_IDS = ["cobalt-minimal", "grafito", "porcelana", "abisal", "niebla"] as const;
 
 // ============================================================================ entities
 
@@ -926,6 +929,24 @@ export interface ThemeManifest {
   camera: CameraSpec;
   shaders: ShaderSpec;
   mesh_path: string | null;
+  /** Whole-app interface style (THEME_SPEC v1.2); absent = brain-only theme. */
+  ui?: ThemeUi | null;
+}
+
+/** App chrome style generated from a few inputs (THEME_SPEC §3.1). */
+export interface ThemeUi {
+  mode: "light" | "dark";
+  /** OKLCH hue of the neutral surfaces, 0–360. */
+  base_hue: number;
+  /** 0 (grey) – 100. */
+  base_tint: number;
+  /** Lightness spread, 0–100. */
+  contrast: number;
+  /** `#RRGGBB`, interactive elements only. */
+  accent: string;
+  /** Corner radius px, 0–16. */
+  radius: number;
+  density: "compact" | "comfortable" | "spacious";
 }
 
 export interface RegistryEntry {

@@ -131,9 +131,10 @@ export const useSynapticStore = create<SynapticState>((set, get) => ({
 
   ingestActivity: (activity) => {
     const now = performance.now();
-    const palette = useThemeStore.getState().manifest.palette;
-    const baseHex = resolveOperationPulseColor(activity.operation, palette);
-    const luminousHex = toLuminousPulseHex(baseHex);
+    const manifest = useThemeStore.getState().manifest;
+    const isLightMode = manifest.ui?.mode === "light";
+    const baseHex = resolveOperationPulseColor(activity.operation, manifest.palette);
+    const pulseHex = isLightMode ? baseHex : toLuminousPulseHex(baseHex);
     const pulses = get().pulses;
 
     for (const matched of activity.matched_nodes) {
@@ -141,7 +142,7 @@ export const useSynapticStore = create<SynapticState>((set, get) => ({
       const intensity = Math.max(0.65, Math.min(1.0, score));
       pulses.set(matched.memory_id, {
         memoryId: matched.memory_id,
-        colorHex: luminousHex,
+        colorHex: pulseHex,
         intensity,
         startedAt: now,
         durationMs: DEFAULT_PULSE_DURATION_MS,
@@ -222,12 +223,13 @@ export const useSynapticStore = create<SynapticState>((set, get) => ({
       return;
     }
 
-    const luminousHex = toLuminousPulseHex(colorHex);
+    const isLightMode = useThemeStore.getState().manifest.ui?.mode === "light";
+    const pulseHex = isLightMode ? colorHex : toLuminousPulseHex(colorHex);
     const clampedIntensity = Math.max(0.5, Math.min(1.0, intensity));
     for (const id of memoryIds) {
       pulses.set(id, {
         memoryId: id,
-        colorHex: luminousHex,
+        colorHex: pulseHex,
         intensity: clampedIntensity,
         startedAt: now,
         durationMs,

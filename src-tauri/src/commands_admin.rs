@@ -303,7 +303,7 @@ pub async fn uninstall_theme(state: State<'_, AppState>, args: ThemeIdArgs) -> C
 
 #[tauri::command]
 pub async fn list_installed_themes(state: State<'_, AppState>) -> CmdResult<Vec<InstalledTheme>> {
-    let mut list = vec![themes::builtin_installed()?];
+    let mut list = themes::builtin_installed()?;
     list.extend(state.store().list_installed_themes().await?);
     Ok(list)
 }

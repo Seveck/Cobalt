@@ -390,7 +390,7 @@ export function LibraryView() {
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-void/80 backdrop-blur-xs">
           <div className="flex flex-col items-center gap-3 rounded-[2px] border-2 border-dashed border-cobalt bg-cobalt-wash/90 px-10 py-8 text-center">
             <Upload size={28} className="text-cobalt-ink" aria-hidden />
-            <div className="font-display text-lg font-medium text-bone">
+            <div className="text-lg font-semibold tracking-tight text-bone">
               {t("library.dropOverlayTitle")}
             </div>
             <p className="text-xs text-bone-muted">{t("library.dropOverlayHint")}</p>
@@ -403,7 +403,7 @@ export function LibraryView() {
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+              <h1 className="text-2xl font-semibold tracking-tight text-bone sm:text-3xl">
                 {t("library.title")}
               </h1>
             </div>

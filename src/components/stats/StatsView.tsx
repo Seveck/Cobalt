@@ -113,7 +113,7 @@ export function StatsView() {
         {/* Page Header */}
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
-            <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+            <h1 className="text-2xl font-semibold tracking-tight text-bone sm:text-3xl">
               {t("stats.title")}
             </h1>
             <p className="mt-1.5 text-sm text-bone-muted">{t("stats.subtitle")}</p>
@@ -140,7 +140,7 @@ export function StatsView() {
             <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-[2px] border border-cobalt-rule bg-cobalt-wash text-cobalt-ink">
               <Clock size={20} aria-hidden />
             </div>
-            <h2 className="mt-4 font-display text-xl font-medium tracking-tight text-bone">
+            <h2 className="mt-4 text-xl font-semibold tracking-tight text-bone">
               {t("stats.comingSoonTitle")}
             </h2>
             <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-bone-muted">

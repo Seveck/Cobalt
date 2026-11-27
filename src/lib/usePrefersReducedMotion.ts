@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useThemeStore } from "@/stores/theme";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -14,10 +15,12 @@ function readReducedMotionPreference(): boolean {
 }
 
 /**
- * Reactively tracks the OS "prefers-reduced-motion: reduce" setting.
+ * Reactively tracks the OS "prefers-reduced-motion: reduce" setting combined with
+ * Cobalt's in-app Appearance → Reduced motion toggle.
  */
 export function usePrefersReducedMotion(): boolean {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(
+  const appReducedMotion = useThemeStore((s) => s.reducedMotion);
+  const [osPrefersReducedMotion, setOsPrefersReducedMotion] = useState<boolean>(
     readReducedMotionPreference,
   );
 
@@ -33,10 +36,10 @@ export function usePrefersReducedMotion(): boolean {
       return;
     }
 
-    setPrefersReducedMotion(mql.matches);
+    setOsPrefersReducedMotion(mql.matches);
 
     const handleChange = (event: MediaQueryListEvent) => {
-      setPrefersReducedMotion(event.matches);
+      setOsPrefersReducedMotion(event.matches);
     };
 
     if (typeof mql.addEventListener === "function") {
@@ -53,5 +56,5 @@ export function usePrefersReducedMotion(): boolean {
     };
   }, []);
 
-  return prefersReducedMotion;
+  return appReducedMotion || osPrefersReducedMotion;
 }

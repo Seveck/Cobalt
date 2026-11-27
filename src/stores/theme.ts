@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { backendCall } from "@/lib/backend";
+import { applyReducedMotionToRoot, applyThemeToRoot } from "@/lib/themeEngine";
 import { MINIMAL_THEME_MANIFEST } from "@/themes/minimal";
 import {
   BUILTIN_THEME_ID,
@@ -10,24 +11,28 @@ import {
 } from "@/types/contracts";
 
 const DISABLE_THEME_SHADERS_STORAGE_KEY = "cobalt.disableThemeShaders";
+const REDUCED_MOTION_STORAGE_KEY = "cobalt.reducedMotion";
 
-function readDisableThemeShaders(): boolean {
+function readStorageBool(key: string): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return window.localStorage.getItem(DISABLE_THEME_SHADERS_STORAGE_KEY) === "true";
+    return window.localStorage.getItem(key) === "true";
   } catch {
     return false;
   }
 }
 
-function writeDisableThemeShaders(disabled: boolean): void {
+function writeStorageBool(key: string, value: boolean): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(DISABLE_THEME_SHADERS_STORAGE_KEY, disabled ? "true" : "false");
+    window.localStorage.setItem(key, value ? "true" : "false");
   } catch {
     // Ignore storage quota or restricted storage errors.
   }
 }
+
+const initialReducedMotion = readStorageBool(REDUCED_MOTION_STORAGE_KEY);
+applyReducedMotionToRoot(initialReducedMotion);
 
 export type ThemeWarningKind =
   | "shader_compile"
@@ -54,6 +59,7 @@ export interface ThemeState {
   showConnections: boolean;
   installedThemes: InstalledTheme[];
   disableThemeShaders: boolean;
+  reducedMotion: boolean;
   shadersDisabledForSession: boolean;
   themeWarnings: ThemeRuntimeWarning[];
   loading: boolean;
@@ -64,6 +70,7 @@ export interface ThemeState {
   setShowConnections: (show: boolean) => void;
   toggleShowConnections: () => void;
   setDisableThemeShaders: (disabled: boolean) => void;
+  setReducedMotion: (reduced: boolean) => void;
   tripShaderWatchdog: (themeId: string, avgFrameMs: number) => void;
   resetSessionShaderWatchdog: () => void;
   pushThemeWarning: (warning: ThemeRuntimeWarning) => void;
@@ -79,7 +86,8 @@ export const useThemeStore = create<ThemeState>((set) => ({
   clusterSizeMetric: "vectors",
   showConnections: false,
   installedThemes: [],
-  disableThemeShaders: readDisableThemeShaders(),
+  disableThemeShaders: readStorageBool(DISABLE_THEME_SHADERS_STORAGE_KEY),
+  reducedMotion: initialReducedMotion,
   shadersDisabledForSession: false,
   themeWarnings: [],
   loading: false,
@@ -93,6 +101,7 @@ export const useThemeStore = create<ThemeState>((set) => ({
     }));
     try {
       const manifest = await backendCall("get_theme_manifest", { theme_id: themeId });
+      applyThemeToRoot(manifest);
       set({
         activeThemeId: themeId,
         manifest,
@@ -101,6 +110,7 @@ export const useThemeStore = create<ThemeState>((set) => ({
       });
       return true;
     } catch (err: unknown) {
+      applyThemeToRoot(MINIMAL_THEME_MANIFEST);
       if (themeId === BUILTIN_THEME_ID) {
         set({
           activeThemeId: BUILTIN_THEME_ID,
@@ -128,7 +138,7 @@ export const useThemeStore = create<ThemeState>((set) => ({
   toggleShowConnections: () => set((state) => ({ showConnections: !state.showConnections })),
 
   setDisableThemeShaders: (disabled) => {
-    writeDisableThemeShaders(disabled);
+    writeStorageBool(DISABLE_THEME_SHADERS_STORAGE_KEY, disabled);
     set((state) => ({
       disableThemeShaders: disabled,
       themeWarnings: disabled
@@ -137,6 +147,12 @@ export const useThemeStore = create<ThemeState>((set) => ({
           )
         : state.themeWarnings,
     }));
+  },
+
+  setReducedMotion: (reduced) => {
+    writeStorageBool(REDUCED_MOTION_STORAGE_KEY, reduced);
+    applyReducedMotionToRoot(reduced);
+    set({ reducedMotion: reduced });
   },
 
   tripShaderWatchdog: (themeId, avgFrameMs) =>

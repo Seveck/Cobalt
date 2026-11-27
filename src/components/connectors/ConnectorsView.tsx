@@ -278,7 +278,7 @@ export function ConnectorsView() {
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+              <h1 className="text-2xl font-semibold tracking-tight text-bone sm:text-3xl">
                 {t("connectors.title")}
               </h1>
             </div>

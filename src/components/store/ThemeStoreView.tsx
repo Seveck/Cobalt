@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -7,23 +7,30 @@ import {
   FileArchive,
   Layers,
   Loader2,
+  Moon,
   Palette,
   RefreshCw,
   Search,
   Sparkles,
+  Sun,
   Trash2,
   Upload,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { pickSinglePath, useFileDrop } from "@/lib/dialogs";
 import { formatBytes } from "@/lib/format";
+import { isBuiltinThemeId, resolvePreviewTokens } from "@/lib/themeEngine";
 import { useSettingsStore, useThemeStore } from "@/stores";
 import { ThemeWarningsBanner } from "@/components/canvas3d";
+import { MINIMAL_THEME_MANIFEST } from "@/themes/minimal";
 import {
   BUILTIN_THEME_ID,
+  BUILTIN_THEME_IDS,
   type ThemeCard,
   type ThemeCompatibility,
+  type ThemeManifest,
 } from "@/types/contracts";
+import { ThemeMiniPreview } from "./ThemeMiniPreview";
 
 function compatibilityStyle(compat: ThemeCompatibility): string {
   switch (compat) {
@@ -46,6 +53,8 @@ export function ThemeStoreView() {
   const loadInstalledThemes = useThemeStore((s) => s.loadInstalledThemes);
   const patchSettings = useSettingsStore((s) => s.patchSettings);
 
+  const [builtinManifests, setBuiltinManifests] = useState<ThemeManifest[]>([]);
+  const [loadingBuiltins, setLoadingBuiltins] = useState(true);
   const [query, setQuery] = useState("");
   const [cards, setCards] = useState<ThemeCard[]>([]);
   const [searching, setSearching] = useState(true);
@@ -59,6 +68,24 @@ export function ThemeStoreView() {
   const flashNotice = useCallback((msg: string) => {
     setNotice(msg);
     window.setTimeout(() => setNotice(null), 3200);
+  }, []);
+
+  const loadBuiltinManifests = useCallback(async () => {
+    setLoadingBuiltins(true);
+    try {
+      const loaded = await Promise.all(
+        BUILTIN_THEME_IDS.map(async (id) => {
+          try {
+            return await backendCall("get_theme_manifest", { theme_id: id });
+          } catch {
+            return id === BUILTIN_THEME_ID ? MINIMAL_THEME_MANIFEST : null;
+          }
+        }),
+      );
+      setBuiltinManifests(loaded.filter((item): item is ThemeManifest => item !== null));
+    } finally {
+      setLoadingBuiltins(false);
+    }
   }, []);
 
   const searchRegistry = useCallback(async (q: string) => {
@@ -78,19 +105,25 @@ export function ThemeStoreView() {
   }, []);
 
   useEffect(() => {
+    void loadBuiltinManifests();
     void loadInstalledThemes();
     void searchRegistry("");
-  }, [loadInstalledThemes, searchRegistry]);
+  }, [loadBuiltinManifests, loadInstalledThemes, searchRegistry]);
+
+  const communityInstalled = useMemo(
+    () => installedThemes.filter((item) => !isBuiltinThemeId(item.id)),
+    [installedThemes],
+  );
 
   const handleApplyTheme = useCallback(
-    async (themeId: string) => {
+    async (themeId: string, themeName?: string) => {
       setBusyId(themeId);
       setError(null);
       try {
         const applied = await setActiveTheme(themeId);
         if (applied) {
           await patchSettings({ active_theme_id: themeId });
-          flashNotice(t("store.appliedNotice", { id: themeId }));
+          flashNotice(t("store.appliedNotice", { id: themeName ?? themeId }));
         } else {
           setError(t("store.applyError"));
         }
@@ -118,7 +151,7 @@ export function ThemeStoreView() {
   };
 
   const handleUninstallTheme = async (themeId: string) => {
-    if (themeId === BUILTIN_THEME_ID) return;
+    if (isBuiltinThemeId(themeId)) return;
     setBusyId(themeId);
     setError(null);
     try {
@@ -143,7 +176,7 @@ export function ThemeStoreView() {
       try {
         const installed = await backendCall("install_theme_file", { path });
         await Promise.all([loadInstalledThemes(), searchRegistry(query)]);
-        await handleApplyTheme(installed.id);
+        await handleApplyTheme(installed.id, installed.name);
         flashNotice(t("store.installedNotice", { name: installed.name }));
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : String(err));
@@ -176,13 +209,28 @@ export function ThemeStoreView() {
     void searchRegistry(query);
   };
 
-  const swatches = [
-    manifest.palette.background,
-    manifest.palette.node,
-    manifest.palette.core_pin,
-    manifest.palette.reusable,
-    manifest.palette.edge,
-  ];
+  const activePreviewTokens = useMemo(() => resolvePreviewTokens(manifest), [manifest]);
+  const activeSwatches = manifest.ui
+    ? [
+        activePreviewTokens.void,
+        activePreviewTokens.surface2,
+        activePreviewTokens.bone,
+        activePreviewTokens.cobalt,
+        manifest.palette.node,
+      ]
+    : [
+        manifest.palette.background,
+        manifest.palette.node,
+        manifest.palette.core_pin,
+        manifest.palette.reusable,
+        manifest.palette.edge,
+      ];
+
+  const resolveBuiltinDescription = (theme: ThemeManifest): string | null => {
+    const i18nKey = `store.builtinDescriptions.${theme.id}`;
+    const translated = t(i18nKey, { defaultValue: "" });
+    return translated || theme.description;
+  };
 
   return (
     <div className="relative h-full overflow-y-auto bg-void p-6 lg:p-8">
@@ -190,7 +238,7 @@ export function ThemeStoreView() {
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-void/80 backdrop-blur-xs">
           <div className="flex flex-col items-center gap-3 rounded-[2px] border-2 border-dashed border-cobalt bg-cobalt-wash/90 px-10 py-8 text-center">
             <FileArchive size={28} className="text-cobalt-ink" aria-hidden />
-            <div className="font-display text-lg font-medium text-bone">
+            <div className="text-lg font-semibold tracking-tight text-bone">
               {t("store.dropOverlayTitle")}
             </div>
             <p className="text-xs text-bone-muted">{t("store.dropOverlayHint")}</p>
@@ -203,7 +251,7 @@ export function ThemeStoreView() {
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+              <h1 className="text-2xl font-semibold tracking-tight text-bone sm:text-3xl">
                 {t("store.title")}
               </h1>
             </div>
@@ -215,7 +263,7 @@ export function ThemeStoreView() {
               type="button"
               disabled={installingFile}
               onClick={() => void handlePickThemeFile()}
-              className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-xs font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
+              className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-xs font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
             >
               {installingFile ? (
                 <Loader2 size={12} className="animate-spin" aria-hidden />
@@ -254,38 +302,47 @@ export function ThemeStoreView() {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <Palette size={15} className="text-cobalt-ink" aria-hidden />
-                <h2 className="font-display text-lg font-medium text-bone">{manifest.name}</h2>
+                <h2 className="text-lg font-semibold tracking-tight text-bone">{manifest.name}</h2>
                 <span className="rounded-[2px] border border-rule bg-void px-2 py-0.5 font-mono text-[10px] text-bone-muted">
                   v{manifest.version}
+                </span>
+                <span className="rounded-[2px] border border-rule bg-void px-2 py-0.5 font-mono text-[10px] text-bone-muted">
+                  {manifest.ui ? t("store.wholeAppBadge") : t("store.brainOnlyBadge")}
                 </span>
                 <span className="rounded-[2px] border border-rule bg-void px-2 py-0.5 font-mono text-[10px] text-bone-muted">
                   {t(`brain.layouts.${manifest.layout_type}`)}
                 </span>
               </div>
-              {manifest.description && (
-                <p className="mt-1.5 text-xs text-bone-muted">{manifest.description}</p>
+              {(isBuiltinThemeId(manifest.id)
+                ? resolveBuiltinDescription(manifest)
+                : manifest.description) && (
+                <p className="mt-1.5 text-xs text-bone-muted">
+                  {isBuiltinThemeId(manifest.id)
+                    ? resolveBuiltinDescription(manifest)
+                    : manifest.description}
+                </p>
               )}
               <div className="mt-3 flex items-center gap-1.5">
-                {swatches.map((hex, index) => (
+                {activeSwatches.map((color, index) => (
                   <span
-                    key={`${hex}-${index}`}
-                    title={hex}
+                    key={`${color}-${index}`}
+                    title={color}
                     className="h-5 w-5 rounded-[2px] border border-rule-strong"
-                    style={{ backgroundColor: hex }}
+                    style={{ backgroundColor: color }}
                   />
                 ))}
               </div>
             </div>
 
             <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em]">
-              {activeThemeId === BUILTIN_THEME_ID && (
+              {isBuiltinThemeId(activeThemeId) && (
                 <span className="rounded-[2px] border border-rule bg-void px-2.5 py-1 text-bone-muted">
                   {t("store.builtin")}
                 </span>
               )}
               <span className="inline-flex items-center gap-1 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2.5 py-1 font-medium text-verdigris">
                 <Check size={11} aria-hidden />
-                {t("store.active")}
+                {t("store.inUse")}
               </span>
             </div>
           </div>
@@ -294,105 +351,208 @@ export function ThemeStoreView() {
         {/* Non-blocking runtime warnings from active theme shaders / custom meshes */}
         <ThemeWarningsBanner />
 
-        {/* Installed themes */}
+        {/* 01 — Included with Cobalt (5 built-in themes, live mini previews, never uninstallable) */}
         <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
-              01 — {t("store.installedSection")}
-            </h2>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+                01 — {t("store.builtinSection")}
+              </h2>
+              <p className="mt-0.5 text-xs text-bone-muted">{t("store.builtinSectionDesc")}</p>
+            </div>
             <span className="font-mono text-[10px] text-bone-subtle">
               {t("store.dropHintInline")}
             </span>
           </div>
 
-          {installedThemes.length === 0 ? (
-            <div className="rounded-[2px] border border-rule bg-surface p-6 text-center">
-              <p className="text-xs text-bone-muted">{t("store.onlyBuiltinInstalled")}</p>
+          {loadingBuiltins && builtinManifests.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 rounded-[2px] border border-rule bg-surface py-10 font-mono text-xs text-bone-muted">
+              <Loader2 size={14} className="animate-spin text-cobalt-ink" aria-hidden />
+              <span>{t("store.loadingBuiltins")}</span>
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {installedThemes.map((theme) => {
-                  const isActive = activeThemeId === theme.id;
-                  const isBuiltin = theme.id === BUILTIN_THEME_ID;
-                  const isBusy = busyId === theme.id;
-                  return (
-                    <div
-                      key={theme.id}
-                      className={`flex flex-col justify-between gap-3 rounded-[2px] border p-4 ${
-                        isActive
-                          ? "border-cobalt-rule bg-cobalt-wash/40"
-                          : "border-rule bg-surface"
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium text-bone">{theme.name}</span>
-                          <span className="font-mono text-[10px] text-bone-subtle">
-                            v{theme.version}
-                          </span>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {builtinManifests.map((theme) => {
+                const isActive = activeThemeId === theme.id;
+                const isBusy = busyId === theme.id;
+                const previewTokens = resolvePreviewTokens(theme);
+                const swatches = [
+                  previewTokens.void,
+                  previewTokens.surface2,
+                  previewTokens.bone,
+                  previewTokens.cobalt,
+                ];
+                const description = resolveBuiltinDescription(theme);
+
+                return (
+                  <article
+                    key={theme.id}
+                    className={`flex flex-col overflow-hidden rounded-[2px] border transition-colors ${
+                      isActive
+                        ? "border-cobalt-rule bg-cobalt-wash/35 ring-1 ring-cobalt/40"
+                        : "border-rule bg-surface hover:border-rule-strong"
+                    }`}
+                  >
+                    <ThemeMiniPreview manifest={theme} />
+
+                    <div className="flex flex-1 flex-col justify-between gap-3 p-4">
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h3 className="text-base font-semibold tracking-tight text-bone">
+                              {theme.name}
+                            </h3>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-bone-subtle">
+                              <span className="inline-flex items-center gap-1 rounded-[2px] border border-rule bg-void px-1.5 py-0.5 text-bone-muted">
+                                {theme.ui ? (
+                                  <>
+                                    {theme.ui.mode === "light" ? (
+                                      <Sun size={10} aria-hidden />
+                                    ) : (
+                                      <Moon size={10} aria-hidden />
+                                    )}
+                                    <span>{t("store.wholeAppBadge")}</span>
+                                  </>
+                                ) : (
+                                  <span>{t("store.brainOnlyBadge")}</span>
+                                )}
+                              </span>
+                              <span className="rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 text-bone-muted">
+                                {t(`brain.layouts.${theme.layout_type}`)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 pt-0.5">
+                            {swatches.map((color, idx) => (
+                              <span
+                                key={`${theme.id}-sw-${idx}`}
+                                className="h-4 w-4 rounded-[2px] border border-rule-strong"
+                                style={{ backgroundColor: color }}
+                              />
+                            ))}
+                          </div>
                         </div>
-                        <div className="mt-1 font-mono text-[10px] text-bone-muted">
-                          {theme.author} · {t(`tiers.${theme.hardware_tier}`)} ·{" "}
-                          {formatBytes(theme.size_bytes)}
-                        </div>
+
+                        {description && (
+                          <p className="text-xs leading-relaxed text-bone-muted">{description}</p>
+                        )}
                       </div>
 
-                      <div className="flex items-center justify-between gap-2 border-t border-rule pt-2.5">
+                      <div className="flex items-center justify-between gap-2 border-t border-rule pt-3">
+                        <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-bone-subtle">
+                          {t("store.builtin")}
+                        </span>
+
                         {isActive ? (
-                          <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold uppercase text-verdigris">
-                            <Check size={11} aria-hidden />
-                            {t("store.active")}
+                          <span className="inline-flex items-center gap-1 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2.5 py-1 font-mono text-[11px] font-semibold text-verdigris">
+                            <Check size={12} aria-hidden />
+                            {t("store.inUse")}
                           </span>
                         ) : (
                           <button
                             type="button"
                             disabled={isBusy}
-                            onClick={() => void handleApplyTheme(theme.id)}
-                            className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[10px] font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
+                            onClick={() => void handleApplyTheme(theme.id, theme.name)}
+                            className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1 font-mono text-[11px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
                           >
                             {isBusy ? (
-                              <Loader2 size={10} className="animate-spin" aria-hidden />
+                              <Loader2 size={11} className="animate-spin" aria-hidden />
                             ) : (
-                              <Sparkles size={10} aria-hidden />
+                              <Sparkles size={11} aria-hidden />
                             )}
-                            {t("store.applyButton")}
-                          </button>
-                        )}
-
-                        {isBuiltin ? (
-                          <span className="font-mono text-[10px] uppercase text-bone-subtle">
-                            {t("store.builtin")}
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() => void handleUninstallTheme(theme.id)}
-                            className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2 py-1 font-mono text-[10px] text-cinnabar hover:bg-cinnabar hover:text-bone disabled:opacity-45"
-                          >
-                            <Trash2 size={10} aria-hidden />
-                            {t("store.uninstallButton")}
+                            {t("store.applyShort")}
                           </button>
                         )}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-              {installedThemes.every((item) => item.id === BUILTIN_THEME_ID) && (
-                <p className="text-xs text-bone-subtle">{t("store.onlyBuiltinInstalled")}</p>
-              )}
+                  </article>
+                );
+              })}
             </div>
           )}
         </section>
 
-        {/* Registry search & catalog */}
+        {/* 02 — Installed community / local themes (only shown if any non-builtin themes exist) */}
+        {communityInstalled.length > 0 && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+                02 — {t("store.installedSection")}
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {communityInstalled.map((theme) => {
+                const isActive = activeThemeId === theme.id;
+                const isBusy = busyId === theme.id;
+                return (
+                  <div
+                    key={theme.id}
+                    className={`flex flex-col justify-between gap-3 rounded-[2px] border p-4 ${
+                      isActive
+                        ? "border-cobalt-rule bg-cobalt-wash/40"
+                        : "border-rule bg-surface"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-bone">{theme.name}</span>
+                        <span className="font-mono text-[10px] text-bone-subtle">
+                          v{theme.version}
+                        </span>
+                      </div>
+                      <div className="mt-1 font-mono text-[10px] text-bone-muted">
+                        {theme.author} · {t(`tiers.${theme.hardware_tier}`)} ·{" "}
+                        {formatBytes(theme.size_bytes)}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 border-t border-rule pt-2.5">
+                      {isActive ? (
+                        <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold uppercase text-verdigris">
+                          <Check size={11} aria-hidden />
+                          {t("store.inUse")}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => void handleApplyTheme(theme.id, theme.name)}
+                          className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[10px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
+                        >
+                          {isBusy ? (
+                            <Loader2 size={10} className="animate-spin" aria-hidden />
+                          ) : (
+                            <Sparkles size={10} aria-hidden />
+                          )}
+                          {t("store.applyShort")}
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => void handleUninstallTheme(theme.id)}
+                        className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2 py-1 font-mono text-[10px] text-cinnabar hover:bg-cinnabar hover:text-on-accent disabled:opacity-45"
+                      >
+                        <Trash2 size={10} aria-hidden />
+                        {t("store.uninstallButton")}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Community registry search & catalog */}
         <section className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
-                02 — {t("store.registrySection")}
+                {communityInstalled.length > 0 ? "03" : "02"} — {t("store.registrySection")}
               </h2>
               <p className="mt-0.5 text-xs text-bone-muted">{t("store.zeroHiddenDownloads")}</p>
             </div>
@@ -415,7 +575,7 @@ export function ThemeStoreView() {
               <button
                 type="submit"
                 disabled={searching}
-                className="h-8 rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-3 font-mono text-xs font-medium text-cobalt-ink hover:bg-cobalt hover:text-bone disabled:opacity-45"
+                className="h-8 rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-3 font-mono text-xs font-medium text-cobalt-ink hover:bg-cobalt hover:text-on-accent disabled:opacity-45"
               >
                 {t("rag.run")}
               </button>
@@ -475,6 +635,7 @@ export function ThemeStoreView() {
                 const { entry } = card;
                 const isActive = activeThemeId === entry.id;
                 const isBusy = busyId === entry.id;
+                const isBuiltin = isBuiltinThemeId(entry.id);
                 const showPreview =
                   Boolean(entry.preview_url) && !brokenImages.has(entry.id);
 
@@ -518,7 +679,7 @@ export function ThemeStoreView() {
                       <div className="space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <h3 className="font-display text-base font-medium text-bone">
+                            <h3 className="text-base font-semibold tracking-tight text-bone">
                               {entry.name}
                             </h3>
                             <p className="font-mono text-[10px] text-bone-subtle">
@@ -564,30 +725,30 @@ export function ThemeStoreView() {
                               {isActive ? (
                                 <span className="inline-flex items-center gap-1 font-mono text-[11px] font-semibold text-verdigris">
                                   <Check size={12} aria-hidden />
-                                  {t("store.active")}
+                                  {t("store.inUse")}
                                 </span>
                               ) : (
                                 <button
                                   type="button"
                                   disabled={isBusy}
-                                  onClick={() => void handleApplyTheme(entry.id)}
-                                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-[11px] font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
+                                  onClick={() => void handleApplyTheme(entry.id, entry.name)}
+                                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-[11px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
                                 >
                                   {isBusy ? (
                                     <Loader2 size={11} className="animate-spin" aria-hidden />
                                   ) : (
                                     <Sparkles size={11} aria-hidden />
                                   )}
-                                  {t("store.applyButton")}
+                                  {t("store.applyShort")}
                                 </button>
                               )}
 
-                              {entry.id !== BUILTIN_THEME_ID && (
+                              {!isBuiltin && (
                                 <button
                                   type="button"
                                   disabled={isBusy}
                                   onClick={() => void handleUninstallTheme(entry.id)}
-                                  className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2.5 py-1.5 font-mono text-[11px] text-cinnabar hover:bg-cinnabar hover:text-bone disabled:opacity-45"
+                                  className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2.5 py-1.5 font-mono text-[11px] text-cinnabar hover:bg-cinnabar hover:text-on-accent disabled:opacity-45"
                                 >
                                   <Trash2 size={11} aria-hidden />
                                   {t("store.uninstallButton")}
@@ -599,7 +760,7 @@ export function ThemeStoreView() {
                               type="button"
                               disabled={isBusy || card.compatibility === "incompatible"}
                               onClick={() => void handleInstallFromRegistry(entry.id)}
-                              className="inline-flex w-full items-center justify-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-[11px] font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
+                              className="inline-flex w-full items-center justify-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-[11px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
                             >
                               {isBusy ? (
                                 <Loader2 size={11} className="animate-spin" aria-hidden />
