@@ -28,6 +28,7 @@ use cobalt_core::traits::{Embedder, TokenCounter};
 use db::Database;
 
 pub use cobalt_core;
+pub use cobalt_core::SCHEMA_VERSION;
 #[cfg(feature = "chroma")]
 pub use external::Chroma;
 #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
@@ -39,8 +40,6 @@ pub use external::QdrantSidecar;
 pub use ingest::WatchedFileUpdate;
 pub use memory::project_embedding;
 pub use vector::{SqliteVec, Usearch};
-
-pub const SCHEMA_VERSION: u32 = 2;
 
 /// A daemon-owned store. Open one instance per database and clone it to share the writer and pool.
 #[derive(Clone)]

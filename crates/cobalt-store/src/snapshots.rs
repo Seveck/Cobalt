@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use cobalt_core::SCHEMA_VERSION;
 use cobalt_core::enums::EngineKind;
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::{Id, new_id, now, timestamp_from_sql, timestamp_to_sql};
@@ -14,7 +15,7 @@ use crate::db::{blocking, migrate, sql_error};
 use crate::migration::{StagedIndex, indexed_texts, prepare_vectors, save_engine_settings};
 use crate::repositories::{id, load_settings, timestamp};
 use crate::vector::Index;
-use crate::{Retrieval, SCHEMA_VERSION, SqliteStore, SqliteVec};
+use crate::{Retrieval, SqliteStore, SqliteVec};
 
 fn snapshot(row: &Row<'_>) -> rusqlite::Result<Snapshot> {
     Ok(Snapshot {

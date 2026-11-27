@@ -109,7 +109,8 @@ async fn migration_sets_canonical_schema_and_connection_pragmas() {
     store.db.read(|conn| {
         for (pragma, expected) in [
             ("journal_mode", "wal"), ("foreign_keys", "1"), ("synchronous", "1"),
-            ("busy_timeout", "5000"), ("temp_store", "2"), ("user_version", "2"),
+            ("busy_timeout", "5000"), ("temp_store", "2"),
+            ("user_version", &SCHEMA_VERSION.to_string()),
         ] {
             let actual = conn.pragma_query_value(None, pragma, |row| {
                 Ok(match row.get_ref(0)? {

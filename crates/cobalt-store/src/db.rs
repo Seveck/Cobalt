@@ -2,12 +2,11 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
+use cobalt_core::SCHEMA_VERSION;
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::{MAIN_BRANCH_ID, MAIN_BRANCH_NAME, now, timestamp_to_sql};
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 use tokio::sync::Semaphore;
-
-use crate::SCHEMA_VERSION;
 
 const READERS: usize = 4;
 
@@ -249,7 +248,7 @@ pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {
     if version < 2 {
         tx.execute_batch(include_str!("usage_hourly.sql"))
             .map_err(sql_error)?;
-        tx.pragma_update(None, "user_version", 2)
+        tx.pragma_update(None, "user_version", SCHEMA_VERSION)
             .map_err(sql_error)?;
     }
     tx.commit().map_err(sql_error)
