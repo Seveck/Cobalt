@@ -547,7 +547,7 @@ mod tests {
     async fn ocr_models_report_state_and_paths_once_verified() {
         let home = tempfile::tempdir().unwrap();
         let mgr = EngineManager::new(home.path().to_path_buf()).unwrap();
-        let id = crate::catalog::DEFAULT_OCR_MODEL;
+        let id = crate::catalog::OCRS_OCR_MODEL;
         let status = mgr.ocr_status(id).unwrap();
         assert_eq!(status.state, EngineState::NotInstalled);
         assert_eq!(status.installed_bytes, 0);

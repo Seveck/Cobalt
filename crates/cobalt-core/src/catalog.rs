@@ -19,7 +19,10 @@ const ENGINES_JSON: &str = include_str!("../catalog/engines.json");
 const OCR_JSON: &str = include_str!("../catalog/ocr.json");
 
 /// Default OCR model (detection + recognition) used for images and scanned PDFs.
-pub const DEFAULT_OCR_MODEL: &str = "ocrs-latin";
+pub const DEFAULT_OCR_MODEL: &str = "paddleocr-latin";
+
+/// Alternative OCR model: pure Rust, basic Latin only (no accents/ñ).
+pub const OCRS_OCR_MODEL: &str = "ocrs-latin";
 
 /// An OCR model pair (text detection + recognition) under `~/.cobalt/models/<id>/`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -317,7 +320,11 @@ mod tests {
     #[test]
     fn builtin_catalog_is_valid_and_has_defaults() {
         let catalog = Catalog::builtin().unwrap();
-        let ocr = catalog.ocr_model(DEFAULT_OCR_MODEL).unwrap();
+        let ocr = catalog.ocr_model(OCRS_OCR_MODEL).unwrap();
+        assert_eq!(
+            catalog.ocr_model(DEFAULT_OCR_MODEL).unwrap().engine,
+            OcrEngineKind::PaddleOcr
+        );
         assert!(ocr.detection_and_recognition().is_some());
         assert!(ocr.languages.iter().any(|l| l == "latin_basic"));
         let paddle = catalog.ocr_model("paddleocr-latin").unwrap();

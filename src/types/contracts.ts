@@ -677,7 +677,8 @@ export interface OcrInstallRequest {
   model_id: string;
 }
 
-export const DEFAULT_OCR_MODEL = "ocrs-latin";
+/** Recommended default (v1.8.0): PaddleOCR reads accents and ñ. */
+export const DEFAULT_OCR_MODEL = "paddleocr-latin";
 
 export interface EngineSwapRequest {
   target_engine: EngineKind;

@@ -206,7 +206,7 @@ export function createDefaultSettings(): AppSettings {
       session_handoffs: true,
       git_commits: true,
       indexing_paused: false,
-      ocr_model_id: "ocrs-latin",
+      ocr_model_id: "paddleocr-latin",
     },
   };
 }

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use cobalt_core::catalog::{Catalog, DEFAULT_OCR_MODEL};
+use cobalt_core::catalog::{Catalog, OCRS_OCR_MODEL};
 use cobalt_core::engine::OcrModelFiles;
 use cobalt_core::engines::EngineManager;
 use cobalt_core::enums::OcrEngineKind;
@@ -11,7 +11,7 @@ use cobalt_ingest::{OcrsEngine, PaddleOcrEngine};
 use sha2::{Digest, Sha256};
 
 const PADDLE_MODEL: &str = "paddleocr-latin";
-const MODEL_IDS: [&str; 2] = [DEFAULT_OCR_MODEL, PADDLE_MODEL];
+const MODEL_IDS: [&str; 2] = [OCRS_OCR_MODEL, PADDLE_MODEL];
 
 struct Fixture {
     name: &'static str,
