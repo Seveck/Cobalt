@@ -49,6 +49,9 @@ pub struct SearchSettings {
     pub confidence_weight: f64,
     /// Additive boost for Nuclear Laws.
     pub core_pin_boost: f64,
+    /// Max tokens of memory content one `search_memory` answer may carry (v1.13.0); AIs can ask
+    /// for less or more with `max_tokens`.
+    pub response_token_budget: u32,
 }
 
 impl Default for SearchSettings {
@@ -63,6 +66,7 @@ impl Default for SearchSettings {
             rrf: RrfWeights::default(),
             confidence_weight: 0.15,
             core_pin_boost: 0.5,
+            response_token_budget: 1200,
         }
     }
 }

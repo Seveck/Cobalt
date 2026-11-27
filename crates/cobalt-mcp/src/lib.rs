@@ -15,6 +15,7 @@ pub mod http;
 pub mod project;
 pub mod protocol;
 mod render;
+pub mod shaping;
 pub mod socket;
 pub mod tools;
 mod writes;

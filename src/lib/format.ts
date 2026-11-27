@@ -196,6 +196,7 @@ export function createDefaultSettings(): AppSettings {
       },
       confidence_weight: 0.15,
       core_pin_boost: 0.5,
+      response_token_budget: 1200,
     },
     chunking: {
       max_chunk_tokens: 400,

@@ -120,7 +120,8 @@ pub fn input_schema(name: &str) -> Value {
                 "query": { "type": "string", "minLength": 1, "description": "What you need to know: identifiers, error text, topic or question." },
                 "project": project_prop(),
                 "include_archived": { "type": "boolean", "default": false, "description": "Also search archived (decayed) memories." },
-                "top_k": { "type": "integer", "minimum": 1, "maximum": 50, "description": "Max results (default from settings, usually 8)." }
+                "top_k": { "type": "integer", "minimum": 1, "maximum": 50, "description": "Max results (default from settings, usually 8)." },
+                "max_tokens": { "type": "integer", "minimum": 200, "maximum": 8000, "description": "Token budget for the answer (default ~1200). Long chunks come as excerpts around your query; memories already sent in this session are not repeated." }
             },
             "required": ["query"], "additionalProperties": false
         }),
@@ -410,6 +411,8 @@ impl Daemon {
                 file_path,
                 file_changed,
                 updated_at: m.updated_at,
+                excerpt: false,
+                already_sent: false,
             });
         }
         Ok(out)
@@ -521,13 +524,30 @@ impl Daemon {
                 &names,
             )
             .await?;
+        let budget = args
+            .max_tokens
+            .unwrap_or(self.config.get().search.response_token_budget)
+            .clamp(200, 8000) as usize;
+        let tokens = self.tokens.clone();
+        let results = crate::shaping::shape_results(results, &args.query, budget, &ctx.sent, |t| {
+            tokens.count(t)
+        });
+        // Telemetry: only what was actually handed over.
+        let kept: std::collections::HashSet<Id> = results.iter().map(|r| r.id).collect();
+        let items: Vec<ReturnedItem> = items
+            .into_iter()
+            .filter(|i| kept.contains(&i.memory_id))
+            .collect();
         let mut output = SearchMemoryOutput {
             project: resolved.to_output(),
             core_rules,
             results,
             savings: TokenSavings::default(),
         };
-        let injected = self.count(&render::search_memory(&output));
+        // Clients may read the text or the structured JSON: count the larger one.
+        let injected = self
+            .count(&render::search_memory(&output))
+            .max(self.count(&serde_json::to_string(&output).unwrap_or_default()));
         let log = self
             .record(
                 ctx,

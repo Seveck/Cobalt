@@ -22,6 +22,8 @@ pub struct ClientContext {
     pub cwd: Option<String>,
     /// Filesystem roots reported by the client (`roots/list`), as paths.
     pub roots: Vec<String>,
+    /// Memories already sent to this client in this session (search answers do not repeat them).
+    pub sent: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<cobalt_core::Id>>>,
 }
 
 impl ClientContext {
@@ -31,6 +33,7 @@ impl ClientContext {
             transport,
             cwd: None,
             roots: Vec::new(),
+            sent: std::sync::Arc::default(),
         }
     }
 }

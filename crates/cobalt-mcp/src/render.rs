@@ -55,12 +55,19 @@ pub fn search_memory(o: &SearchMemoryOutput) -> String {
             m.similarity
                 .map_or_else(|| "text".to_owned(), |v| format!("{v:.2}")),
             m.category.as_str(),
-            m.content.trim(),
+            if m.already_sent {
+                "(already sent earlier in this session)"
+            } else {
+                m.content.trim()
+            },
             file,
             stale,
             m.confidence,
             short_id(&m.id)
         );
+    }
+    if o.results.iter().any(|m| m.excerpt) {
+        s.push_str("(… = excerpt around your query; open the file for the rest)\n");
     }
     if o.results.is_empty() && o.core_rules.is_empty() {
         s.push_str(

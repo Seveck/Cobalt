@@ -76,6 +76,9 @@ pub struct SearchMemoryArgs {
     pub include_archived: Option<bool>,
     #[serde(default)]
     pub top_k: Option<u32>,
+    /// Token budget for the returned memories (default `search.response_token_budget`).
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -177,6 +180,12 @@ pub struct CompactMemory {
     #[serde(default)]
     pub file_changed: bool,
     pub updated_at: Timestamp,
+    /// `content` is an excerpt around the query terms (open `file_path` for the rest).
+    #[serde(default)]
+    pub excerpt: bool,
+    /// Already sent to this client earlier in the session: `content` is empty to save tokens.
+    #[serde(default)]
+    pub already_sent: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

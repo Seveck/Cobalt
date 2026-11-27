@@ -786,6 +786,8 @@ export interface SearchSettings {
   rrf: RrfWeights;
   confidence_weight: number;
   core_pin_boost: number;
+  /** Max tokens of memory content per search_memory answer (v1.13.0). */
+  response_token_budget: number;
 }
 
 export interface ChunkingSettings {
