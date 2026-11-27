@@ -1495,50 +1495,76 @@ async fn portable_roundtrip_preserves_identity_isolates_collisions_and_reembeds(
 }
 
 #[tokio::test]
-async fn imports_schema_one_backup() {
+async fn imports_backups_with_schema_specific_telemetry_accounting() {
     let source = tempfile::tempdir().unwrap();
-    let target = tempfile::tempdir().unwrap();
     let (origin, exporter, _) = setup(source.path(), "test").await;
-    let (dest, importer, _) = setup(target.path(), "test").await;
     let row = origin
-        .save_memory(memory("A note from a schema-one backup."))
+        .save_memory(memory("A note from a portable backup."))
         .await
         .unwrap()
         .memory;
+    let reuse = origin
+        .record_event(NewTelemetryEvent {
+            client_name: "local-client".into(),
+            operation: TelemetryOperation::Reuse,
+            query_text: None,
+            returned_items: vec![ReturnedItem {
+                memory_id: row.id,
+                source_doc_id: None,
+                similarity_score: 1.0,
+                chunk_tokens: 10,
+                content_snapshot: None,
+            }],
+            injected_tokens: 4,
+            output_tokens_saved: 10,
+            latency_ms: 1,
+            project_id: None,
+        })
+        .await
+        .unwrap();
     let current = source.path().join("current.cobalt-backup");
     let mut manifest = exporter
         .export_backup(BackupExportRequest {
             dest_path: path(&current),
             password: None,
-            include_history: false,
+            include_history: true,
         })
         .await
         .unwrap();
     assert_eq!(manifest.schema_version, cobalt_core::SCHEMA_VERSION);
-    manifest.schema_version = 1;
 
     let mut current = zip::ZipArchive::new(std::fs::File::open(current).unwrap()).unwrap();
-    let legacy = source.path().join("legacy.cobalt-backup");
-    let mut archive = zip::ZipWriter::new(std::fs::File::create(&legacy).unwrap());
-    let options = zip::write::SimpleFileOptions::default();
-    archive.start_file("manifest.json", options).unwrap();
-    serde_json::to_writer(&mut archive, &manifest).unwrap();
-    archive.start_file("data.json", options).unwrap();
-    std::io::copy(&mut current.by_name("data.json").unwrap(), &mut archive).unwrap();
-    archive.finish().unwrap();
+    // The same 10 avoided and 6 saved tokens encode zero extra reuse output in v1/v2.
+    for (version, expected_saved) in [(1, 0), (2, 0), (cobalt_core::SCHEMA_VERSION, 6)] {
+        manifest.schema_version = version;
+        let backup = source
+            .path()
+            .join(format!("schema-{version}.cobalt-backup"));
+        let mut archive = zip::ZipWriter::new(std::fs::File::create(&backup).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        archive.start_file("manifest.json", options).unwrap();
+        serde_json::to_writer(&mut archive, &manifest).unwrap();
+        archive.start_file("data.json", options).unwrap();
+        std::io::copy(&mut current.by_name("data.json").unwrap(), &mut archive).unwrap();
+        archive.finish().unwrap();
 
-    let report = importer
-        .import_backup(BackupImportRequest {
-            path: path(&legacy),
-            password: None,
-        })
-        .await
-        .unwrap();
-    assert_eq!(report.inserted, 1);
-    assert_eq!(
-        dest.get_memory(row.id).await.unwrap().unwrap().content,
-        row.content
-    );
+        let target = tempfile::tempdir().unwrap();
+        let (dest, importer, _) = setup(target.path(), "test").await;
+        let report = importer
+            .import_backup(BackupImportRequest {
+                path: path(&backup),
+                password: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(report.inserted, 1);
+        assert_eq!(
+            dest.get_memory(row.id).await.unwrap().unwrap().content,
+            row.content
+        );
+        let restored = dest.get_telemetry_log(reuse.id).await.unwrap().unwrap();
+        assert_eq!(restored.saved_tokens, expected_saved, "schema {version}");
+    }
 }
 
 #[tokio::test]
@@ -1715,7 +1741,8 @@ async fn backup_retains_version_links_handoff_and_scrubbed_telemetry_history() {
         .await
         .unwrap();
     assert_eq!(logs.total, 1);
-    assert_eq!(logs.items[0].saved_tokens, 8);
+    // Reads credit 10 avoided tokens minus 4 injected tokens. Output savings apply only to reuse.
+    assert_eq!(logs.items[0].saved_tokens, 6);
     assert_eq!(
         logs.items[0].query_text.as_deref(),
         Some("Ask support at [REDACTED:email]")

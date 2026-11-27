@@ -765,7 +765,7 @@ async fn handoff_theme_and_telemetry_repositories_persist_real_data() {
         })
         .await
         .unwrap();
-    assert_eq!((log.saved_tokens, log.avoided_full_tokens), (93, 108));
+    assert_eq!((log.saved_tokens, log.avoided_full_tokens), (88, 108));
     let page = store
         .query_telemetry(TelemetryQuery {
             client_name: Some("reader".into()),
@@ -791,7 +791,7 @@ async fn handoff_theme_and_telemetry_repositories_persist_real_data() {
             summary.session_saved_tokens,
             summary.saved_from_reads
         ),
-        (93, 93, 93)
+        (88, 88, 88)
     );
     assert_eq!(summary.timeline[0].operations, 1);
     assert_eq!(summary.by_client[0].reads, 1);
@@ -803,7 +803,7 @@ async fn handoff_theme_and_telemetry_repositories_persist_real_data() {
     };
     let usage_before = store.usage_stats(req).await.unwrap();
     assert_eq!(usage_before.all_time.requests, 1);
-    assert_eq!(usage_before.all_time.saved_tokens, 93);
+    assert_eq!(usage_before.all_time.saved_tokens, 88);
     let mut settings = store.load_settings().await.unwrap();
     settings.retention.detailed_log_limit = 0;
     store.save_settings(&settings).await.unwrap();

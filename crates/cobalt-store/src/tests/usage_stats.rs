@@ -10,7 +10,7 @@ use super::*;
 fn event() -> NewTelemetryEvent {
     NewTelemetryEvent {
         client_name: "test client".into(),
-        operation: TelemetryOperation::Read,
+        operation: TelemetryOperation::Reuse,
         query_text: None,
         returned_items: Vec::new(),
         injected_tokens: 0,
@@ -221,7 +221,7 @@ async fn v1_backfill_is_idempotent_and_keeps_deleted_project_totals() {
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             ).unwrap();
-            assert_eq!(global, ("2024-11-01T23".into(), 2, 7));
+            assert_eq!(global, ("2024-11-01T23".into(), 2, 0));
             Ok(())
         })
         .await
@@ -244,7 +244,7 @@ async fn v1_backfill_is_idempotent_and_keeps_deleted_project_totals() {
     let result = stats(&reopened, 2024, 0, "2024-11-02T01:00:00.000Z").await;
     assert_eq!(
         (result.all_time.requests, result.all_time.saved_tokens),
-        (5, 27)
+        (5, 0)
     );
     let top = result.top_project.unwrap();
     assert_eq!(
@@ -326,33 +326,50 @@ async fn importing_portable_telemetry_counts_each_log_once() {
 }
 
 #[tokio::test]
-async fn restore_migrates_legacy_snapshot_before_installing_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::open_at(dir.path().join("cobalt.db"))
-        .await
-        .unwrap();
-    let log = store.record_event(event()).await.unwrap();
-    let snapshot = store.create_snapshot("legacy").await.unwrap();
-    let legacy = Connection::open(&snapshot.file_path).unwrap();
-    legacy
-        .execute_batch(
-            "DROP TRIGGER telemetry_usage_hourly;
-             DROP TABLE usage_hourly;
-             DROP INDEX idx_memories_created_at;
-             PRAGMA user_version = 1;",
-        )
-        .unwrap();
-    drop(legacy);
+async fn restore_migrates_v1_and_v2_snapshots_before_installing_them() {
+    for version in [1, 2] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqliteStore::open_at(dir.path().join("cobalt.db"))
+            .await
+            .unwrap();
+        let log = store.record_event(event()).await.unwrap();
+        let snapshot = store.create_snapshot("legacy").await.unwrap();
+        let legacy = Connection::open(&snapshot.file_path).unwrap();
+        legacy.execute_batch(
+            "UPDATE telemetry_logs SET avoided_full_tokens = 100, injected_tokens = 20, saved_tokens = 130;
+             UPDATE usage_hourly SET saved_tokens = 130;",
+        ).unwrap();
+        if version == 1 {
+            legacy
+                .execute_batch(
+                    "DROP TRIGGER telemetry_usage_hourly;
+                 DROP TABLE usage_hourly;
+                 DROP INDEX idx_memories_created_at;",
+                )
+                .unwrap();
+        }
+        legacy.pragma_update(None, "user_version", version).unwrap();
+        drop(legacy);
 
-    store.record_event(event()).await.unwrap();
-    store.restore_snapshot(snapshot.id).await.unwrap();
-    let req = UsageStatsRequest {
-        year: log.timestamp.year(),
-        utc_offset_minutes: 0,
-    };
-    assert_eq!(store.usage_stats(req).await.unwrap().all_time.requests, 1);
-    store.record_event(event()).await.unwrap();
-    assert_eq!(store.usage_stats(req).await.unwrap().all_time.requests, 2);
+        store.record_event(event()).await.unwrap();
+        store.restore_snapshot(snapshot.id).await.unwrap();
+        let req = UsageStatsRequest {
+            year: log.timestamp.year(),
+            utc_offset_minutes: 0,
+        };
+        let restored = store.get_telemetry_log(log.id).await.unwrap().unwrap();
+        assert_eq!(
+            (restored.avoided_full_tokens, restored.saved_tokens),
+            (50, 30)
+        );
+        let restored_totals = store.usage_stats(req).await.unwrap().all_time;
+        assert_eq!(
+            (restored_totals.requests, restored_totals.saved_tokens),
+            (1, 30)
+        );
+        store.record_event(event()).await.unwrap();
+        assert_eq!(store.usage_stats(req).await.unwrap().all_time.requests, 2);
+    }
 }
 
 #[tokio::test]

@@ -1,9 +1,10 @@
+use cobalt_core::SCHEMA_VERSION;
 use cobalt_core::enums::{EdgeType, MemoryStatus};
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::{Id, Timestamp, timestamp_to_sql};
 use cobalt_core::model::{Handoff, Memory, MemoryEdge, SourceDocument};
 use cobalt_core::telemetry::TelemetryLog;
-use rusqlite::params;
+use rusqlite::{TransactionBehavior, params};
 
 use crate::SqliteStore;
 use crate::db::sql_error;
@@ -13,6 +14,7 @@ use crate::memory::{
 };
 use crate::migration::edit_transaction;
 use crate::repositories::{load_settings, source};
+use crate::telemetry::account_imported_event;
 
 impl SqliteStore {
     /// Inserts a previously validated portable memory without merging it with unrelated local data.
@@ -115,8 +117,39 @@ impl SqliteStore {
         handoffs: Vec<Handoff>,
         logs: Vec<TelemetryLog>,
     ) -> Result<()> {
+        self.import_history(None, edges, versions, handoffs, logs)
+            .await
+    }
+
+    /// Restores history using the schema version from the backup manifest.
+    pub async fn insert_portable_history_for_schema(
+        &self,
+        schema_version: u32,
+        edges: Vec<MemoryEdge>,
+        versions: Vec<(Id, Id)>,
+        handoffs: Vec<Handoff>,
+        logs: Vec<TelemetryLog>,
+    ) -> Result<()> {
+        if !(1..=SCHEMA_VERSION).contains(&schema_version) {
+            return Err(CobaltError::Unsupported(format!(
+                "history uses schema {schema_version}"
+            )));
+        }
+        self.import_history(Some(schema_version < 3), edges, versions, handoffs, logs)
+            .await
+    }
+
+    async fn import_history(
+        &self,
+        legacy_telemetry: Option<bool>,
+        edges: Vec<MemoryEdge>,
+        versions: Vec<(Id, Id)>,
+        handoffs: Vec<Handoff>,
+        mut logs: Vec<TelemetryLog>,
+    ) -> Result<()> {
+        logs.sort_unstable_by_key(|log| (log.timestamp, log.id));
         self.db.write(move |conn| {
-            let tx = conn.transaction().map_err(sql_error)?;
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql_error)?;
             for (id, next) in versions {
                 tx.execute("UPDATE memories SET superseded_by = ?2 WHERE id = ?1
                             AND status = 'superseded' AND superseded_by IS NULL",
@@ -138,12 +171,13 @@ impl SqliteStore {
                     .map_err(sql_error)?;
             }
             for log in logs {
+                let (avoided, saved, items) = account_imported_event(&tx, &log, legacy_telemetry)?;
                 tx.execute("INSERT INTO telemetry_logs (id, timestamp, client_name, operation, query_text,
                             returned_items_json, injected_tokens, avoided_full_tokens, saved_tokens, latency_ms, project_id)
                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) ON CONFLICT(id) DO NOTHING",
                     params![log.id.to_string(), timestamp_to_sql(&log.timestamp), log.client_name, log.operation.as_str(),
-                        log.query_text, serde_json::to_string(&log.returned_items)?, log.injected_tokens,
-                        log.avoided_full_tokens, log.saved_tokens, log.latency_ms, log.project_id.map(|id| id.to_string())])
+                        log.query_text, items, log.injected_tokens,
+                        avoided, saved, log.latency_ms, log.project_id.map(|id| id.to_string())])
                     .map_err(sql_error)?;
             }
             tx.commit().map_err(sql_error)
