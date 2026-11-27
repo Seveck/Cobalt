@@ -61,7 +61,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 ### Pendiente para Fase 3 (de esta integración)
 - [ ] [GEMINI] Usar `get_source_document`/`verify_source_document` reales en el Inspector
 - [ ] [CODEX] `find_import_collision` para `.cobalt-backup`; adaptadores Qdrant sidecar / LanceDB / Chroma
-- [ ] [CLAUDE] `swap_engine` IPC al cambiar de modelo con memorias existentes (hoy solo se activa en cerebro vacío)
+- [x] [CLAUDE] `swap_engine` IPC al cambiar de modelo con memorias existentes (`update_settings` ya no lo permite sin re-vectorizar)
 
 ## Fase 3 — Integración completa [PARALELO] ✅
 ### [CLAUDE]
@@ -100,7 +100,11 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] Grafo: sin líneas decorativas en `brain`/`project_clusters`, botón "Mostrar conexiones" (aristas reales); versión y contratos movidos a Ajustes → Acerca de
 - [x] Bug (2026-11-26): el vigilante reescaneaba en bucle: los eventos `OPEN` de inotify (notify 8.2) generados por las propias lecturas de Cobalt desbordaban la cola → rescan completo infinito. Ahora se descartan eventos de acceso y rutas ignoradas antes de encolar, sin lecturas dobles, con test de regresión (1 101 archivos); la UI cuenta solo trabajos en curso
 - [x] Progreso por fragmentos dentro del archivo actual (contratos v1.6.1, `file_chunks_done/total`): barra secundaria "fragmento X de Y" para que los archivos grandes no parezcan congelados
-- [ ] [CLAUDE] Bug (2026-11-26): `cobalt --mcp-stdio` no se reconecta si el daemon se reinicia (p. ej. recompilación de `tauri dev` o auto-actualización); el cliente ve "Connection closed". Arreglo: reconectar (lanzando el daemon si falta) y reenviar en silencio el `initialize`/`notifications/initialized` guardado, descartando su respuesta; test E2E reiniciando el daemon
+- [x] Bug (2026-11-26): `cobalt --mcp-stdio` no se reconectaba al reiniciarse el daemon ("Connection closed"). Ahora espera al daemon, reenvía en silencio el `initialize`/`initialized` guardado, responde con error las peticiones cortadas y encola las nuevas; en release relanza el daemon a los 10 s (en dev espera a `tauri dev`); test E2E con reinicio + prueba de mutación
+- [x] Bug (2026-11-26): un worktree de git (`../cobalt-codex`) creaba un proyecto duplicado y reindexaba todo el repo; ahora se resuelve al proyecto del checkout principal (`.git` → `gitdir` → `commondir`). Duplicado existente borrado con copia de seguridad
+- [x] Bug (2026-11-26): `update_settings` guardaba otro motor/modelo con memorias existentes sin re-vectorizar (quedaban sin vectores); ahora lo rechaza y solo `swap_engine` puede cambiarlo
+- [x] Bug (2026-11-26): la indexación de fondo retenía el permiso de escritura durante todo el trabajo y congelaba la UI tras cualquier acción exclusiva; ahora cada escritura la protege el store, como el vigilante
+- [x] [GEMINI] Bienvenida y "Guardar preferencias" cambian motor/modelo solo vía `swap_engine` y muestran el rechazo del backend
 - [ ] Pendiente: hooks de Antigravity (`agy`, vía plugin `hooks.json`; formato por verificar) y de Cursor/Windsurf/Cline (sin sistema de hooks: solo instrucciones); los hooks apuntan al binario actual (reinstalar al instalar la versión final)
 
 ## Fase 3.5 — Asistente conversacional, Personas y Estudio [PARALELO] (decidida 2026-11-25)
