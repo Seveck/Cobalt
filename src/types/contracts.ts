@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.7.0";
+export const CONTRACT_VERSION = "1.8.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -67,6 +67,9 @@ export const LAYOUT_TYPES = [
 export type LayoutType = (typeof LAYOUT_TYPES)[number];
 
 export type WriteAction = "inserted" | "updated_existing" | "superseded" | "duplicate";
+
+/** Local OCR implementation (v1.8.0). */
+export type OcrEngineKind = "ocrs" | "paddle_ocr";
 
 export const AI_CLIENTS = [
   "claude_desktop", "claude_code", "cursor", "windsurf", "cline", "gemini_cli", "codex_cli",
@@ -659,12 +662,15 @@ export interface EngineStatus {
 /** OCR model state (v1.7.0). Downloads stream `cobalt://download-progress`. */
 export interface OcrStatus {
   model_id: string;
+  engine: OcrEngineKind;
   display_name: string;
-  /** Scripts it reads, e.g. `latin`. */
+  /** `latin_basic` (no accents, ñ, ¿¡) or `latin` (full Latin script). */
   languages: string[];
   state: EngineState;
   size_bytes: number;
   installed_bytes: number;
+  /** Selected in settings (`capture.ocr_model_id`); used once installed. */
+  active: boolean;
 }
 
 export interface OcrInstallRequest {
@@ -768,6 +774,8 @@ export interface CaptureSettings {
   git_commits: boolean;
   /** Global pause of watcher, auto-watch and hook re-indexing. */
   indexing_paused: boolean;
+  /** OCR model used once installed: `ocrs-latin` | `paddleocr-latin` (v1.8.0). */
+  ocr_model_id: string;
 }
 
 export interface AppSettings {
@@ -1217,6 +1225,9 @@ export interface IpcCommandMap {
   get_engine_status: { args: void; result: EngineStatus };
   get_ocr_status: { args: void; result: OcrStatus };
   install_ocr: { args: OcrInstallRequest; result: OcrStatus };
+  list_ocr_models: { args: void; result: OcrStatus[] };
+  /** Deletes the model files; returns bytes freed. */
+  remove_ocr: { args: OcrInstallRequest; result: number };
   vault_status: { args: void; result: VaultStatus };
   vault_setup: { args: VaultPasswordArgs; result: VaultStatus };
   vault_unlock: { args: VaultPasswordArgs; result: VaultStatus };

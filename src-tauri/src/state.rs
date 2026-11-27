@@ -145,13 +145,11 @@ impl AppState {
         let mut service = IngestService::with_sqlite_store(store.clone(), tokens)
             .with_watcher_callbacks(self.ingest_progress.clone(), changed);
         // Local OCR (images, scanned PDFs) once its catalog-verified models are installed.
-        if let Some((detection, recognition)) = self
-            .engines
-            .ocr_model_paths(cobalt_core::catalog::DEFAULT_OCR_MODEL)
-        {
-            match cobalt_ingest::OcrsEngine::from_paths(&detection, &recognition) {
-                Ok(engine) => service = service.with_ocr(Arc::new(engine)),
-                Err(err) => tracing::warn!(%err, "OCR models installed but not loadable"),
+        let ocr_model = self.config.get().capture.ocr_model_id;
+        if let Some(files) = self.engines.ocr_model_files(&ocr_model) {
+            match load_ocr_engine(&files) {
+                Ok(engine) => service = service.with_ocr(engine),
+                Err(err) => tracing::warn!(%err, model = %ocr_model, "OCR model not loadable"),
             }
         }
         let ingest = Arc::new(service);
@@ -317,6 +315,20 @@ pub async fn blocking<T: Send + 'static>(
     tokio::task::spawn_blocking(f)
         .await
         .map_err(|e| CobaltError::Internal(format!("blocking task: {e}")))?
+}
+
+/// Builds the OCR engine for the user's chosen model (contract v1.8.0).
+fn load_ocr_engine(
+    files: &cobalt_core::engine::OcrModelFiles,
+) -> Result<Arc<dyn cobalt_core::traits::OcrEngine>> {
+    match files.engine {
+        cobalt_core::enums::OcrEngineKind::Ocrs => Ok(Arc::new(
+            cobalt_ingest::OcrsEngine::from_paths(&files.detection, &files.recognition)?,
+        )),
+        cobalt_core::enums::OcrEngineKind::PaddleOcr => Err(cobalt_core::CobaltError::Unsupported(
+            "PaddleOCR engine lands with cobalt-ingest f17".into(),
+        )),
+    }
 }
 
 #[cfg(test)]

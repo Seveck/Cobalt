@@ -1,4 +1,8 @@
-# Cobalt — Frozen Contracts (v1.7.0)
+# Cobalt — Frozen Contracts (v1.8.0)
+
+> v1.8.0 (additive): choice of OCR engine — `OcrEngineKind` (`ocrs` | `paddle_ocr`), catalog model
+> `paddleocr-latin` (PP-OCRv5, full Latin script incl. accents/ñ), `CaptureSettings.ocr_model_id`,
+> `OcrStatus.{engine, active}`, IPC `list_ocr_models` / `remove_ocr`.
 
 > v1.7.0 (additive): local OCR — `OcrStatus`, `OcrInstallRequest`, IPC `get_ocr_status` /
 > `install_ocr`, trait `OcrEngine`, catalog `ocr.json` (§6.1).
@@ -354,7 +358,13 @@ selectable only in Pro mode (`PRO_ENGLISH_MODELS`). Defaults come from
   blocking thread). Implemented in `cobalt-ingest` with `ocrs`; injected into the ingest service
   only when the model is installed. Without it, images/scanned PDFs keep failing with a clear
   "install OCR" error. OCR text becomes memories with `category = ocr`.
-- IPC (v1.7.0): `get_ocr_status() -> OcrStatus`, `install_ocr({ model_id }) -> OcrStatus`.
+- IPC (v1.7.0): `get_ocr_status() -> OcrStatus` (the active model), `install_ocr({ model_id }) ->
+  OcrStatus`; (v1.8.0) `list_ocr_models() -> OcrStatus[]`, `remove_ocr({ model_id }) -> bytes freed`.
+- Two engines (v1.8.0), chosen by the user (`capture.ocr_model_id`; changing it rebuilds ingest):
+  - `ocrs-latin` (`ocrs`, pure Rust): basic Latin only (no accents/ñ/¿¡).
+  - `paddleocr-latin` (`paddle_ocr`, PP-OCRv5 mobile det + latin rec via ONNX Runtime, Apache-2.0):
+    full Latin script incl. á é í ó ú ñ ü ¿ ¡; needs `recognition-dict.yml` (the model's
+    `inference.yml`). Implemented by `cobalt_ingest::PaddleOcrEngine`.
 
 ## 7. Process model & local endpoints (`cobalt_core::paths`)
 

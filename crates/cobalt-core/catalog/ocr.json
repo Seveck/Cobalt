@@ -3,8 +3,11 @@
   "ocr_models": [
     {
       "id": "ocrs-latin",
-      "display_name": "ocrs (Latin alphabet)",
-      "languages": ["latin"],
+      "engine": "ocrs",
+      "display_name": "ocrs",
+      "languages": [
+        "latin_basic"
+      ],
       "size_bytes": 12212656,
       "revision": "ocrs-models 2024 (pinned by SHA-256; upstream URLs are unversioned)",
       "files": [
@@ -22,6 +25,42 @@
           "sha256": "86c145c2edb96c8caed5b1ebb8f44d706408922211451c309c625157dd6061c5",
           "size_bytes": 9713177,
           "relative_dest": "models/ocrs-latin/text-recognition.onnx",
+          "archive": null
+        }
+      ]
+    },
+    {
+      "id": "paddleocr-latin",
+      "engine": "paddle_ocr",
+      "display_name": "PaddleOCR (PP-OCRv5 latin)",
+      "languages": [
+        "latin"
+      ],
+      "size_bytes": 12875358,
+      "revision": "PaddlePaddle/PP-OCRv5_mobile_det_onnx@e6f4fa85f00e168c862bc462aebca69eef9b3d3d + latin_PP-OCRv5_mobile_rec_onnx@89d3a50e2c27e2e7cceeab0e944c25c807d5db4f (Apache-2.0)",
+      "files": [
+        {
+          "id": "paddleocr-latin/text-detection.onnx",
+          "url": "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det_onnx/resolve/e6f4fa85f00e168c862bc462aebca69eef9b3d3d/inference.onnx",
+          "sha256": "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d",
+          "size_bytes": 4826518,
+          "relative_dest": "models/paddleocr-latin/text-detection.onnx",
+          "archive": null
+        },
+        {
+          "id": "paddleocr-latin/text-recognition.onnx",
+          "url": "https://huggingface.co/PaddlePaddle/latin_PP-OCRv5_mobile_rec_onnx/resolve/89d3a50e2c27e2e7cceeab0e944c25c807d5db4f/inference.onnx",
+          "sha256": "7888113072263cb471b93f66dd5e2ad70548dc526fa1ace760d0d973dd121498",
+          "size_bytes": 8042023,
+          "relative_dest": "models/paddleocr-latin/text-recognition.onnx",
+          "archive": null
+        },
+        {
+          "id": "paddleocr-latin/recognition-dict.yml",
+          "url": "https://huggingface.co/PaddlePaddle/latin_PP-OCRv5_mobile_rec_onnx/resolve/89d3a50e2c27e2e7cceeab0e944c25c807d5db4f/inference.yml",
+          "sha256": "0bbe984570f597af3638e50bdf2e8276f3ab26a61966096538b3b0d1849f5c84",
+          "size_bytes": 6817,
+          "relative_dest": "models/paddleocr-latin/recognition-dict.yml",
           "archive": null
         }
       ]

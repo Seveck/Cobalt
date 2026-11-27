@@ -99,12 +99,25 @@ pub struct DownloadArtifact {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OcrStatus {
     pub model_id: String,
+    pub engine: crate::enums::OcrEngineKind,
     pub display_name: String,
     /// Scripts it reads, e.g. `latin`.
     pub languages: Vec<String>,
     pub state: EngineState,
     pub size_bytes: u64,
     pub installed_bytes: u64,
+    /// Selected in settings (`capture.ocr_model_id`); used once installed.
+    pub active: bool,
+}
+
+/// Verified local files of an installed OCR model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OcrModelFiles {
+    pub engine: crate::enums::OcrEngineKind,
+    pub detection: std::path::PathBuf,
+    pub recognition: std::path::PathBuf,
+    /// PaddleOCR character dictionary (`inference.yml`).
+    pub dictionary: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

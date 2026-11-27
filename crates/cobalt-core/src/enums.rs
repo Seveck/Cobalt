@@ -248,6 +248,11 @@ string_enum! {
 }
 
 string_enum! {
+    /// Local OCR implementation (contract v1.8.0).
+    pub enum OcrEngineKind { Ocrs => "ocrs", PaddleOcr => "paddle_ocr" }
+}
+
+string_enum! {
     /// AI clients supported by the 1-Click connector.
     pub enum AiClient {
         ClaudeDesktop => "claude_desktop", ClaudeCode => "claude_code", Cursor => "cursor",

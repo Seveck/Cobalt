@@ -69,6 +69,10 @@ pub async fn update_settings(
     if saved.read_only != state.daemon.is_read_only() {
         state.daemon.set_read_only(saved.read_only).await?;
     }
+    if saved.capture.ocr_model_id != previous.capture.ocr_model_id {
+        // Another OCR engine was chosen: rebuild ingest with it (or without OCR until installed).
+        state.refresh_ocr().await;
+    }
     if saved.capture.indexing_paused != previous.capture.indexing_paused {
         // Global pause: stop or resume the watcher right away.
         state.restart_watcher().await;
@@ -122,12 +126,34 @@ pub fn cancel_download(state: State<'_, AppState>, args: CancelDownloadArgs) -> 
     }
 }
 
-/// State of the default OCR model (contract v1.7.0).
+/// State of the OCR model selected in settings (contract v1.7.0).
 #[tauri::command]
 pub fn get_ocr_status(state: State<'_, AppState>) -> CmdResult<cobalt_core::engine::OcrStatus> {
+    let active = state.config.get().capture.ocr_model_id;
+    let mut status = state.engines.ocr_status(&active)?;
+    status.active = true;
+    Ok(status)
+}
+
+/// Every OCR model the user can choose from (contract v1.8.0).
+#[tauri::command]
+pub fn list_ocr_models(state: State<'_, AppState>) -> Vec<cobalt_core::engine::OcrStatus> {
     state
         .engines
-        .ocr_status(cobalt_core::catalog::DEFAULT_OCR_MODEL)
+        .ocr_statuses(&state.config.get().capture.ocr_model_id)
+}
+
+/// Deletes an OCR model's files (contract v1.8.0); OCR stops if it was the active one.
+#[tauri::command]
+pub async fn remove_ocr(
+    state: State<'_, AppState>,
+    args: cobalt_core::engine::OcrInstallRequest,
+) -> CmdResult<u64> {
+    let freed = state.engines.remove_ocr(&args.model_id).await?;
+    if state.config.get().capture.ocr_model_id == args.model_id {
+        state.refresh_ocr().await;
+    }
+    Ok(freed)
 }
 
 /// Downloads and verifies the OCR model (streams `cobalt://download-progress`), then turns OCR
@@ -144,8 +170,11 @@ pub async fn install_ocr(
             tracing::warn!(%err, "failed to emit download progress");
         }
     });
-    let status = state.engines.install_ocr(&args.model_id, sink).await?;
-    state.refresh_ocr().await;
+    let mut status = state.engines.install_ocr(&args.model_id, sink).await?;
+    status.active = state.config.get().capture.ocr_model_id == args.model_id;
+    if status.active {
+        state.refresh_ocr().await;
+    }
     Ok(status)
 }
 

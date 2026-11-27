@@ -14,7 +14,8 @@ async fn pinned_models_recognize_rendered_text() {
         .install_ocr(DEFAULT_OCR_MODEL, Arc::new(|_| {}))
         .await
         .unwrap();
-    let (detection, recognition) = manager.ocr_model_paths(DEFAULT_OCR_MODEL).unwrap();
+    let files = manager.ocr_model_files(DEFAULT_OCR_MODEL).unwrap();
+    let (detection, recognition) = (files.detection, files.recognition);
     let entry = Catalog::builtin()
         .unwrap()
         .ocr_model(DEFAULT_OCR_MODEL)

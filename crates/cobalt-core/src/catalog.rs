@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 use crate::engine::{DownloadArtifact, EmbeddingModelSpec};
-use crate::enums::EngineKind;
+use crate::enums::{EngineKind, OcrEngineKind};
 use crate::error::{CobaltError, Result};
 
 const MODELS_JSON: &str = include_str!("../catalog/models.json");
@@ -25,12 +25,14 @@ pub const DEFAULT_OCR_MODEL: &str = "ocrs-latin";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OcrModelEntry {
     pub id: String,
+    pub engine: OcrEngineKind,
     pub display_name: String,
-    /// Scripts it reads, e.g. `latin` (Spanish, English, French…).
+    /// `latin_basic` (ASCII letters only: no accents, ñ, ¿¡) or `latin` (full Latin script).
     pub languages: Vec<String>,
     pub size_bytes: u64,
     pub revision: String,
-    /// Exactly two files: `…/text-detection.onnx` and `…/text-recognition.onnx`.
+    /// `…/text-detection.onnx`, `…/text-recognition.onnx` and, for PaddleOCR, the character
+    /// dictionary `…/recognition-dict.yml`.
     pub files: Vec<DownloadArtifact>,
 }
 
@@ -43,6 +45,13 @@ impl OcrModelEntry {
                 .find(|f| f.relative_dest.ends_with(suffix))
         };
         Some((find("text-detection.onnx")?, find("text-recognition.onnx")?))
+    }
+
+    /// The recognition character dictionary (PaddleOCR only).
+    pub fn dictionary(&self) -> Option<&DownloadArtifact> {
+        self.files
+            .iter()
+            .find(|f| f.relative_dest.ends_with("recognition-dict.yml"))
     }
 }
 
@@ -126,7 +135,11 @@ impl Catalog {
         }
         for model in &ocr.ocr_models {
             let total: u64 = model.files.iter().map(|f| f.size_bytes).sum();
-            if total != model.size_bytes || model.detection_and_recognition().is_none() {
+            let needs_dict = model.engine == OcrEngineKind::PaddleOcr;
+            if total != model.size_bytes
+                || model.detection_and_recognition().is_none()
+                || (needs_dict && model.dictionary().is_none())
+            {
                 return Err(CobaltError::Integrity(format!(
                     "OCR model {} must have detection + recognition files totalling size_bytes",
                     model.id
@@ -306,7 +319,9 @@ mod tests {
         let catalog = Catalog::builtin().unwrap();
         let ocr = catalog.ocr_model(DEFAULT_OCR_MODEL).unwrap();
         assert!(ocr.detection_and_recognition().is_some());
-        assert!(ocr.languages.iter().any(|l| l == "latin"));
+        assert!(ocr.languages.iter().any(|l| l == "latin_basic"));
+        let paddle = catalog.ocr_model("paddleocr-latin").unwrap();
+        assert!(paddle.languages.iter().any(|l| l == "latin"));
         for tier in HardwareTier::ALL {
             let id = default_model_for_tier(*tier);
             let model = catalog

@@ -214,6 +214,8 @@ pub fn run() {
             commands::get_engine_status,
             commands::get_ocr_status,
             commands::install_ocr,
+            commands::list_ocr_models,
+            commands::remove_ocr,
             commands::vault_status,
             commands::vault_setup,
             commands::vault_unlock,

@@ -215,6 +215,9 @@ pub struct CaptureSettings {
     pub git_commits: bool,
     /// Global pause: file watcher, auto-watch and hook re-indexing stop until resumed.
     pub indexing_paused: bool,
+    /// OCR model used for images and scanned PDFs once installed (`ocrs-latin` or
+    /// `paddleocr-latin`, contract v1.8.0).
+    pub ocr_model_id: String,
 }
 
 impl Default for CaptureSettings {
@@ -224,6 +227,7 @@ impl Default for CaptureSettings {
             session_handoffs: true,
             git_commits: true,
             indexing_paused: false,
+            ocr_model_id: crate::catalog::DEFAULT_OCR_MODEL.to_owned(),
         }
     }
 }

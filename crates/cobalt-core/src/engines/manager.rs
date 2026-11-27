@@ -12,7 +12,9 @@ use tokio::sync::Mutex;
 use super::downloader::{CancelFlag, Downloader, extract_archive, marker_path};
 use super::sidecar::{QdrantSidecar, SidecarConfig, default_storage_dir};
 use crate::catalog::{Catalog, OcrModelEntry, is_ollama_model};
-use crate::engine::{DownloadArtifact, DownloadProgress, EngineInstallRequest, OcrStatus};
+use crate::engine::{
+    DownloadArtifact, DownloadProgress, EngineInstallRequest, OcrModelFiles, OcrStatus,
+};
 use crate::enums::{DownloadPhase, EngineKind, EngineState};
 use crate::error::{CobaltError, Result};
 use crate::paths::{ENGINES_DIR, LOGS_DIR, MODELS_DIR};
@@ -248,6 +250,19 @@ impl EngineManager {
             .ok_or_else(|| CobaltError::NotFound(format!("OCR model '{model_id}'")))
     }
 
+    /// Every OCR model of the catalog; `active_model_id` is the one selected in settings.
+    pub fn ocr_statuses(&self, active_model_id: &str) -> Vec<OcrStatus> {
+        self.catalog
+            .ocr_models()
+            .iter()
+            .filter_map(|m| self.ocr_status(&m.id).ok())
+            .map(|mut s| {
+                s.active = s.model_id == active_model_id;
+                s
+            })
+            .collect()
+    }
+
     /// Installed / downloading / not installed for an OCR model of the catalog.
     pub fn ocr_status(&self, model_id: &str) -> Result<OcrStatus> {
         let entry = self.ocr_entry(model_id)?;
@@ -276,11 +291,13 @@ impl EngineManager {
             .sum();
         Ok(OcrStatus {
             model_id: entry.id.clone(),
+            engine: entry.engine,
             display_name: entry.display_name.clone(),
             languages: entry.languages.clone(),
             state,
             size_bytes: entry.size_bytes,
             installed_bytes,
+            active: false,
         })
     }
 
@@ -296,17 +313,40 @@ impl EngineManager {
         self.ocr_status(model_id)
     }
 
-    /// Verified `(detection, recognition)` model paths, or `None` until installed.
-    pub fn ocr_model_paths(&self, model_id: &str) -> Option<(PathBuf, PathBuf)> {
+    /// Verified local files of an OCR model, or `None` until every file is installed.
+    pub fn ocr_model_files(&self, model_id: &str) -> Option<OcrModelFiles> {
         let entry = self.catalog.ocr_model(model_id)?;
-        let (det, rec) = entry.detection_and_recognition()?;
-        if !(self.is_artifact_installed(det) && self.is_artifact_installed(rec)) {
+        if !entry.files.iter().all(|f| self.is_artifact_installed(f)) {
             return None;
         }
-        Some((
-            self.downloader.dest_path(det).ok()?,
-            self.downloader.dest_path(rec).ok()?,
-        ))
+        let (det, rec) = entry.detection_and_recognition()?;
+        Some(OcrModelFiles {
+            engine: entry.engine,
+            detection: self.downloader.dest_path(det).ok()?,
+            recognition: self.downloader.dest_path(rec).ok()?,
+            dictionary: match entry.dictionary() {
+                Some(d) => Some(self.downloader.dest_path(d).ok()?),
+                None => None,
+            },
+        })
+    }
+
+    /// Deletes an OCR model's files; returns the bytes freed.
+    pub async fn remove_ocr(&self, model_id: &str) -> Result<u64> {
+        let entry = self.ocr_entry(model_id)?;
+        if entry
+            .files
+            .iter()
+            .any(|f| self.active().contains_key(&f.id))
+        {
+            return Err(CobaltError::Conflict(format!("{model_id} is downloading")));
+        }
+        let dir = self.model_dir(&entry.id);
+        let freed = dir_size(&dir);
+        if dir.exists() {
+            tokio::fs::remove_dir_all(&dir).await?;
+        }
+        Ok(freed)
     }
 
     /// Requests cancellation of an in-flight artifact download.
@@ -511,7 +551,13 @@ mod tests {
         let status = mgr.ocr_status(id).unwrap();
         assert_eq!(status.state, EngineState::NotInstalled);
         assert_eq!(status.installed_bytes, 0);
-        assert!(mgr.ocr_model_paths(id).is_none());
+        assert!(mgr.ocr_model_files(id).is_none());
+        assert_eq!(mgr.ocr_statuses(id).len(), 2);
+        assert!(
+            mgr.ocr_statuses(id)
+                .iter()
+                .any(|s| s.active && s.model_id == id)
+        );
         assert!(matches!(
             mgr.ocr_status("nope"),
             Err(CobaltError::NotFound(_))
@@ -531,11 +577,27 @@ mod tests {
         let status = mgr.ocr_status(id).unwrap();
         assert_eq!(status.state, EngineState::Installed);
         assert_eq!(status.installed_bytes, entry.size_bytes);
-        let (det, rec) = mgr.ocr_model_paths(id).unwrap();
-        assert!(det.ends_with("models/ocrs-latin/text-detection.onnx"));
-        assert!(rec.ends_with("models/ocrs-latin/text-recognition.onnx"));
+        let files = mgr.ocr_model_files(id).unwrap();
+        assert!(
+            files
+                .detection
+                .ends_with("models/ocrs-latin/text-detection.onnx")
+        );
+        assert!(
+            files
+                .recognition
+                .ends_with("models/ocrs-latin/text-recognition.onnx")
+        );
+        assert!(files.dictionary.is_none());
         // Already verified: install only reports completion, no network.
         let status = mgr.install_ocr(id, Arc::new(|_| {})).await.unwrap();
         assert_eq!(status.state, EngineState::Installed);
+        let paddle = mgr.catalog().ocr_model("paddleocr-latin").unwrap();
+        assert!(
+            paddle.dictionary().is_some(),
+            "PaddleOCR needs its character dictionary"
+        );
+        assert!(mgr.remove_ocr(id).await.unwrap() >= entry.size_bytes);
+        assert_eq!(mgr.ocr_status(id).unwrap().state, EngineState::NotInstalled);
     }
 }

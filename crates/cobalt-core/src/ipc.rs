@@ -25,6 +25,9 @@ pub mod commands {
     // OCR (v1.7.0)
     pub const GET_OCR_STATUS: &str = "get_ocr_status";
     pub const INSTALL_OCR: &str = "install_ocr";
+    // OCR choice (v1.8.0)
+    pub const LIST_OCR_MODELS: &str = "list_ocr_models";
+    pub const REMOVE_OCR: &str = "remove_ocr";
     pub const VAULT_STATUS: &str = "vault_status";
     pub const VAULT_SETUP: &str = "vault_setup";
     pub const VAULT_UNLOCK: &str = "vault_unlock";
