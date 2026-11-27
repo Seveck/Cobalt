@@ -1,4 +1,8 @@
-# Cobalt — Frozen Contracts (v1.9.0)
+# Cobalt — Frozen Contracts (v1.10.0)
+
+> v1.10.0 (additive): personal usage stats — table `usage_hourly` (permanent hourly rollup of
+> telemetry, never pruned), `TelemetryRepository::usage_stats`, IPC `get_usage_stats`
+> (`UsageStatsRequest` → `UsageStats`) for the Estadísticas view (§2.1).
 
 > v1.9.0 (additive): `ConnectorStatus.manual_snippet` — the exact entry the 1-click toggle would
 > write (real executable path, client format), for the Connectors "Manual setup" section.
@@ -251,6 +255,27 @@ CREATE TABLE app_config (
   updated_at TEXT NOT NULL
 );
 ```
+
+### 2.1 Usage rollup (v1.10.0)
+
+```sql
+-- Permanent hourly rollup of telemetry for the Estadísticas view. Never pruned (detailed
+-- telemetry_logs are capped by RetentionSettings). ~1 row per client/operation/hour.
+CREATE TABLE usage_hourly (
+  hour_utc     TEXT    NOT NULL,             -- 'YYYY-MM-DDTHH' (UTC)
+  client_name  TEXT    NOT NULL,
+  operation    TEXT    NOT NULL,             -- TelemetryOperation
+  project_id   TEXT    NOT NULL DEFAULT '',  -- '' = global; no FK (survives project deletion)
+  requests     INTEGER NOT NULL DEFAULT 0 CHECK (requests >= 0),
+  saved_tokens INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (hour_utc, client_name, operation, project_id)
+);
+```
+- `record_event` upserts the row in the same transaction as the telemetry row; the migration
+  backfills it from existing `telemetry_logs`.
+- Local days/hours = UTC hour shifted by `utc_offset_minutes` (half-hour offsets round to the hour
+  bucket). `memories_created` per day comes from `memories.created_at` (exact).
+- `git` commits recorded by hooks count as `write` requests of client `git`; the UI may hide them.
 
 ### Domain invariants (enforced by `cobalt-store`)
 

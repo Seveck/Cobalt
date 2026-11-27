@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.9.0";
+export const CONTRACT_VERSION = "1.10.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -537,6 +537,68 @@ export interface TimeBucket {
   injected_tokens: number;
   avoided_full_tokens: number;
   operations: number;
+}
+
+// ---------------------------------------------------------------- usage stats (v1.10.0)
+
+/** Local time: `utc_offset_minutes = -new Date().getTimezoneOffset()`. */
+export interface UsageStatsRequest {
+  year: number;
+  utc_offset_minutes: number;
+}
+
+export interface UsageTotals {
+  /** AI requests (every MCP/REST tool call). */
+  requests: number;
+  saved_tokens: number;
+  memories_created: number;
+}
+
+export interface UsageDay {
+  /** `YYYY-MM-DD` (local). */
+  date: string;
+  requests: number;
+  saved_tokens: number;
+  memories_created: number;
+}
+
+export interface ClientUsageStats {
+  client_name: string;
+  requests: number;
+  saved_tokens: number;
+}
+
+export interface OperationUsage {
+  operation: TelemetryOperation;
+  requests: number;
+}
+
+export interface ProjectUsage {
+  project_id: Uuid;
+  name: string;
+  requests: number;
+}
+
+export interface UsageStats {
+  year: number;
+  today: UsageTotals;
+  /** Monday-based local week containing today. */
+  this_week: UsageTotals;
+  this_year: UsageTotals;
+  all_time: UsageTotals;
+  /** Days of `year` with activity, ascending (missing days = zero). */
+  days: UsageDay[];
+  by_client: ClientUsageStats[];
+  /** 24 local-hour buckets (index = hour). */
+  by_hour: number[];
+  /** 7 buckets, Monday = 0. */
+  by_weekday: number[];
+  by_operation: OperationUsage[];
+  top_project: ProjectUsage | null;
+  busiest_day: UsageDay | null;
+  current_streak_days: number;
+  best_streak_days: number;
+  first_activity: string | null;
 }
 
 export interface TelemetrySummary {
@@ -1278,6 +1340,8 @@ export interface IpcCommandMap {
   set_project_watched: { args: SetProjectWatchedArgs; result: boolean };
   promote_file_to_reusable: { args: PromoteFileRequest; result: Memory };
   get_telemetry_summary: { args: TelemetryRange; result: TelemetrySummary };
+  /** Personal usage dashboard (Estadísticas, v1.10.0). */
+  get_usage_stats: { args: UsageStatsRequest; result: UsageStats };
   query_telemetry: { args: TelemetryQuery; result: Page<TelemetryLog> };
   list_connectors: { args: void; result: ConnectorStatus[] };
   toggle_connector: { args: ConnectorToggleRequest; result: ConnectorToggleResult };

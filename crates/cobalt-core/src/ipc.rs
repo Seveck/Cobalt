@@ -77,6 +77,7 @@ pub mod commands {
     pub const PROMOTE_FILE_TO_REUSABLE: &str = "promote_file_to_reusable";
     pub const GET_TELEMETRY_SUMMARY: &str = "get_telemetry_summary";
     pub const QUERY_TELEMETRY: &str = "query_telemetry";
+    pub const GET_USAGE_STATS: &str = "get_usage_stats";
     pub const LIST_CONNECTORS: &str = "list_connectors";
     pub const TOGGLE_CONNECTOR: &str = "toggle_connector";
     pub const LIST_CAPTURE_INTEGRATIONS: &str = "list_capture_integrations";

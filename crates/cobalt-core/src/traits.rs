@@ -220,6 +220,16 @@ pub trait TelemetryRepository: Send + Sync {
     async fn memory_usage_by_client(&self, memory_id: Id) -> Result<Vec<crate::mcp::ClientUsage>>;
     /// Applies `RetentionSettings` (purges `content_snapshot`/`query_text` only).
     async fn apply_retention(&self) -> Result<u64>;
+    /// Personal usage dashboard (contract v1.10.0).
+    async fn usage_stats(
+        &self,
+        req: crate::telemetry::UsageStatsRequest,
+    ) -> Result<crate::telemetry::UsageStats> {
+        let _ = req;
+        Err(crate::error::CobaltError::Unsupported(
+            "usage statistics are not available in this store".into(),
+        ))
+    }
 }
 
 #[async_trait]

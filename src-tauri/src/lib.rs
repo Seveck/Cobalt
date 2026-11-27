@@ -258,6 +258,7 @@ pub fn run() {
             commands_admin::relink_source_document,
             commands_admin::set_watched,
             commands_admin::get_telemetry_summary,
+            commands_admin::get_usage_stats,
             commands_admin::query_telemetry,
             commands_admin::list_connectors,
             commands_admin::toggle_connector,

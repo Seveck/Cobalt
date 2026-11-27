@@ -97,6 +97,15 @@ pub async fn get_telemetry_summary(
     state.store().telemetry_summary(args).await
 }
 
+/// Personal usage dashboard for the Estadísticas view (contract v1.10.0).
+#[tauri::command]
+pub async fn get_usage_stats(
+    state: State<'_, AppState>,
+    args: cobalt_core::telemetry::UsageStatsRequest,
+) -> CmdResult<cobalt_core::telemetry::UsageStats> {
+    state.store().usage_stats(args).await
+}
+
 #[tauri::command]
 pub async fn query_telemetry(
     state: State<'_, AppState>,

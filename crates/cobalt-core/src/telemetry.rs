@@ -127,6 +127,82 @@ pub struct TelemetrySummary {
     pub timeline: Vec<TimeBucket>,
 }
 
+// ------------------------------------------------------------------ usage stats (v1.10.0)
+
+/// `get_usage_stats` input. Days/hours are the user's local time: `utc_offset_minutes` is the
+/// offset to ADD to UTC (JS: `-new Date().getTimezoneOffset()`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct UsageStatsRequest {
+    pub year: i32,
+    pub utc_offset_minutes: i32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct UsageTotals {
+    /// AI requests (every MCP/REST tool call: read, write, update, reuse, handoff, blocked).
+    pub requests: u64,
+    pub saved_tokens: i64,
+    pub memories_created: u64,
+}
+
+/// One local calendar day with activity.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageDay {
+    /// `YYYY-MM-DD` (local).
+    pub date: String,
+    pub requests: u64,
+    pub saved_tokens: i64,
+    pub memories_created: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientUsageStats {
+    pub client_name: String,
+    pub requests: u64,
+    pub saved_tokens: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OperationUsage {
+    pub operation: TelemetryOperation,
+    pub requests: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectUsage {
+    pub project_id: Id,
+    pub name: String,
+    pub requests: u64,
+}
+
+/// Personal usage dashboard (Estadísticas). Built from the permanent `usage_hourly` rollup
+/// (never pruned, unlike detailed `telemetry_logs`) plus `memories.created_at`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageStats {
+    pub year: i32,
+    pub today: UsageTotals,
+    /// Monday-based local week containing today.
+    pub this_week: UsageTotals,
+    pub this_year: UsageTotals,
+    pub all_time: UsageTotals,
+    /// Days of `year` with any activity, ascending (missing days = zero).
+    pub days: Vec<UsageDay>,
+    /// Year totals per AI client, most requests first.
+    pub by_client: Vec<ClientUsageStats>,
+    /// 24 local-hour buckets of requests in `year` (index = hour).
+    pub by_hour: Vec<u64>,
+    /// 7 buckets of requests in `year`, Monday = 0.
+    pub by_weekday: Vec<u64>,
+    pub by_operation: Vec<OperationUsage>,
+    pub top_project: Option<ProjectUsage>,
+    pub busiest_day: Option<UsageDay>,
+    /// Consecutive local days with ≥ 1 request ending today (or yesterday).
+    pub current_streak_days: u32,
+    pub best_streak_days: u32,
+    /// First local day with any recorded activity (`YYYY-MM-DD`).
+    pub first_activity: Option<String>,
+}
+
 /// One node lit by a live MCP operation.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MatchedNode {
