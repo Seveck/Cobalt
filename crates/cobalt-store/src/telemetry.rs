@@ -416,10 +416,14 @@ impl TelemetryRepository for SqliteStore {
     async fn apply_retention(&self) -> Result<u64> {
         self.db
             .write(|conn| {
-                let retention = load_settings(conn)?.retention;
-                let cutoff = now()
-                    .checked_sub_signed(TimeDelta::days(i64::from(retention.detailed_log_days)));
-                let changed = conn
+                let tx = conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(sql_error)?;
+                let retention = load_settings(&tx)?.retention;
+                let now = now();
+                let cutoff =
+                    now.checked_sub_signed(TimeDelta::days(i64::from(retention.detailed_log_days)));
+                let changed = tx
                     .execute(
                         "WITH ranked AS (
                     SELECT id, row_number() OVER (ORDER BY timestamp DESC, id DESC) AS position
@@ -440,7 +444,14 @@ impl TelemetryRepository for SqliteStore {
                         ],
                     )
                     .map_err(sql_error)?;
-                Ok(changed as u64)
+                let expired = tx
+                    .execute(
+                        "DELETE FROM memory_proposals WHERE status = 'pending' AND created_at < ?1",
+                        [timestamp_to_sql(&(now - TimeDelta::days(30)))],
+                    )
+                    .map_err(sql_error)?;
+                tx.commit().map_err(sql_error)?;
+                Ok(changed as u64 + expired as u64)
             })
             .await
     }

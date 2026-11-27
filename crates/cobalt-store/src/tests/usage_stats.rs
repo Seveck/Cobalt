@@ -308,7 +308,7 @@ async fn importing_portable_telemetry_counts_each_log_once() {
         .unwrap();
     for _ in 0..2 {
         target
-            .insert_portable_history(vec![], vec![], vec![], vec![log.clone()])
+            .insert_portable_history_for_schema(3, vec![], vec![], vec![], vec![log.clone()])
             .await
             .unwrap();
     }
@@ -337,7 +337,8 @@ async fn restore_migrates_v1_and_v2_snapshots_before_installing_them() {
         let legacy = Connection::open(&snapshot.file_path).unwrap();
         legacy.execute_batch(
             "UPDATE telemetry_logs SET avoided_full_tokens = 100, injected_tokens = 20, saved_tokens = 130;
-             UPDATE usage_hourly SET saved_tokens = 130;",
+             UPDATE usage_hourly SET saved_tokens = 130;
+             DROP TABLE memory_proposals;",
         ).unwrap();
         if version == 1 {
             legacy

@@ -1,14 +1,16 @@
 use async_trait::async_trait;
 use chrono::TimeDelta;
-use cobalt_core::enums::MemoryStatus;
+use cobalt_core::enums::{MemoryStatus, ProposalStatus};
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::{Id, MAIN_BRANCH_ID, new_id, now, timestamp_to_sql};
 use cobalt_core::model::{
-    Branch, BranchMergeReport, Handoff, InstalledTheme, Memory, NewBranch, NewHandoff, NewMemory,
+    Branch, BranchMergeReport, Handoff, InstalledTheme, Memory, MemoryProposal, NewBranch,
+    NewHandoff, NewMemory, NewMemoryProposal,
 };
 use cobalt_core::traits::{BranchRepository, HandoffRepository, ThemeRepository, TokenCounter};
 use cobalt_embeddings::TiktokenCounter;
 use rusqlite::{Connection, OptionalExtension, Row, params};
+use unicode_categories::UnicodeCategories;
 
 use crate::db::sql_error;
 use crate::governance::branch_memories;
@@ -315,6 +317,20 @@ pub(crate) fn handoff(row: &Row<'_>) -> rusqlite::Result<Handoff> {
     })
 }
 
+fn proposal(row: &Row<'_>) -> rusqlite::Result<MemoryProposal> {
+    Ok(MemoryProposal {
+        id: id(row, "id")?,
+        project_id: optional_id(row, "project_id")?,
+        client_name: row.get("client_name")?,
+        kind: text(row, "kind")?,
+        content: row.get("content")?,
+        evidence: row.get("evidence")?,
+        created_at: timestamp(row, "created_at")?,
+        status: text(row, "status")?,
+        memory_id: optional_id(row, "memory_id")?,
+    })
+}
+
 #[async_trait]
 impl HandoffRepository for SqliteStore {
     async fn create_handoff(&self, new: NewHandoff) -> Result<Handoff> {
@@ -387,6 +403,110 @@ impl HandoffRepository for SqliteStore {
                 )
                 .optional()
                 .map_err(sql_error)
+            })
+            .await
+    }
+
+    async fn add_proposal(&self, new: NewMemoryProposal) -> Result<Option<MemoryProposal>> {
+        if new.content.chars().nth(320).is_some() {
+            return Err(CobaltError::InvalidInput(
+                "proposal content exceeds 320 characters".into(),
+            ));
+        }
+        let content_key = new
+            .content
+            .trim_matches(|ch: char| ch.is_whitespace() || ch.is_punctuation())
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        self.db
+            .write(move |conn| {
+                conn.query_row(
+                    "INSERT INTO memory_proposals
+                         (id, project_id, client_name, kind, content, content_key, evidence, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                     ON CONFLICT (content_key, project_id) DO NOTHING
+                     ON CONFLICT (content_key) WHERE project_id IS NULL DO NOTHING
+                     RETURNING *",
+                    params![
+                        new_id().to_string(),
+                        new.project_id.map(|id| id.to_string()),
+                        new.client_name,
+                        new.kind.as_str(),
+                        new.content,
+                        content_key,
+                        new.evidence,
+                        stamp(),
+                    ],
+                    proposal,
+                )
+                .optional()
+                .map_err(sql_error)
+            })
+            .await
+    }
+
+    async fn list_proposals(
+        &self,
+        status: Option<ProposalStatus>,
+        limit: u32,
+    ) -> Result<Vec<MemoryProposal>> {
+        self.db
+            .read(move |conn| {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT * FROM memory_proposals WHERE (?1 IS NULL OR status = ?1)
+                         ORDER BY created_at DESC, id DESC LIMIT ?2",
+                    )
+                    .map_err(sql_error)?;
+                stmt.query_map(
+                    params![status.map(|status| status.as_str()), limit],
+                    proposal,
+                )
+                .map_err(sql_error)?
+                .collect::<rusqlite::Result<_>>()
+                .map_err(sql_error)
+            })
+            .await
+    }
+
+    async fn get_proposal(&self, id: Id) -> Result<Option<MemoryProposal>> {
+        self.db
+            .read(move |conn| {
+                conn.query_row(
+                    "SELECT * FROM memory_proposals WHERE id = ?1",
+                    [id.to_string()],
+                    proposal,
+                )
+                .optional()
+                .map_err(sql_error)
+            })
+            .await
+    }
+
+    async fn set_proposal_status(
+        &self,
+        id: Id,
+        status: ProposalStatus,
+        memory_id: Option<Id>,
+    ) -> Result<MemoryProposal> {
+        self.db
+            .write(move |conn| {
+                conn.query_row(
+                    "UPDATE memory_proposals SET status = ?2, reviewed_at = ?3, memory_id = ?4
+                     WHERE id = ?1 RETURNING *",
+                    params![
+                        id.to_string(),
+                        status.as_str(),
+                        stamp(),
+                        memory_id.map(|id| id.to_string()),
+                    ],
+                    proposal,
+                )
+                .optional()
+                .map_err(sql_error)?
+                .ok_or_else(|| CobaltError::NotFound(format!("memory proposal {id}")))
             })
             .await
     }
