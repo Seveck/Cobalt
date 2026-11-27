@@ -1,0 +1,61 @@
+id	label	left	right
+p01	paraphrase	Turned on SQLite WAL so readers can continue while the indexer writes.	SQLite now uses write-ahead logging to let reads proceed during indexing writes.
+p02	paraphrase	The billing worker retries Stripe webhooks with exponential backoff.	Failed webhook deliveries from Stripe are retried by the billing worker with exponentially increasing delays.
+p03	paraphrase	We batch cache invalidations until the database transaction commits.	Cache entries are invalidated in one batch after the DB commit.
+p04	paraphrase	CI restores Cargo's registry cache using the hash of Cargo.lock.	The Cargo registry cache key in CI is based on the Cargo.lock checksum.
+p05	paraphrase	Each request logs its trace ID so we can correlate API logs with worker logs.	To match worker and API logs, include the request trace identifier in each request log.
+p06	paraphrase	Backups are written to a temporary file and atomically renamed once complete.	Write the backup to a temp path first, then atomically move it into place.
+p07	paraphrase	El límite del cuerpo JSON es de dos megabytes para evitar agotar memoria.	Para proteger el proceso del consumo de memoria, el servidor rechaza JSON de más de 2 MB.
+p08	paraphrase	Los cambios de permisos se registran en la tabla de auditoría con el usuario que los hizo.	La auditoría guarda quién modificó cada permiso.
+p09	paraphrase	El parser conserva la zona horaria original de cada cita importada.	Al importar citas, no se cambia el huso horario que venía en el archivo.
+p10	paraphrase	El despliegue de producción requiere que pasen las pruebas de humo.	Solo desplegamos en producción una vez superadas las verificaciones de humo.
+p11	paraphrase	El visor de diffs carga bajo demanda los archivos de más de mil líneas.	La vista de diferencias difiere la carga de los archivos que superan las 1000 líneas.
+p12	paraphrase	El balanceador deja de enviar tráfico a instancias que fallan el chequeo de salud.	Si una instancia no supera el health check, el balanceador la retira de la rotación.
+p13	paraphrase	The search API strips accents before indexing Spanish text.	La API de búsqueda elimina las tildes antes de indexar texto en español.
+p14	paraphrase	Password reset links expire after fifteen minutes.	Los enlaces para restablecer la contraseña caducan a los 15 minutos.
+p15	paraphrase	The nightly job removes preview builds older than seven days.	La tarea nocturna borra los builds de vista previa con más de una semana.
+p16	paraphrase	For journal imports, preserve blank lines inside fenced code blocks.	Al importar el diario, se mantienen las líneas en blanco dentro de los bloques de código delimitados.
+p17	paraphrase	The desktop app refreshes the OAuth token only when it is about to expire.	La aplicación de escritorio espera a que el token OAuth esté próximo a vencer para renovarlo.
+p18	paraphrase	La migración rellena los UUID que faltan antes de crear el índice único.	The migration backfills missing UUIDs before adding the unique index.
+p19	paraphrase	La cola de exportación procesa como máximo cuatro trabajos en paralelo.	At most four export jobs can run concurrently in the queue.
+p20	paraphrase	El cliente conserva el último borrador local si falla la sincronización.	When sync fails, the client keeps the most recent local draft.
+d01	different_fact	The billing worker retries Stripe webhooks with exponential backoff.	The billing worker writes rejected Stripe webhook payloads to the audit log.
+d02	different_fact	The export worker uploads each completed archive to S3.	The export worker clears temporary archive files when a job is canceled.
+d03	different_fact	The desktop updater verifies signatures before applying patches.	The desktop updater checks for releases when the app regains focus.
+d04	different_fact	Search results are ranked by title matches before body matches.	The search index excludes soft-deleted documents.
+d05	different_fact	The Postgres connection pool retires idle connections after ten minutes.	Postgres connections in the pool set the session time zone to UTC.
+d06	different_fact	CI caches compiled assets between jobs for the same commit.	The CI pipeline runs database integration tests in a service container.
+d07	different_fact	El cliente MQTT conserva la sesión del dispositivo al reconectarse.	El cliente MQTT comprime las métricas antes de publicarlas.
+d08	different_fact	El servicio de facturación guarda el PDF en el bucket de recibos.	El servicio de facturación redondea los impuestos por línea de factura.
+d09	different_fact	La app muestra una confirmación al cerrar un borrador sin guardar.	La app asigna un título automático a los borradores nuevos.
+d10	different_fact	El importador CSV detecta el separador a partir de la cabecera.	El importador CSV informa la fila de cada fecha inválida.
+d11	different_fact	El compilador de temas rechaza referencias circulares entre variables.	El compilador de temas conserva la precisión de los valores de color.
+d12	different_fact	El proxy agrega el ID de solicitud a las respuestas.	El proxy rechaza cabeceras HTTP duplicadas.
+d13	different_fact	The scheduler adds jitter to the start times of daily tasks.	El planificador guarda el resultado de cada tarea en el historial.
+d14	different_fact	The Redis adapter falls back to TCP when no Unix socket is configured.	El adaptador de Redis prefija las claves con el nombre del entorno.
+d15	different_fact	The image pipeline strips location metadata from uploads.	El pipeline de imágenes crea miniaturas con un ancho máximo de 320 píxeles.
+d16	different_fact	The API exposes cursor pagination on the audit feed.	La API oculta las entradas de auditoría de otros espacios de trabajo.
+d17	different_fact	CSV exports put a UTF-8 BOM before the header row.	Las exportaciones CSV convierten las fechas al huso horario del usuario.
+d18	different_fact	El login cierra todas las sesiones al revocar el acceso de una cuenta.	The login service records which authentication provider issued the session.
+d19	different_fact	El conector de correo agrupa las notificaciones por conversación.	The mail connector drops attachments larger than the upload limit.
+d20	different_fact	El proveedor OIDC actualiza sus claves públicas cada seis horas.	The OIDC provider requires PKCE on desktop sign-in.
+u01	unrelated	The Rust formatter formats generated files during the release job.	Voice notes stop recording when the microphone disconnects.
+u02	unrelated	The database writer groups telemetry rows into batches of 500.	The settings panel previews the selected monospace font.
+u03	unrelated	Our Kubernetes liveness probe uses a separate port.	The Markdown renderer links footnote references back to the paragraph.
+u04	unrelated	Graph node labels shorten project names in the overview.	The webhook worker uses a monotonic clock for timeouts.
+u05	unrelated	The keyboard shortcut to duplicate a tab is Ctrl+Shift+D.	Invoices record the tax rate from the original checkout.
+u06	unrelated	The staging build uses a different bundle identifier.	The SQLite index uses an inclusive numeric range for timestamps.
+u07	unrelated	El lector EPUB recuerda el capítulo en el que quedó el usuario.	Los secretos de pruebas se generan al arrancar el contenedor.
+u08	unrelated	El motor de plantillas escapa las comillas dobles por defecto.	La cola de imágenes pausa trabajos cuando queda poco espacio en disco.
+u09	unrelated	El script de publicación firma los binarios con la llave de lanzamiento.	La tabla de contactos ordena las filas por apellido.
+u10	unrelated	Los planes sin suscripción pueden crear hasta tres proyectos.	El parser convierte tabulaciones de los bloques YAML en espacios.
+u11	unrelated	El mapa usa coordenadas WGS84 para los marcadores.	La API comprime las respuestas JSON grandes con Brotli.
+u12	unrelated	El módulo de correo incluye el nombre del archivo en los adjuntos.	El recolector registra cuánto dura cada fase de compactación.
+u13	unrelated	The file watcher ignores editor swap files.	El formulario de pago conserva el país de facturación.
+u14	unrelated	Keep the migration command serial so schema versions apply in order.	El reproductor de audio normaliza el volumen por pista.
+u15	unrelated	The login page focuses the email field on first load.	El ensamblador genera un mapa de símbolos para depurar firmware.
+u16	unrelated	The deployment dashboard highlights pods that restarted today.	El importador de recetas interpreta la coma como separador decimal.
+u17	unrelated	The mobile app suppresses notifications during focus mode.	El procesador de PDF incrusta los subconjuntos de las fuentes.
+u18	unrelated	El editor se desplaza hasta la última selección al abrir un documento.	The load balancer keeps TLS certificates in memory.
+u19	unrelated	El instalador verifica el espacio libre antes de copiar los binarios.	The support bot removes quoted replies from conversation summaries.
+u20	unrelated	Los filtros guardados aparecen en el menú lateral del explorador.	The dependency scanner resolves Python markers for the target platform.

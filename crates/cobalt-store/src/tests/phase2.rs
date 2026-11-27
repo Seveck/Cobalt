@@ -20,9 +20,12 @@ struct CalibratedEmbedderMock(EmbeddingModelSpec);
 
 impl CalibratedEmbedderMock {
     fn vector(text: &str) -> Vec<f32> {
+        if text == "unrelated" {
+            return vec![0.78, -(1.0_f32 - 0.78 * 0.78).sqrt()];
+        }
         let score = match text {
-            "unrelated" => 0.78_f32,
-            "semantic revision" => 0.974,
+            // E5 Small maps this cosine to 0.882, between dedup and duplicate.
+            "semantic revision" => 0.93774_f32,
             "near-identical" => 0.999,
             _ => 1.0,
         };
@@ -41,6 +44,9 @@ impl Embedder for CalibratedEmbedderMock {
     }
 
     async fn embed_query(&self, text: &str) -> Result<Vec<f32>> {
+        if text == "related query" {
+            return Ok(vec![0.84, (1.0_f32 - 0.84 * 0.84).sqrt()]);
+        }
         Ok(Self::vector(text))
     }
 }
@@ -93,6 +99,15 @@ async fn canonical_writes_calibrate_scores_and_preserve_version_history() {
     let results = store.search(vector_only.clone()).await.unwrap();
     assert_eq!(results.hits.len(), 1);
     assert_eq!(results.hits[0].similarity_score, 1.0);
+    let results = store
+        .search(SearchRequest {
+            rrf_override: vector_only.rrf_override,
+            ..search_request("related query")
+        })
+        .await
+        .unwrap();
+    assert_eq!(results.hits.len(), 1);
+    assert_eq!(results.hits[0].memory.id, first.memory.id);
     assert!(
         store
             .find_import_collision("semantic revision", None, None)
@@ -130,7 +145,7 @@ async fn canonical_writes_calibrate_scores_and_preserve_version_history() {
         .find(|hit| hit.memory.id == revision.memory.id)
         .unwrap()
         .similarity_score;
-    assert!((search_score - revision.matched_similarity.unwrap()).abs() < 1e-6);
+    assert!((search_score - 0.767).abs() < 0.002);
 
     let updated = store
         .update_memory(UpdateMemoryRequest {

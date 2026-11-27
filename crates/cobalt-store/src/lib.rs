@@ -20,6 +20,7 @@ mod vector;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+use cobalt_core::engine::{MODEL_MULTILINGUAL_E5_BASE, MODEL_MULTILINGUAL_E5_SMALL};
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::paths::{DATABASE_FILE, home_path};
 use cobalt_core::traits::{Embedder, TokenCounter};
@@ -153,21 +154,56 @@ impl SqliteStore {
     }
 }
 
-/// Maps usable cosine headroom to 0..1: clamp((cosine - baseline) / (1 - baseline)).
-/// Unrelated E5 texts cluster around 0.78. Other models currently use a zero baseline.
-pub fn calibrated_similarity(model_id: &str, cosine: f64) -> f64 {
+/// Selects the embedding pair used to measure the cosine.
+#[derive(Clone, Copy, Debug)]
+pub enum SimilarityKind {
+    /// Two passage embeddings, used for writes and duplicate detection.
+    Document,
+    /// A query embedding and a passage embedding, used for retrieval.
+    Query,
+}
+
+// (model ID, baseline, scale), measured by tests::similarity::measure_similarity_distributions.
+// Fit (cosine - baseline) / scale to map the largest unrelated cosine to 0.39
+// and the largest different-fact document cosine to 0.84, then round the coefficients.
+// This leaves a 0.01 margin below each fixture limit (0.40 and the 0.85 write threshold).
+const DOCUMENT_CALIBRATIONS: [(&str, f64, f64); 2] = [
+    (MODEL_MULTILINGUAL_E5_SMALL, 0.8521, 0.0971),
+    (MODEL_MULTILINGUAL_E5_BASE, 0.8285, 0.0983),
+];
+
+// Place the 0.30 retrieval cutoff just below the lower quartile of different-fact
+// query cosines and map the unrelated median to about 0.08 for each model.
+const QUERY_CALIBRATIONS: [(&str, f64, f64); 2] = [
+    (MODEL_MULTILINGUAL_E5_SMALL, 0.772, 0.137),
+    (MODEL_MULTILINGUAL_E5_BASE, 0.744, 0.074),
+];
+
+/// Maps a raw cosine to a score in `0..=1` using the measured model calibration.
+/// BGE-M3 and unlisted models use clamped raw cosine so the fallback never boosts a score.
+pub fn calibrated_similarity(model_id: &str, kind: SimilarityKind, cosine: f64) -> f64 {
     if !cosine.is_finite() {
         return 0.0;
     }
-    let baseline = if cobalt_core::engine::prefixes_for_model(model_id)
-        .0
-        .is_some()
-    {
-        0.78
-    } else {
-        0.0
+    let (calibrations, upper_score) = match kind {
+        SimilarityKind::Document => (&DOCUMENT_CALIBRATIONS, 0.95),
+        SimilarityKind::Query => (&QUERY_CALIBRATIONS, 0.30),
     };
-    ((cosine - baseline) / (1.0 - baseline)).clamp(0.0, 1.0)
+    let Some(&(_, baseline, scale)) = calibrations
+        .iter()
+        .find(|(id, _, _)| id.eq_ignore_ascii_case(model_id))
+    else {
+        return cosine.clamp(0.0, 1.0);
+    };
+
+    // Above the fitted range, interpolate to a score of 1 at cosine 1.
+    let upper_cosine = baseline + upper_score * scale;
+    if cosine <= upper_cosine {
+        ((cosine - baseline) / scale).clamp(0.0, upper_score)
+    } else {
+        let fraction = (cosine - upper_cosine) / (1.0 - upper_cosine);
+        upper_score + (1.0 - upper_score) * fraction.min(1.0)
+    }
 }
 
 #[cfg(test)]

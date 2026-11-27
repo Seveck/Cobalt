@@ -21,7 +21,7 @@ use crate::repositories::{
     branch, id, optional_timestamp, source_availability, source_by_id, stamp,
 };
 use crate::vector::Scope;
-use crate::{Retrieval, SqliteStore, calibrated_similarity};
+use crate::{Retrieval, SimilarityKind, SqliteStore, calibrated_similarity};
 
 pub(crate) fn core_rules(
     conn: &Connection,
@@ -127,8 +127,11 @@ fn collect_hits(
                 .index
                 .scoped(conn, query, candidates_per_channel as usize, scope())?;
         for (rank, entry) in (1..=candidates_per_channel).zip(vectors) {
-            let similarity =
-                calibrated_similarity(&retrieval.embedder.spec().id, f64::from(entry.similarity));
+            let similarity = calibrated_similarity(
+                &retrieval.embedder.spec().id,
+                SimilarityKind::Query,
+                f64::from(entry.similarity),
+            );
             if similarity >= settings.min_similarity {
                 candidates.entry(entry.memory_id).or_default().vector = Some((rank, similarity));
             }

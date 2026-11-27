@@ -14,7 +14,7 @@ use crate::memory::{
     clear_semantic_edges, exact_match, mark_superseded, memory, refresh_edges, required_memory,
 };
 use crate::repositories::{branch, load_settings, stamp};
-use crate::{SqliteStore, calibrated_similarity};
+use crate::{SimilarityKind, SqliteStore, calibrated_similarity};
 
 pub(crate) fn branch_memories(conn: &Connection, branch_id: Id) -> Result<Vec<Memory>> {
     let mut stmt = conn
@@ -142,7 +142,11 @@ impl GovernanceService for SqliteStore {
                             } else if let (Some(a), Some(b), Some(retrieval)) =
                                 (&vectors[a], &vectors[b], &retrieval)
                             {
-                                calibrated_similarity(&retrieval.embedder.spec().id, cosine(a, b))
+                                calibrated_similarity(
+                                    &retrieval.embedder.spec().id,
+                                    SimilarityKind::Document,
+                                    cosine(a, b),
+                                )
                             } else {
                                 continue;
                             };
