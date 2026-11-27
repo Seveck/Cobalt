@@ -168,7 +168,11 @@ mod tests {
     fn git_ignores_apply_and_memoryignore_can_reinclude() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::write(root.join(".gitignore"), "gen/schemas/\n/private/\nnotes.md\n").unwrap();
+        std::fs::write(
+            root.join(".gitignore"),
+            "gen/schemas/\n/private/\nnotes.md\n",
+        )
+        .unwrap();
         std::fs::create_dir_all(root.join(".git/info")).unwrap();
         std::fs::write(root.join(".git/info/exclude"), "scratch.txt\n").unwrap();
         std::fs::write(root.join(MEMORY_IGNORE_FILE), "!notes.md\n").unwrap();
@@ -177,7 +181,10 @@ mod tests {
         assert!(mi.is_ignored(&root.join("gen/schemas/acl.json"), false));
         assert!(mi.is_ignored(&root.join("private"), true));
         assert!(mi.is_ignored(&root.join("scratch.txt"), false));
-        assert!(!mi.is_ignored(&root.join("notes.md"), false), "re-included by .memoryignore");
+        assert!(
+            !mi.is_ignored(&root.join("notes.md"), false),
+            "re-included by .memoryignore"
+        );
         assert!(!mi.is_ignored(&root.join("src/main.rs"), false));
     }
 
