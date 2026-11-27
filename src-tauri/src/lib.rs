@@ -177,6 +177,11 @@ pub fn run() {
             let state = tauri::async_runtime::block_on(AppState::init(sink, ingest_progress))
                 .map_err(|e| format!("failed to initialize Cobalt: {e}"))?;
             let settings = state.config.get();
+            state
+                .daemon
+                .set_theme_service(Arc::new(commands_admin::AppThemeService {
+                    app: handle.clone(),
+                }));
             if let Err(err) = tauri::async_runtime::block_on(state.start_servers()) {
                 tracing::error!(%err, "daemon servers not started");
             }
@@ -259,6 +264,8 @@ pub fn run() {
             commands_admin::set_watched,
             commands_admin::get_telemetry_summary,
             commands_admin::get_usage_stats,
+            commands_admin::save_custom_theme,
+            commands_admin::export_theme,
             commands_admin::query_telemetry,
             commands_admin::list_connectors,
             commands_admin::toggle_connector,

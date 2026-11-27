@@ -1,4 +1,10 @@
-# Cobalt — Frozen Contracts (v1.10.0)
+# Cobalt — Frozen Contracts (v1.12.0)
+
+> v1.12.0 (additive): user/AI themes — trait `ThemeService`, MCP tool `create_theme` (9 tools),
+> IPC `save_custom_theme` / `export_theme`, event `cobalt://themes-changed` (`ThemesChanged`).
+> Sharing a theme = exporting a `.cobalt-theme` file (no hosted publishing service).
+
+> v1.11.0 (additive): `ThemeManifest.ui` (whole-app style) and bundled themes (THEME_SPEC v1.2).
 
 > v1.10.0 (additive): personal usage stats — table `usage_hourly` (permanent hourly rollup of
 > telemetry, never pruned), `TelemetryRepository::usage_stats`, IPC `get_usage_stats`

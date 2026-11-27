@@ -79,6 +79,8 @@ pub struct Daemon {
     archive_dry_runs: Mutex<HashMap<(String, cobalt_core::Id), std::time::Instant>>,
     pub(crate) sessions: Mutex<crate::capture::SessionTracker>,
     seen_projects: crate::capture::SeenProjects,
+    /// Saves AI-made themes (`create_theme`); set by the desktop app.
+    themes: std::sync::OnceLock<Arc<dyn cobalt_core::traits::ThemeService>>,
 }
 
 impl Daemon {
@@ -109,6 +111,7 @@ impl Daemon {
             archive_dry_runs: Mutex::new(HashMap::new()),
             sessions: Mutex::new(crate::capture::SessionTracker::default()),
             seen_projects: crate::capture::SeenProjects::default(),
+            themes: std::sync::OnceLock::new(),
         })
     }
 
@@ -151,6 +154,17 @@ impl Daemon {
         self.sink.read_only_changed(read_only);
         let _ = self.events.send(DaemonEvent::ReadOnlyChanged { read_only });
         Ok(read_only)
+    }
+
+    // ------------------------------------------------------------------ themes
+
+    /// Installs the app's theme service (once); without it `create_theme` is unavailable.
+    pub fn set_theme_service(&self, service: Arc<dyn cobalt_core::traits::ThemeService>) {
+        let _ = self.themes.set(service);
+    }
+
+    pub(crate) fn theme_service(&self) -> Option<&Arc<dyn cobalt_core::traits::ThemeService>> {
+        self.themes.get()
     }
 
     // ------------------------------------------------------------------ write queue

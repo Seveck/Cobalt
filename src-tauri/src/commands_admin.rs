@@ -288,6 +288,80 @@ pub async fn install_theme_file(
     Ok(installed)
 }
 
+// ------------------------------------------------------------------ user / AI themes (v1.12.0)
+
+/// Saves a theme from the editor or an AI, optionally applies it, and tells the UI.
+pub async fn save_and_announce(
+    app: &AppHandle,
+    state: &AppState,
+    manifest: ThemeManifest,
+    apply: bool,
+    source_client: &str,
+) -> CmdResult<cobalt_core::model::InstalledTheme> {
+    let dir = themes_dir(state);
+    let installed = crate::state::blocking(move || themes::save_custom(&dir, &manifest)).await?;
+    state
+        .store()
+        .record_installed_theme(installed.clone())
+        .await?;
+    if apply {
+        let id = installed.id.clone();
+        state.config.modify(move |s| s.active_theme_id = id).await?;
+    }
+    let _ = app.emit(
+        cobalt_core::events::EVENT_THEMES_CHANGED,
+        cobalt_core::events::ThemesChanged {
+            theme_id: installed.id.clone(),
+            name: installed.name.clone(),
+            source_client: source_client.to_owned(),
+            applied: apply,
+        },
+    );
+    Ok(installed)
+}
+
+/// Theme editor "Guardar como tema" (contract v1.12.0).
+#[tauri::command]
+pub async fn save_custom_theme(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: cobalt_core::ipc::SaveCustomThemeArgs,
+) -> CmdResult<cobalt_core::model::InstalledTheme> {
+    save_and_announce(&app, &state, args.manifest, args.apply, "cobalt-ui").await
+}
+
+/// "Exportar / Publicar": writes a shareable `.cobalt-theme` file (contract v1.12.0).
+#[tauri::command]
+pub async fn export_theme(
+    state: State<'_, AppState>,
+    args: cobalt_core::ipc::ExportThemeArgs,
+) -> CmdResult<u64> {
+    let mut dest = std::path::PathBuf::from(&args.path);
+    if dest.extension().and_then(|e| e.to_str()) != Some("cobalt-theme") {
+        dest.set_extension("cobalt-theme");
+    }
+    let dir = themes_dir(&state);
+    crate::state::blocking(move || themes::export(&dir, &args.theme_id, &dest)).await
+}
+
+/// `create_theme` (MCP): lets any connected AI design a theme through the same path.
+pub struct AppThemeService {
+    pub app: AppHandle,
+}
+
+#[async_trait::async_trait]
+impl cobalt_core::traits::ThemeService for AppThemeService {
+    async fn save_custom_theme(
+        &self,
+        manifest: ThemeManifest,
+        apply: bool,
+        source_client: &str,
+    ) -> cobalt_core::Result<cobalt_core::model::InstalledTheme> {
+        let state = self.app.state::<AppState>();
+        save_and_announce(&self.app, &state, manifest, apply, source_client).await
+    }
+}
+
 #[tauri::command]
 pub async fn uninstall_theme(state: State<'_, AppState>, args: ThemeIdArgs) -> CmdResult<()> {
     themes::uninstall(&themes_dir(&state), &args.theme_id)?;

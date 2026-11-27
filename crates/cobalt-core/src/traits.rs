@@ -291,6 +291,23 @@ impl<T> CobaltStore for T where
 {
 }
 
+// ===================================================================== themes
+
+/// Saves user/AI-made themes (contract v1.12.0). Implemented by the desktop app, which owns the
+/// theme folder; the MCP daemon calls it for `create_theme`.
+#[async_trait]
+pub trait ThemeService: Send + Sync {
+    /// Validates `manifest` exactly like a downloaded package (a WebP preview is generated from
+    /// its colors), installs or replaces the user's theme with that id, optionally applies it,
+    /// and emits `cobalt://themes-changed`.
+    async fn save_custom_theme(
+        &self,
+        manifest: crate::theme::ThemeManifest,
+        apply: bool,
+        source_client: &str,
+    ) -> Result<crate::model::InstalledTheme>;
+}
+
 // ===================================================================== ingestion
 
 /// Local OCR (contract v1.7.0): text from an encoded image (PNG/JPEG/WebP/…). CPU-bound and

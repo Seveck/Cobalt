@@ -109,7 +109,7 @@ after a 401). Interactive docs: `http://127.0.0.1:7437/api/v1/docs`; schema:
 | `POST /memories` | Save a memory (`NewMemory`, same safety pipeline as MCP) |
 | `GET /memories/{id}` | One memory |
 | `GET /telemetry/summary` | Token-savings summary |
-| `GET /tools` | The 8 tools with JSON Schemas; `?format=openai` = function-calling array for OpenAI / Ollama / llama.cpp / LM Studio |
+| `GET /tools` | The 9 tools with JSON Schemas; `?format=openai` = function-calling array for OpenAI / Ollama / llama.cpp / LM Studio |
 | `POST /tools/{name}` | Run any tool (same arguments, rules and results as MCP) → `{ "text", "structured" }` |
 | `POST /hooks/{source}` | Send a hook event (§5.1) |
 | `GET /guide` | This guide as Markdown (no auth) |
@@ -167,7 +167,7 @@ If the model cannot call tools, the **program that hosts it** does the calls:
 
 ---
 
-## 3. The eight MCP tools
+## 3. The nine MCP tools
 
 Full JSON schemas and docstrings: `docs/MCP_SPEC.md` §2. Every result has a token-lean text block
 for the model plus `structuredContent` (typed DTO). `project` accepts a project name, an absolute
@@ -183,6 +183,7 @@ path, or `"global"`; omit it to auto-detect.
 | `create_handoff` | You stop mid-task (context limit, end of day, switching AI) | `summary` (< 250 tokens: state + next step), `last_error?`, `open_files?` |
 | `resume_handoff` | The user says "continue / pick up where we left off" | `project?` |
 | `archive_memory` | A memory is wrong (not just outdated) | `memory_id`, `reason`, `confirm` |
+| `create_theme` | The user asks you to design a look for Cobalt | `manifest` (full theme, §7), `apply` (only if they asked to switch now) |
 
 Behavior you must know:
 - **Memories with category `ocr`** were read from images or scanned PDFs by local OCR. OCR makes
@@ -381,7 +382,15 @@ signing process is **(planned)**.
 Performance rules: Eco profile disables post-processing and forces edges to `hover_only`;
 themes marked `balanced`/`ultra` run "degraded" on weaker machines. Keep previews small.
 
-### 7.4 Writing theme shaders (GLSL ES 1.00 / WebGL1)
+### 7.4 Designing a theme for the user (MCP `create_theme`)
+
+When the user asks "make me a theme…", build a complete manifest (§7.2) including `ui` for the
+whole interface and call `create_theme`. Rules of thumb: one accent color, enough contrast
+(light text on dark or the reverse), `hardware_tier: "eco"` unless you add shaders, a unique
+lowercase `id` that is not a built-in (`cobalt-minimal`, `grafito`, `porcelana`, `abisal`,
+`niebla`). Cobalt validates it and generates the preview; the user can apply, edit or export it.
+
+### 7.5 Writing theme shaders (GLSL ES 1.00 / WebGL1)
 
 Each shader replaces the built-in program of one layer; you may replace only the vertex or only
 the fragment half. Full contract: `docs/THEME_SPEC.md` §6.2.

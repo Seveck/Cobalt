@@ -89,6 +89,8 @@ pub mod commands {
     pub const INSTALL_THEME: &str = "install_theme";
     pub const INSTALL_THEME_FILE: &str = "install_theme_file";
     pub const UNINSTALL_THEME: &str = "uninstall_theme";
+    pub const SAVE_CUSTOM_THEME: &str = "save_custom_theme";
+    pub const EXPORT_THEME: &str = "export_theme";
     pub const LIST_INSTALLED_THEMES: &str = "list_installed_themes";
     pub const GET_THEME_MANIFEST: &str = "get_theme_manifest";
     pub const INGEST_PATHS: &str = "ingest_paths";
@@ -133,6 +135,21 @@ pub struct PathArgs {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThemeIdArgs {
     pub theme_id: String,
+}
+
+/// `save_custom_theme` (v1.12.0): the editor's result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SaveCustomThemeArgs {
+    pub manifest: crate::theme::ThemeManifest,
+    #[serde(default)]
+    pub apply: bool,
+}
+
+/// `export_theme` (v1.12.0): writes a `.cobalt-theme` package to `path` (user-chosen).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportThemeArgs {
+    pub theme_id: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

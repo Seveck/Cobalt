@@ -130,6 +130,18 @@ surfaces `0.21 − 0.03k`, `0.25 − 0.02k`, `0.30 − 0.01k`; text `0.90 + 0.07
 Built-in themes (bundled, always installed, ids reserved): `cobalt-minimal` (default, brain only),
 `grafito`, `porcelana`, `abisal`, `niebla` (whole-app). Their manifests live in `src/themes/<id>/`.
 
+## 3.2 User and AI themes, sharing (v1.12.0)
+
+- **Editor** (Settings → Apariencia / Tienda → "Personalizar"): starts from the active theme, changes
+  `ui` (and brain palette) with live preview, "Guardar como tema" → IPC `save_custom_theme`.
+- **AI**: MCP tool `create_theme` with a full manifest — the AI can set anything the format allows
+  (palette, layout, node geometry, camera, `ui`), not only the editor's knobs.
+- Both install exactly like a downloaded package (validation, staging, atomic rename) with a
+  generated `preview.webp`. Saving the same id again replaces it.
+- **Sharing** = IPC `export_theme` writes a `.cobalt-theme` file; the recipient uses "Instalar desde
+  archivo". There is no hosted publishing service; the community registry (§4) stays curated.
+- Built-in themes cannot be overwritten or exported; customize one and save it under a new id.
+
 ## 4. Remote registry (`registry.json`)
 
 Hosted on a static CDN (GitHub Raw / Cloudflare, $0). A bundled fallback catalog is used in

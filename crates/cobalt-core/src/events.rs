@@ -24,6 +24,18 @@ pub const EVENT_VAULT_STATUS: &str = "cobalt://vault-status";
 pub const EVENT_DAEMON_STATUS: &str = "cobalt://daemon-status";
 /// Payload: [`CliActivity`].
 pub const EVENT_CLI_ACTIVITY: &str = "cobalt://cli-activity";
+/// A theme was saved by the user or created by an AI (v1.12.0). Payload `ThemesChanged`.
+pub const EVENT_THEMES_CHANGED: &str = "cobalt://themes-changed";
+
+/// Payload of `cobalt://themes-changed`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThemesChanged {
+    pub theme_id: String,
+    pub name: String,
+    /// `cobalt-ui` for the editor, the AI client name for `create_theme`.
+    pub source_client: String,
+    pub applied: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadOnlyChanged {

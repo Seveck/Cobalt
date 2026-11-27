@@ -16,9 +16,11 @@ pub const TOOL_CREATE_HANDOFF: &str = "create_handoff";
 pub const TOOL_RESUME_HANDOFF: &str = "resume_handoff";
 pub const TOOL_LIST_PROJECT_RULES: &str = "list_project_rules";
 pub const TOOL_ARCHIVE_MEMORY: &str = "archive_memory";
+/// v1.12.0: an AI designs a whole theme for the user (data only, validated by Cobalt).
+pub const TOOL_CREATE_THEME: &str = "create_theme";
 
-/// The 8 tools, in the order they are advertised by `tools/list`.
-pub const ALL_TOOLS: [&str; 8] = [
+/// The 9 tools, in the order they are advertised by `tools/list`.
+pub const ALL_TOOLS: [&str; 9] = [
     TOOL_SEARCH_MEMORY,
     TOOL_SEARCH_REUSABLE_ASSETS,
     TOOL_SAVE_MEMORY,
@@ -27,7 +29,24 @@ pub const ALL_TOOLS: [&str; 8] = [
     TOOL_RESUME_HANDOFF,
     TOOL_LIST_PROJECT_RULES,
     TOOL_ARCHIVE_MEMORY,
+    TOOL_CREATE_THEME,
 ];
+
+/// `create_theme` input: a full `.cobalt-theme` manifest (THEME_SPEC §3 + §3.1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreateThemeInput {
+    pub manifest: crate::theme::ThemeManifest,
+    /// Apply it right away. Only when the user asked to switch to it.
+    #[serde(default)]
+    pub apply: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreateThemeOutput {
+    pub theme_id: String,
+    pub name: String,
+    pub applied: bool,
+}
 
 /// A dry run must precede `archive_memory(confirm = true)` within this many seconds.
 pub const ARCHIVE_CONFIRM_WINDOW_SECS: u64 = 600;

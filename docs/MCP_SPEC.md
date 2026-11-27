@@ -196,6 +196,29 @@ Agents can never hard-delete. This is the only removal tool, and it is reversibl
 - `confirm=true`: requires a dry run for the same `memory_id` by the same client in the last 10 minutes (else `conflict`); archives (`status = 'archived'`) with `version_reason = "archived by <client>: <reason>"`, emits `memory-changed` + a red pulse, and shows a discreet OS notification to the user ("<client> archived a memory used by N other agents — restore in Cobalt").
 - Blocked in Read-Only mode and for Nuclear Laws (`conflict`); goes through the Token Firewall write rate limit; telemetry `operation = 'update'`.
 
+### 2.9 `create_theme` (contract v1.12.0)
+
+**Docstring** (abridged): create or replace a visual theme when the user asks for one ("make me a
+calm sunset theme"). Themes are data only; send a complete manifest (THEME_SPEC §3 + §3.1 `ui`);
+`apply=true` only if the user asked to switch to it now.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "manifest": { "type": "object", "description": "Complete .cobalt-theme manifest." },
+    "apply": { "type": "boolean", "default": false }
+  },
+  "required": ["manifest"],
+  "additionalProperties": false
+}
+```
+- Goes through the desktop app's `ThemeService`: the same validation as a downloaded package
+  (ids, ranges, reserved built-in ids), a WebP preview generated from its colors, then
+  `cobalt://themes-changed` so the UI shows "Tema creado por <client>".
+- Blocked in Read-Only mode; `unsupported` when only the headless daemon runs.
+- Output: `CreateThemeOutput { theme_id, name, applied }`.
+
 ## 3. Errors
 
 Tool failures return `isError: true` with text `"<kind>: <message>"` and

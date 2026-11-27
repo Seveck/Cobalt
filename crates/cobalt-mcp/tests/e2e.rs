@@ -87,6 +87,31 @@ impl EventSink for Recorder {
     }
 }
 
+#[derive(Default)]
+struct FakeThemes;
+
+#[async_trait]
+impl cobalt_core::traits::ThemeService for FakeThemes {
+    async fn save_custom_theme(
+        &self,
+        manifest: cobalt_core::theme::ThemeManifest,
+        _apply: bool,
+        source_client: &str,
+    ) -> Result<cobalt_core::model::InstalledTheme> {
+        assert_eq!(source_client, "e2e-client");
+        Ok(cobalt_core::model::InstalledTheme {
+            id: manifest.id,
+            name: manifest.name,
+            author: manifest.author,
+            version: manifest.version,
+            size_bytes: 1,
+            hardware_tier: manifest.hardware_tier,
+            local_path: "test".into(),
+            installed_at: chrono::DateTime::UNIX_EPOCH,
+        })
+    }
+}
+
 struct Client {
     stream: interprocess::local_socket::tokio::Stream,
     next: u64,
@@ -202,7 +227,24 @@ async fn mcp_end_to_end_over_socket_and_http() {
         .await;
 
     let tools = c.request("tools/list", json!({})).await;
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 8);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 9);
+
+    // create_theme: unavailable without the desktop app's theme service, then works through it.
+    let mut theme: Value =
+        serde_json::from_str(include_str!("../../../src/themes/grafito/manifest.json")).unwrap();
+    theme["id"] = json!("atardecer");
+    theme["name"] = json!("Atardecer");
+    let no_app = c
+        .call("create_theme", json!({ "manifest": theme.clone() }))
+        .await;
+    assert_eq!(no_app["isError"], true, "{no_app}");
+    daemon.set_theme_service(Arc::new(FakeThemes));
+    let made = c
+        .call("create_theme", json!({ "manifest": theme, "apply": true }))
+        .await;
+    assert_eq!(made["isError"], false, "{made}");
+    assert_eq!(made["structuredContent"]["theme_id"], "atardecer");
+    assert_eq!(made["structuredContent"]["applied"], true);
 
     // save_memory: secret redacted, project auto-created by name.
     let saved = c
@@ -445,7 +487,7 @@ async fn mcp_end_to_end_over_socket_and_http() {
             .as_array()
             .unwrap()
             .len(),
-        8
+        9
     );
     let (status, _, _) = http(
         server.addr,
@@ -486,7 +528,7 @@ async fn mcp_end_to_end_over_socket_and_http() {
         http(server.addr, "GET", "/api/v1/tools?format=openai", &auth, "").await;
     assert_eq!(status, 200, "{body}");
     let tools: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools["tools"].as_array().unwrap().len(), 8);
+    assert_eq!(tools["tools"].as_array().unwrap().len(), 9);
     assert_eq!(tools["tools"][0]["type"], "function");
     assert!(tools["tools"][0]["function"]["parameters"]["properties"].is_object());
 
@@ -622,7 +664,7 @@ async fn stdio_bridge_survives_daemon_restart() {
     ask(json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} })).await;
     let tools = next(&mut replies).await;
     assert_eq!(tools["id"], 2, "{tools}");
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 8);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 9);
     // The new daemon connection knows who the client is: the handshake was replayed.
     ask(json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "search_memory", "arguments": { "query": "redis", "project": "global" } } })).await;
     assert_eq!(next(&mut replies).await["id"], 3);

@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.11.0";
+export const CONTRACT_VERSION = "1.12.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -1192,6 +1192,7 @@ export const EVENTS = {
   vaultStatus: "cobalt://vault-status",
   daemonStatus: "cobalt://daemon-status",
   cliActivity: "cobalt://cli-activity",
+  themesChanged: "cobalt://themes-changed",
 } as const;
 
 /** Something an AI CLI did, captured by hooks even if the AI never called Cobalt. */
@@ -1242,6 +1243,26 @@ export interface DaemonStatus {
   clients: ConnectedClient[];
 }
 
+/** Payload of `cobalt://themes-changed` (v1.12.0). */
+export interface ThemesChanged {
+  theme_id: string;
+  name: string;
+  /** `cobalt-ui` for the editor, the AI client name for MCP `create_theme`. */
+  source_client: string;
+  applied: boolean;
+}
+
+export interface SaveCustomThemeArgs {
+  manifest: ThemeManifest;
+  apply: boolean;
+}
+
+export interface ExportThemeArgs {
+  theme_id: string;
+  /** User-chosen destination; `.cobalt-theme` is appended when missing. */
+  path: string;
+}
+
 export interface EventPayloadMap {
   "cobalt://mcp-activity": McpActivity;
   "cobalt://memory-changed": MemoryChanged;
@@ -1252,6 +1273,7 @@ export interface EventPayloadMap {
   "cobalt://vault-status": VaultStatus;
   "cobalt://daemon-status": DaemonStatus;
   "cobalt://cli-activity": CliActivity;
+  "cobalt://themes-changed": ThemesChanged;
 }
 export type EventName = keyof EventPayloadMap;
 
@@ -1375,6 +1397,10 @@ export interface IpcCommandMap {
   install_theme: { args: ThemeIdArgs; result: InstalledTheme };
   install_theme_file: { args: PathArgs; result: InstalledTheme };
   uninstall_theme: { args: ThemeIdArgs; result: void };
+  /** Editor "Guardar como tema" (v1.12.0); replaces a user theme with the same id. */
+  save_custom_theme: { args: SaveCustomThemeArgs; result: InstalledTheme };
+  /** Writes a shareable `.cobalt-theme` file; returns its size in bytes. */
+  export_theme: { args: ExportThemeArgs; result: number };
   list_installed_themes: { args: void; result: InstalledTheme[] };
   get_theme_manifest: { args: ThemeIdArgs; result: ThemeManifest };
   ingest_paths: { args: IngestRequest; result: IngestReport };

@@ -310,6 +310,163 @@ fn validate_manifest(m: &ThemeManifest, files: &[(String, Vec<u8>)]) -> Result<(
     }
 }
 
+// ------------------------------------------------------------------ user / AI themes (v1.12.0)
+
+fn hex_rgb(hex: &str) -> [u8; 3] {
+    let h = hex.trim_start_matches('#');
+    let p = |i: usize| u8::from_str_radix(h.get(i..i + 2).unwrap_or("80"), 16).unwrap_or(128);
+    [p(0), p(2), p(4)]
+}
+
+/// A 320×200 lossless WebP sketch of the theme (background, sidebar, accent bar, node dots), so
+/// themes made in the editor or by an AI get a preview without any image work from them.
+pub fn render_preview(m: &ThemeManifest) -> Result<Vec<u8>> {
+    const W: u32 = 320;
+    const H: u32 = 200;
+    let bg = hex_rgb(&m.palette.background);
+    let edge = hex_rgb(&m.palette.edge);
+    let accent = hex_rgb(
+        m.ui.as_ref()
+            .map_or(m.palette.node.as_str(), |u| u.accent.as_str()),
+    );
+    let mut dots: Vec<[u8; 3]> = m
+        .palette
+        .category_colors
+        .values()
+        .map(|c| hex_rgb(c))
+        .collect();
+    if dots.is_empty() {
+        dots.push(hex_rgb(&m.palette.node));
+    }
+    let mut px = vec![0u8; (W * H * 4) as usize];
+    let mut put = |x: u32, y: u32, c: [u8; 3]| {
+        if x < W && y < H {
+            let i = ((y * W + x) * 4) as usize;
+            px[i..i + 4].copy_from_slice(&[c[0], c[1], c[2], 255]);
+        }
+    };
+    for y in 0..H {
+        for x in 0..W {
+            let side = x < 64;
+            let mix = |a: u8, b: u8| ((u16::from(a) * 3 + u16::from(b)) / 4) as u8;
+            let c = if side {
+                [
+                    mix(bg[0], edge[0]),
+                    mix(bg[1], edge[1]),
+                    mix(bg[2], edge[2]),
+                ]
+            } else {
+                bg
+            };
+            put(x, y, c);
+        }
+    }
+    for y in 18..24 {
+        for x in 12..52 {
+            put(x, y, accent);
+        }
+    }
+    let mut seed: u32 = m.id.bytes().fold(2_166_136_261, |h, b| {
+        (h ^ u32::from(b)).wrapping_mul(16_777_619)
+    });
+    for i in 0..140 {
+        seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        let a = f64::from(seed % 6283) / 1000.0;
+        seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        let r = f64::from(seed % 70) + 6.0;
+        let (cx, cy) = (192.0 + a.cos() * r * 1.4, 100.0 + a.sin() * r);
+        let c = dots[i % dots.len()];
+        for dy in 0..2 {
+            for dx in 0..2 {
+                put(cx as u32 + dx, cy as u32 + dy, c);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    image::codecs::webp::WebPEncoder::new_lossless(&mut out)
+        .encode(&px, W, H, image::ExtendedColorType::Rgba8)
+        .map_err(|e| CobaltError::Internal(format!("theme preview: {e}")))?;
+    Ok(out)
+}
+
+/// Zips theme files into a `.cobalt-theme` package (same format the store downloads).
+pub fn build_package(files: &[ThemeFile]) -> Result<Vec<u8>> {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (name, data) in files {
+        zip.start_file(name.as_str(), opts)
+            .map_err(|e| CobaltError::Internal(format!("theme package: {e}")))?;
+        zip.write_all(data)?;
+    }
+    Ok(zip
+        .finish()
+        .map_err(|e| CobaltError::Internal(format!("theme package: {e}")))?
+        .into_inner())
+}
+
+/// Installs (or replaces) a theme made in the editor or by an AI. It goes through the exact same
+/// validation as a downloaded package; shaders/meshes it references are kept from the existing
+/// installed copy of the same id.
+pub fn save_custom(themes_dir: &Path, manifest: &ThemeManifest) -> Result<InstalledTheme> {
+    let mut files: Vec<ThemeFile> = vec![
+        (
+            THEME_MANIFEST_FILE.into(),
+            serde_json::to_vec_pretty(manifest)?,
+        ),
+        (THEME_PREVIEW_FILE.into(), render_preview(manifest)?),
+    ];
+    let s = &manifest.shaders;
+    let referenced = [
+        &s.node_vertex,
+        &s.node_fragment,
+        &s.edge_vertex,
+        &s.edge_fragment,
+        &s.background_fragment,
+        &manifest.mesh_path,
+    ];
+    if !manifest.id.contains(['/', '\\']) && !manifest.id.contains("..") {
+        for path in referenced.into_iter().flatten() {
+            let rel = validate_entry_path(path)?;
+            if let Ok(data) = std::fs::read(themes_dir.join(&manifest.id).join(&rel)) {
+                files.push((rel, data));
+            }
+        }
+    }
+    install_package(themes_dir, &build_package(&files)?)
+}
+
+/// Packs an installed (non built-in) theme into a `.cobalt-theme` file at `dest` to share it.
+pub fn export(themes_dir: &Path, id: &str, dest: &Path) -> Result<u64> {
+    if is_builtin(id) {
+        return Err(CobaltError::InvalidInput(
+            "built-in themes are already in every Cobalt; customize it and save it as your own theme to share it"
+                .into(),
+        ));
+    }
+    if id.contains('/') || id.contains('\\') || id.contains("..") || id.is_empty() {
+        return Err(sandbox("invalid theme id"));
+    }
+    let root = themes_dir.join(id);
+    let mut files: Vec<ThemeFile> = Vec::new();
+    for name in [THEME_MANIFEST_FILE, THEME_PREVIEW_FILE] {
+        files.push((name.into(), std::fs::read(root.join(name))?));
+    }
+    for dir in ["shaders", "meshes"] {
+        if let Ok(entries) = std::fs::read_dir(root.join(dir)) {
+            for entry in entries.flatten() {
+                let name = format!("{dir}/{}", entry.file_name().to_string_lossy());
+                files.push((validate_entry_path(&name)?, std::fs::read(entry.path())?));
+            }
+        }
+    }
+    let package = build_package(&files)?;
+    unpack(&package)?; // never hand out a package Cobalt itself would reject
+    std::fs::write(dest, &package)?;
+    Ok(package.len() as u64)
+}
+
 /// Extracts a validated package into `themes/<id>/` atomically (staging + rename).
 pub fn install_package(themes_dir: &Path, package: &[u8]) -> Result<InstalledTheme> {
     let (manifest, files) = unpack(package)?;
@@ -410,9 +567,59 @@ mod tests {
     use super::*;
 
     #[test]
+    fn custom_themes_save_export_and_reimport() {
+        let dir = tempfile::tempdir().unwrap();
+        let themes = dir.path().join("themes");
+        let mut m = builtin_manifest("grafito").unwrap();
+        m.id = "atardecer".into();
+        m.name = "Atardecer".into();
+        if let Some(ui) = m.ui.as_mut() {
+            ui.accent = "#E8743B".into();
+        }
+        let installed = save_custom(&themes, &m).unwrap();
+        assert_eq!(installed.id, "atardecer");
+        let preview = std::fs::read(themes.join("atardecer").join(THEME_PREVIEW_FILE)).unwrap();
+        assert!(preview.starts_with(b"RIFF") && &preview[8..12] == b"WEBP");
+        assert_eq!(read_manifest(&themes, "atardecer").unwrap(), m);
+
+        // Saving again with the same id replaces it (editor "save").
+        m.name = "Atardecer 2".into();
+        save_custom(&themes, &m).unwrap();
+        assert_eq!(
+            read_manifest(&themes, "atardecer").unwrap().name,
+            "Atardecer 2"
+        );
+
+        // Export → a package Cobalt itself installs elsewhere.
+        let file = dir.path().join("atardecer.cobalt-theme");
+        assert!(export(&themes, "atardecer", &file).unwrap() > 0);
+        let other = dir.path().join("other");
+        let again = install_package(&other, &std::fs::read(&file).unwrap()).unwrap();
+        assert_eq!(again.name, "Atardecer 2");
+
+        // Built-ins: reserved ids, nothing to export.
+        let mut bad = m.clone();
+        bad.id = "grafito".into();
+        assert!(matches!(
+            save_custom(&themes, &bad),
+            Err(CobaltError::Conflict(_))
+        ));
+        assert!(export(&themes, "grafito", &file).is_err());
+        // Out-of-range ui is rejected like a downloaded package.
+        let mut wrong = m.clone();
+        if let Some(ui) = wrong.ui.as_mut() {
+            ui.contrast = 400.0;
+        }
+        assert!(save_custom(&themes, &wrong).is_err());
+    }
+
+    #[test]
     fn builtin_themes_parse_and_whole_app_ones_have_valid_ui() {
         let installed = builtin_installed().unwrap();
-        assert_eq!(installed.len(), cobalt_core::config::BUILTIN_THEME_IDS.len());
+        assert_eq!(
+            installed.len(),
+            cobalt_core::config::BUILTIN_THEME_IDS.len()
+        );
         for id in cobalt_core::config::BUILTIN_THEME_IDS {
             let m = builtin_manifest(id).unwrap();
             assert_eq!(m.id, id);

@@ -1,4 +1,4 @@
-//! The 7 MCP tools (`docs/MCP_SPEC.md` §2): docstrings, JSON input schemas and handlers.
+//! The 9 MCP tools (`docs/MCP_SPEC.md` §2): docstrings, JSON input schemas and handlers.
 //! Every handler applies the same pipeline: read-only check (writes) → Secret Scrubber →
 //! Token Firewall → store → telemetry → live `cobalt://mcp-activity` event.
 
@@ -38,7 +38,7 @@ pub struct ToolSpec {
     pub read_only: bool,
 }
 
-pub const TOOLS: [ToolSpec; 8] = [
+pub const TOOLS: [ToolSpec; 9] = [
     ToolSpec {
         name: TOOL_SEARCH_MEMORY,
         read_only: true,
@@ -78,6 +78,11 @@ pub const TOOLS: [ToolSpec; 8] = [
         name: TOOL_ARCHIVE_MEMORY,
         read_only: false,
         description: "Archive a memory that is wrong or no longer useful, removing it from searches (reversible by the user in Cobalt). Memories are SHARED by all the user's AI tools: another agent may depend on this one. ALWAYS call first with confirm=false to see who uses it, then tell the user plainly that other agents may rely on it and that archiving could hurt their work, and only call again with confirm=true if the user explicitly agrees. Prefer update_memory when the memory is outdated rather than wrong. Nuclear Laws cannot be archived.",
+    },
+    ToolSpec {
+        name: TOOL_CREATE_THEME,
+        read_only: false,
+        description: "Create (or replace) a visual theme for the user's Cobalt app when they ask you to design one (e.g. 'make me a calm sunset theme'). Themes are data only and fully validated by Cobalt. Send a complete manifest: id (lowercase-dashes, not a built-in id), name, author, version '1.0.0', description, hardware_tier 'eco', layout_type (galaxy|brain|neural_net|knowledge_tree|project_clusters|project_islands), palette (#RRGGBB colors: background, node, core_pin, reusable, edge, text, pulse_read, pulse_reuse, pulse_write, pulse_update, pulse_blocked, category_colors for preference/decision/code/doc/note/ocr), node_geometry, camera, and ui for the whole interface: {mode light|dark, base_hue 0-360, base_tint 0-100, contrast 0-100, accent #RRGGBB, radius 0-16, density compact|comfortable|spacious}. Keep enough contrast; one accent color. Set apply=true only if the user asked to switch to it now. Full spec: GET http://127.0.0.1:7437/api/v1/guide (section 7).",
     },
 ];
 
@@ -172,6 +177,14 @@ pub fn input_schema(name: &str) -> Value {
             },
             "required": ["memory_id", "reason"], "additionalProperties": false
         }),
+        TOOL_CREATE_THEME => json!({
+            "type": "object",
+            "properties": {
+                "manifest": { "type": "object", "description": "Complete .cobalt-theme manifest (THEME_SPEC §3 + §3.1 `ui`)." },
+                "apply": { "type": "boolean", "default": false, "description": "Switch the app to this theme now (only if the user asked)." }
+            },
+            "required": ["manifest"], "additionalProperties": false
+        }),
         TOOL_RESUME_HANDOFF | TOOL_LIST_PROJECT_RULES => json!({
             "type": "object",
             "properties": { "project": project_prop() },
@@ -217,6 +230,7 @@ impl Daemon {
             TOOL_RESUME_HANDOFF => self.tool_resume_handoff(parse(args)?, ctx).await,
             TOOL_LIST_PROJECT_RULES => self.tool_list_project_rules(parse(args)?, ctx).await,
             TOOL_ARCHIVE_MEMORY => self.tool_archive_memory(parse(args)?, ctx).await,
+            TOOL_CREATE_THEME => self.tool_create_theme(parse(args)?, ctx).await,
             other => Err(CobaltError::NotFound(format!("tool '{other}'"))),
         }
     }
@@ -579,6 +593,34 @@ impl Daemon {
             .await?;
         output.savings = savings_of(&log);
         structured(render::reusable_assets(&output), &output)
+    }
+
+    async fn tool_create_theme(
+        &self,
+        args: CreateThemeInput,
+        ctx: &ClientContext,
+    ) -> Result<ToolOutput> {
+        self.guard_writable()?;
+        let service = self.theme_service().ok_or_else(|| {
+            CobaltError::Unsupported("themes can only be created while the Cobalt app runs".into())
+        })?;
+        let installed = service
+            .save_custom_theme(args.manifest, args.apply, &ctx.client_name)
+            .await?;
+        let out = CreateThemeOutput {
+            theme_id: installed.id.clone(),
+            name: installed.name.clone(),
+            applied: args.apply,
+        };
+        let text = if args.apply {
+            format!("[cobalt] theme \"{}\" created and applied.", out.name)
+        } else {
+            format!(
+                "[cobalt] theme \"{}\" created. The user can apply it in Cobalt > Tienda de temas.",
+                out.name
+            )
+        };
+        structured(text, &out)
     }
 
     async fn tool_save_memory(
