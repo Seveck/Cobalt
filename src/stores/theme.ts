@@ -1,6 +1,14 @@
 import { create } from "zustand";
 import { backendCall } from "@/lib/backend";
-import { applyReducedMotionToRoot, applyThemeToRoot } from "@/lib/themeEngine";
+import {
+  applyReducedMotionToRoot,
+  applyThemeToRoot,
+  applyUiSizeToRoot,
+  cloneThemeManifest,
+  isBuiltinThemeId,
+  isValidUiSize,
+  type UiSize,
+} from "@/lib/themeEngine";
 import { MINIMAL_THEME_MANIFEST } from "@/themes/minimal";
 import {
   BUILTIN_THEME_ID,
@@ -13,6 +21,7 @@ import {
 const DISABLE_THEME_SHADERS_STORAGE_KEY = "cobalt.disableThemeShaders";
 const REDUCED_MOTION_STORAGE_KEY = "cobalt.reducedMotion";
 const AUTO_ROTATE_PAUSED_STORAGE_KEY = "cobalt.autoRotatePaused";
+const UI_SIZE_STORAGE_KEY = "cobalt.uiSize";
 
 function readStorageBool(key: string): boolean {
   if (typeof window === "undefined") return false;
@@ -32,8 +41,30 @@ function writeStorageBool(key: string, value: boolean): void {
   }
 }
 
+function readStorageUiSize(): UiSize {
+  if (typeof window === "undefined") return "normal";
+  try {
+    const raw = window.localStorage.getItem(UI_SIZE_STORAGE_KEY);
+    return isValidUiSize(raw) ? raw : "normal";
+  } catch {
+    return "normal";
+  }
+}
+
+function writeStorageUiSize(size: UiSize): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(UI_SIZE_STORAGE_KEY, size);
+  } catch {
+    // Ignore storage quota or restricted storage errors.
+  }
+}
+
 const initialReducedMotion = readStorageBool(REDUCED_MOTION_STORAGE_KEY);
 applyReducedMotionToRoot(initialReducedMotion);
+
+const initialUiSize = readStorageUiSize();
+applyUiSizeToRoot(initialUiSize);
 
 export type ThemeWarningKind =
   | "shader_compile"
@@ -52,18 +83,47 @@ export interface ThemeRuntimeWarning {
   detail?: string;
 }
 
+export type ThemeEditorMode = "create" | "edit";
+
+export interface OpenThemeEditorOptions {
+  manifest?: ThemeManifest;
+  mode?: ThemeEditorMode;
+}
+
+export interface ThemeToast {
+  id: string;
+  kind: "ai_created" | "exported" | "saved" | "info";
+  message: string;
+  themeId?: string;
+  themeName?: string;
+  applied?: boolean;
+}
+
+let toastCounter = 0;
+
 export interface ThemeState {
   activeThemeId: string;
+  /** Currently displayed manifest (live editor draft while editing, otherwise `committedManifest`). */
   manifest: ThemeManifest;
+  /** Last applied / saved active theme manifest (reverted to on editor discard/close). */
+  committedManifest: ThemeManifest;
   activeLayout: LayoutType;
   clusterSizeMetric: ClusterSizeMetric;
   showConnections: boolean;
   installedThemes: InstalledTheme[];
+  themesVersion: number;
+  uiSize: UiSize;
   disableThemeShaders: boolean;
   reducedMotion: boolean;
   autoRotatePaused: boolean;
   shadersDisabledForSession: boolean;
   themeWarnings: ThemeRuntimeWarning[];
+  themeEditorOpen: boolean;
+  themeEditorMode: ThemeEditorMode;
+  themeEditorBaseManifest: ThemeManifest | null;
+  themeEditorInitialUiSize: UiSize | null;
+  themeEditorDirty: boolean;
+  themeToasts: ThemeToast[];
   loading: boolean;
   error: string | null;
   setActiveTheme: (themeId: string) => Promise<boolean>;
@@ -71,6 +131,8 @@ export interface ThemeState {
   setClusterSizeMetric: (metric: ClusterSizeMetric) => void;
   setShowConnections: (show: boolean) => void;
   toggleShowConnections: () => void;
+  setUiSize: (size: UiSize) => void;
+  previewUiSize: (size: UiSize) => void;
   setDisableThemeShaders: (disabled: boolean) => void;
   setReducedMotion: (reduced: boolean) => void;
   setAutoRotatePaused: (paused: boolean) => void;
@@ -81,20 +143,38 @@ export interface ThemeState {
   dismissThemeWarning: (id: string) => void;
   clearThemeWarnings: (themeId?: string) => void;
   loadInstalledThemes: () => Promise<InstalledTheme[]>;
+  bumpThemesVersion: () => void;
+  openThemeEditor: (options?: OpenThemeEditorOptions) => void;
+  updateThemeEditorDraft: (updater: (current: ThemeManifest) => ThemeManifest) => void;
+  resetThemeEditor: () => void;
+  discardAndCloseThemeEditor: () => void;
+  commitThemeEditorSave: (savedManifest: ThemeManifest) => void;
+  pushThemeToast: (toast: Omit<ThemeToast, "id">) => string;
+  dismissThemeToast: (id: string) => void;
+  markThemeToastApplied: (themeId: string) => void;
 }
 
-export const useThemeStore = create<ThemeState>((set) => ({
+export const useThemeStore = create<ThemeState>((set, get) => ({
   activeThemeId: BUILTIN_THEME_ID,
   manifest: MINIMAL_THEME_MANIFEST,
+  committedManifest: MINIMAL_THEME_MANIFEST,
   activeLayout: MINIMAL_THEME_MANIFEST.layout_type,
   clusterSizeMetric: "vectors",
   showConnections: false,
   installedThemes: [],
+  themesVersion: 0,
+  uiSize: initialUiSize,
   disableThemeShaders: readStorageBool(DISABLE_THEME_SHADERS_STORAGE_KEY),
   reducedMotion: initialReducedMotion,
   autoRotatePaused: readStorageBool(AUTO_ROTATE_PAUSED_STORAGE_KEY),
   shadersDisabledForSession: false,
   themeWarnings: [],
+  themeEditorOpen: false,
+  themeEditorMode: "create",
+  themeEditorBaseManifest: null,
+  themeEditorInitialUiSize: null,
+  themeEditorDirty: false,
+  themeToasts: [],
   loading: false,
   error: null,
 
@@ -107,12 +187,22 @@ export const useThemeStore = create<ThemeState>((set) => ({
     try {
       const manifest = await backendCall("get_theme_manifest", { theme_id: themeId });
       applyThemeToRoot(manifest);
-      set({
+      const prevInitialSize = get().themeEditorInitialUiSize;
+      if (get().themeEditorOpen && prevInitialSize) {
+        applyUiSizeToRoot(prevInitialSize);
+      }
+      set((state) => ({
         activeThemeId: themeId,
         manifest,
+        committedManifest: manifest,
         activeLayout: manifest.layout_type,
+        uiSize: state.themeEditorOpen && prevInitialSize ? prevInitialSize : state.uiSize,
+        themeEditorOpen: false,
+        themeEditorBaseManifest: null,
+        themeEditorInitialUiSize: null,
+        themeEditorDirty: false,
         loading: false,
-      });
+      }));
       return true;
     } catch (err: unknown) {
       applyThemeToRoot(MINIMAL_THEME_MANIFEST);
@@ -120,6 +210,7 @@ export const useThemeStore = create<ThemeState>((set) => ({
         set({
           activeThemeId: BUILTIN_THEME_ID,
           manifest: MINIMAL_THEME_MANIFEST,
+          committedManifest: MINIMAL_THEME_MANIFEST,
           activeLayout: MINIMAL_THEME_MANIFEST.layout_type,
           loading: false,
         });
@@ -129,6 +220,7 @@ export const useThemeStore = create<ThemeState>((set) => ({
       set({
         activeThemeId: BUILTIN_THEME_ID,
         manifest: MINIMAL_THEME_MANIFEST,
+        committedManifest: MINIMAL_THEME_MANIFEST,
         activeLayout: MINIMAL_THEME_MANIFEST.layout_type,
         loading: false,
         error: message,
@@ -141,6 +233,21 @@ export const useThemeStore = create<ThemeState>((set) => ({
   setClusterSizeMetric: (clusterSizeMetric) => set({ clusterSizeMetric }),
   setShowConnections: (showConnections) => set({ showConnections }),
   toggleShowConnections: () => set((state) => ({ showConnections: !state.showConnections })),
+
+  setUiSize: (size) => {
+    writeStorageUiSize(size);
+    applyUiSizeToRoot(size);
+    set((state) => ({
+      uiSize: size,
+      // Keep editor's revert baseline in sync if changed directly from Settings.
+      themeEditorInitialUiSize: state.themeEditorOpen ? size : state.themeEditorInitialUiSize,
+    }));
+  },
+
+  previewUiSize: (size) => {
+    applyUiSizeToRoot(size);
+    set({ uiSize: size, themeEditorDirty: true });
+  },
 
   setDisableThemeShaders: (disabled) => {
     writeStorageBool(DISABLE_THEME_SHADERS_STORAGE_KEY, disabled);
@@ -230,4 +337,105 @@ export const useThemeStore = create<ThemeState>((set) => ({
       return [];
     }
   },
+
+  bumpThemesVersion: () => set((state) => ({ themesVersion: state.themesVersion + 1 })),
+
+  openThemeEditor: (options) => {
+    const state = get();
+    const target = cloneThemeManifest(options?.manifest ?? state.committedManifest);
+    const mode: ThemeEditorMode =
+      options?.mode ?? (isBuiltinThemeId(target.id) ? "create" : "edit");
+    const baselineUiSize = state.themeEditorOpen
+      ? (state.themeEditorInitialUiSize ?? state.uiSize)
+      : state.uiSize;
+
+    applyThemeToRoot(target);
+    set({
+      manifest: target,
+      themeEditorOpen: true,
+      themeEditorMode: mode,
+      themeEditorBaseManifest: cloneThemeManifest(target),
+      themeEditorInitialUiSize: baselineUiSize,
+      themeEditorDirty: false,
+    });
+  },
+
+  updateThemeEditorDraft: (updater) => {
+    const current = get().manifest;
+    const next = updater(cloneThemeManifest(current));
+    applyThemeToRoot(next);
+    set({
+      manifest: next,
+      themeEditorDirty: true,
+    });
+  },
+
+  resetThemeEditor: () => {
+    const state = get();
+    if (!state.themeEditorBaseManifest) return;
+    const restored = cloneThemeManifest(state.themeEditorBaseManifest);
+    const restoredSize = state.themeEditorInitialUiSize ?? state.uiSize;
+    applyThemeToRoot(restored);
+    applyUiSizeToRoot(restoredSize);
+    set({
+      manifest: restored,
+      uiSize: restoredSize,
+      themeEditorDirty: false,
+    });
+  },
+
+  discardAndCloseThemeEditor: () => {
+    const state = get();
+    const committed = cloneThemeManifest(state.committedManifest);
+    const restoredSize = state.themeEditorInitialUiSize ?? state.uiSize;
+    applyThemeToRoot(committed);
+    applyUiSizeToRoot(restoredSize);
+    set({
+      manifest: committed,
+      uiSize: restoredSize,
+      themeEditorOpen: false,
+      themeEditorBaseManifest: null,
+      themeEditorInitialUiSize: null,
+      themeEditorDirty: false,
+    });
+  },
+
+  commitThemeEditorSave: (savedManifest) => {
+    const state = get();
+    const committed = cloneThemeManifest(savedManifest);
+    writeStorageUiSize(state.uiSize);
+    applyUiSizeToRoot(state.uiSize);
+    applyThemeToRoot(committed);
+    set({
+      activeThemeId: committed.id,
+      manifest: committed,
+      committedManifest: committed,
+      activeLayout: committed.layout_type,
+      themeEditorOpen: false,
+      themeEditorBaseManifest: null,
+      themeEditorInitialUiSize: null,
+      themeEditorDirty: false,
+      themesVersion: state.themesVersion + 1,
+    });
+  },
+
+  pushThemeToast: (toast) => {
+    const id = `theme-toast-${++toastCounter}`;
+    set((state) => ({
+      themeToasts: [...state.themeToasts.slice(-3), { ...toast, id }],
+    }));
+    return id;
+  },
+
+  dismissThemeToast: (id) =>
+    set((state) => ({
+      themeToasts: state.themeToasts.filter((item) => item.id !== id),
+    })),
+
+  markThemeToastApplied: (themeId) =>
+    set((state) => ({
+      themeToasts: state.themeToasts.map((item) =>
+        item.themeId === themeId ? { ...item, applied: true } : item,
+      ),
+    })),
 }));

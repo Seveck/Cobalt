@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { backendOn } from "@/lib/backend";
 import { isTauri } from "@/lib/ipc";
@@ -28,7 +28,9 @@ import { IngestShellIndicator } from "@/components/shell/IngestShellIndicator";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { WelcomeGreeting } from "@/components/shell/WelcomeGreeting";
 import { StatsView } from "@/components/stats/StatsView";
+import { ThemeEditorPanel } from "@/components/store/ThemeEditorPanel";
 import { ThemeStoreView } from "@/components/store/ThemeStoreView";
+import { ThemeToastHost } from "@/components/store/ThemeToastHost";
 import { TelemetryView } from "@/components/telemetry/TelemetryView";
 import { ToolsView } from "@/components/tools/ToolsView";
 import { BUILTIN_THEME_ID } from "@/types/contracts";
@@ -42,6 +44,8 @@ export default function App() {
 
 function DesktopApp() {
   const { t } = useTranslation();
+  const tRef = useRef(t);
+  tRef.current = t;
 
   const activeNav = useUiStore((s) => s.activeNav);
   const showOnboardingOverride = useUiStore((s) => s.showOnboardingOverride);
@@ -157,6 +161,32 @@ function DesktopApp() {
       }),
     );
 
+    register(
+      backendOn("cobalt://themes-changed", (payload) => {
+        const themeState = useThemeStore.getState();
+        themeState.bumpThemesVersion();
+        void themeState.loadInstalledThemes();
+
+        if (payload.applied) {
+          void themeState.setActiveTheme(payload.theme_id);
+          void useSettingsStore.getState().loadSettings();
+        }
+
+        if (payload.source_client !== "cobalt-ui") {
+          themeState.pushThemeToast({
+            kind: "ai_created",
+            message: tRef.current("store.aiThemeCreatedToast", {
+              name: payload.name,
+              client: payload.source_client,
+            }),
+            themeId: payload.theme_id,
+            themeName: payload.name,
+            applied: payload.applied,
+          });
+        }
+      }),
+    );
+
     return () => {
       active = false;
       if (refreshTimer !== null) {
@@ -216,22 +246,26 @@ function DesktopApp() {
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-void">
         <IngestShellIndicator />
         <CliActivityShellBar />
-        <main className="relative min-h-0 flex-1 overflow-hidden bg-void">
-          <div
-            key={activeNav}
-            className={`h-full w-full ${activeNav === "brain" ? "cobalt-view-fade" : "cobalt-view-enter"}`}
-          >
-            {activeNav === "brain" && <BrainCanvas />}
-            {activeNav === "library" && <LibraryView />}
-            {activeNav === "telemetry" && <TelemetryView />}
-            {activeNav === "stats" && <StatsView />}
-            {activeNav === "connectors" && <ConnectorsView />}
-            {activeNav === "tools" && <ToolsView />}
-            {activeNav === "store" && <ThemeStoreView />}
-            {activeNav === "settings" && <SettingsView />}
-          </div>
-          <WelcomeGreeting />
-        </main>
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-void">
+            <div
+              key={activeNav}
+              className={`h-full w-full ${activeNav === "brain" ? "cobalt-view-fade" : "cobalt-view-enter"}`}
+            >
+              {activeNav === "brain" && <BrainCanvas />}
+              {activeNav === "library" && <LibraryView />}
+              {activeNav === "telemetry" && <TelemetryView />}
+              {activeNav === "stats" && <StatsView />}
+              {activeNav === "connectors" && <ConnectorsView />}
+              {activeNav === "tools" && <ToolsView />}
+              {activeNav === "store" && <ThemeStoreView />}
+              {activeNav === "settings" && <SettingsView />}
+            </div>
+            <WelcomeGreeting />
+          </main>
+          <ThemeEditorPanel />
+        </div>
+        <ThemeToastHost />
       </div>
     </div>
   );

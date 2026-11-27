@@ -53,6 +53,7 @@
 
 :root {
   color-scheme: dark;
+  --cobalt-font-scale: 100%;
   --cobalt-radius: 2px;
   --cobalt-radius-sm: 1px;
   --cobalt-density: 1;
@@ -75,6 +76,7 @@
   html {
     background-color: var(--color-void);
     color: var(--color-bone);
+    font-size: var(--cobalt-font-scale, 100%);
   }
 
   html,
@@ -114,6 +116,56 @@
 
   button:disabled {
     cursor: not-allowed;
+  }
+
+  /* Crisp cross-platform styling for range & color controls under appearance: none */
+  input[type="range"] {
+    height: 6px;
+    border-radius: 999px;
+    background-color: var(--color-surface-3);
+    border: 1px solid var(--color-rule);
+    cursor: pointer;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background-color: var(--color-cobalt);
+    border: 2px solid var(--color-surface);
+    box-shadow: 0 0 0 1px var(--color-cobalt-rule);
+    cursor: pointer;
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background-color: var(--color-cobalt);
+    border: 2px solid var(--color-surface);
+    box-shadow: 0 0 0 1px var(--color-cobalt-rule);
+    cursor: pointer;
+  }
+
+  input[type="color"] {
+    padding: 0;
+    cursor: pointer;
+  }
+
+  input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+
+  input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 1px;
+  }
+
+  input[type="color"]::-moz-color-swatch {
+    border: none;
+    border-radius: 1px;
   }
 
   * {

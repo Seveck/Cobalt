@@ -369,6 +369,133 @@ export function applyThemeToRoot(manifest: ThemeManifest): void {
   root.dataset.themeDensity = manifest.ui.density;
 }
 
+export type UiSize = "small" | "normal" | "large";
+
+export const UI_SIZE_OPTIONS: readonly UiSize[] = ["small", "normal", "large"] as const;
+
+export const UI_SIZE_SCALES: Record<UiSize, string> = {
+  small: "92%",
+  normal: "100%",
+  large: "112%",
+};
+
+export function isValidUiSize(value: unknown): value is UiSize {
+  return value === "small" || value === "normal" || value === "large";
+}
+
+/** Apply root font scale onto `:root` so Tailwind `rem` typography scales app-wide. */
+export function applyUiSizeToRoot(size: UiSize): void {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  root.style.setProperty("--cobalt-font-scale", UI_SIZE_SCALES[size] ?? "100%");
+  root.dataset.uiSize = size;
+}
+
+/** Baseline `ThemeUi` used when customizing a brain-only theme (e.g. `cobalt-minimal`). */
+export const DEFAULT_EDITOR_UI: ThemeUi = {
+  mode: "dark",
+  base_hue: 225,
+  base_tint: 16,
+  contrast: 72,
+  accent: "#0047AB",
+  radius: 2,
+  density: "comfortable",
+};
+
+/** Curated accent swatches (from style-lab + mineral cobalt). */
+export const ACCENT_SWATCHES: readonly string[] = [
+  "#3D6EF0",
+  "#0047AB",
+  "#2AA7A0",
+  "#7C6CF0",
+  "#D9922B",
+  "#D0566F",
+  "#5C9E4F",
+] as const;
+
+/** Quick swatches for the 3D brain canvas background. */
+export const BRAIN_BG_SWATCHES: readonly string[] = [
+  "#05070D",
+  "#0F0A06",
+  "#000E12",
+  "#0B0C15",
+  "#111317",
+  "#EEF9FF",
+  "#F5F3EE",
+] as const;
+
+/** Normalize a `#RRGGBB` or `#RGB` hex string to uppercase `#RRGGBB`. */
+export function normalizeHexColor(hex: string, fallback = "#3D6EF0"): string {
+  const clean = hex.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(clean)) return clean.toUpperCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(clean)) {
+    return `#${clean[1]}${clean[1]}${clean[2]}${clean[2]}${clean[3]}${clean[3]}`.toUpperCase();
+  }
+  return fallback.toUpperCase();
+}
+
+const THEME_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/;
+
+/** True when `id` matches THEME_SPEC §3 and is not a reserved built-in theme id. */
+export function isValidCustomThemeId(id: string): boolean {
+  return THEME_ID_PATTERN.test(id) && !isBuiltinThemeId(id);
+}
+
+/**
+ * Derive a valid, non-builtin `.cobalt-theme` slug id from any user-entered theme name.
+ * Always matches `^[a-z0-9][a-z0-9-]{1,63}$` and never collides with `BUILTIN_THEME_IDS`.
+ */
+export function slugifyThemeId(name: string): string {
+  let slug = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+
+  if (slug.length === 0) {
+    slug = "custom-theme";
+  } else if (slug.length === 1) {
+    slug = `${slug}-theme`;
+  }
+
+  if (slug.length > 64) {
+    slug = slug.slice(0, 64).replace(/-+$/g, "");
+  }
+
+  if (isBuiltinThemeId(slug)) {
+    const suffix = "-custom";
+    const base = slug.slice(0, Math.max(1, 64 - suffix.length)).replace(/-+$/g, "");
+    slug = `${base}${suffix}`;
+  }
+
+  if (!isValidCustomThemeId(slug)) {
+    return "custom-theme";
+  }
+  return slug;
+}
+
+/** Deep-clone a `ThemeManifest` so editor drafts never mutate committed manifests. */
+export function cloneThemeManifest(manifest: ThemeManifest): ThemeManifest {
+  return {
+    ...manifest,
+    layout_params: { ...manifest.layout_params },
+    palette: {
+      ...manifest.palette,
+      category_colors: { ...manifest.palette.category_colors },
+    },
+    node_geometry: { ...manifest.node_geometry },
+    camera: {
+      ...manifest.camera,
+      position: [manifest.camera.position[0], manifest.camera.position[1], manifest.camera.position[2]],
+      target: [manifest.camera.target[0], manifest.camera.target[1], manifest.camera.target[2]],
+    },
+    shaders: { ...manifest.shaders },
+    ui: manifest.ui ? { ...manifest.ui } : null,
+  };
+}
+
 /** Sync reduced-motion app preference onto `:root` so CSS transitions respect it too. */
 export function applyReducedMotionToRoot(reduced: boolean): void {
   if (typeof document === "undefined") return;
