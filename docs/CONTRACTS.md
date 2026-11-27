@@ -83,7 +83,7 @@ Changing anything here requires a contract version bump made by [CLAUDE] in all 
 
 ---
 
-## 2. SQLite canonical schema (`SCHEMA_VERSION = 3`, `PRAGMA user_version = 3`; v1→v2 adds §2.1, v2→v3 recomputes token savings — see §2.2)
+## 2. SQLite canonical schema (`SCHEMA_VERSION = 4`, `PRAGMA user_version = 4`; v1→v2 adds §2.1, v2→v3 recomputes token savings (§2.2), v3→v4 adds §2.3)
 
 Owner of migrations: **[CODEX]** (`crates/cobalt-store`). The DDL below is normative: column
 names, types, nullability, defaults and `CHECK`s must match exactly. Extra *indexes* are
