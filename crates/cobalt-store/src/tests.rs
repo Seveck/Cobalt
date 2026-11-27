@@ -565,6 +565,79 @@ async fn hybrid_search_requires_relevance_in_a_bilingual_dev_corpus() {
 }
 
 #[tokio::test]
+async fn exact_identifiers_rank_after_pins_and_before_vector_only_hits() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(&dir).await;
+    let pin = store
+        .save_memory(NewMemory {
+            is_core_pin: true,
+            ..new_memory("alpha: validate write_slot before launch.")
+        })
+        .await
+        .unwrap()
+        .memory;
+    let decision = store
+        .save_memory(new_memory(
+            "beta: write_slot returns error -32000 on interruption.",
+        ))
+        .await
+        .unwrap()
+        .memory;
+    let markup = store
+        .save_memory(NewMemory {
+            source_type: Some(cobalt_core::enums::SourceType::Ts),
+            ..new_memory(r#"<input id="name" className="grid" value={name} onChange={edit} />"#)
+        })
+        .await
+        .unwrap()
+        .memory;
+    SqliteVec::open(&store, 3)
+        .await
+        .unwrap()
+        .upsert(&[VectorRecord {
+            memory_id: markup.id,
+            vector: vec![0.898, 0.0, 0.44],
+            project_id: markup.project_id,
+            branch_id: markup.branch_id,
+            is_reusable: markup.is_reusable,
+            status: markup.status,
+        }])
+        .await
+        .unwrap();
+
+    let off_topic = store
+        .search(search_request("glacier scenery"))
+        .await
+        .unwrap();
+    assert!(off_topic.hits.is_empty());
+    assert_eq!(off_topic.core_rules[0].id, pin.id);
+
+    let rival = store
+        .save_memory(new_memory(
+            "The fallback example mentions positive code 32000.",
+        ))
+        .await
+        .unwrap()
+        .memory;
+    let search = |query| SearchRequest {
+        rrf_override: Some(RrfWeights {
+            vector_weight: 5.0,
+            ..RrfWeights::default()
+        }),
+        ..search_request(query)
+    };
+    let identified = store.search(search("`WRITE_SLOT`")).await.unwrap();
+    assert_eq!(identified.hits[0].memory.id, pin.id);
+    assert_eq!(identified.hits[1].memory.id, decision.id);
+    assert!(identified.hits[1].vector_rank.is_none());
+    assert_eq!(identified.hits[2].memory.id, rival.id);
+
+    let signed = store.search(search("-32000")).await.unwrap();
+    assert_eq!(signed.hits[0].memory.id, decision.id);
+    assert_eq!(signed.hits[1].memory.id, rival.id);
+}
+
+#[tokio::test]
 async fn fts_triggers_remove_old_encrypted_and_deleted_rows() {
     let dir = tempfile::tempdir().unwrap();
     let store = sqlite_store(&dir).await;

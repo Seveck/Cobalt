@@ -3,7 +3,8 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use cobalt_core::config::{RrfWeights, SearchSettings};
-use cobalt_core::enums::FileAvailability;
+use cobalt_core::engine::MODEL_MULTILINGUAL_E5_SMALL;
+use cobalt_core::enums::{FileAvailability, SourceType};
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::Id;
 use cobalt_core::model::Memory;
@@ -16,7 +17,7 @@ use cobalt_embeddings::TiktokenCounter;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 
 use crate::db::sql_error;
-use crate::memory::{memory, memory_by_id};
+use crate::memory::memory;
 use crate::repositories::{
     branch, id, optional_timestamp, source_availability, source_by_id, stamp,
 };
@@ -103,15 +104,74 @@ fn fts_terms(input: &str) -> Vec<String> {
         .collect()
 }
 
+// A standalone identifier can contain separators that unicode61 tokenizes as spaces.
+fn identifier_query(query: &str) -> Option<&str> {
+    let term = query.trim().trim_matches(['`', '"']);
+    if !term.chars().any(char::is_alphanumeric)
+        || !term
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))
+    {
+        return None;
+    }
+    let mixed_case = term
+        .chars()
+        .skip_while(|c| !c.is_lowercase())
+        .any(char::is_uppercase);
+    let has_separator = term
+        .trim_matches(['-', '.', ':'])
+        .contains(['_', '-', '.', ':']);
+    (mixed_case || has_separator || term.chars().any(|c| c.is_ascii_digit())).then_some(term)
+}
+
+fn contains_identifier(content: &str, identifier: &str) -> bool {
+    let is_identifier_char = |c: char| c.is_alphanumeric() || c == '_';
+    let content = content.to_lowercase();
+    content.match_indices(identifier).any(|(start, matched)| {
+        !content[..start].ends_with(is_identifier_char)
+            && !content[start + matched.len()..].starts_with(is_identifier_char)
+    })
+}
+
+fn vector_evidence(memory: &Memory, similarity: f64) -> f64 {
+    // Attribute-heavy markup and structured JSON produced recurring false positives
+    // on the E5-small snapshot, reaching 0.45 even on unrelated queries.
+    if memory.is_core_pin {
+        return similarity;
+    }
+    let weight = match memory.source_type {
+        SourceType::Json | SourceType::Html | SourceType::Css => 0.65,
+        SourceType::Ts | SourceType::Js
+            if memory.content.matches("={").count() + memory.content.matches("=\"").count()
+                >= 4 =>
+        {
+            0.65
+        }
+        SourceType::Other
+            if memory
+                .content
+                .lines()
+                .filter(|line| line.matches('\t').count() >= 2)
+                .nth(3)
+                .is_some() =>
+        {
+            0.65
+        }
+        SourceType::Rs | SourceType::Ts | SourceType::Js => 0.75,
+        _ => 1.0,
+    };
+    similarity * weight
+}
+
 fn lexical(
     conn: &Connection,
     query: &str,
     limit: u32,
     scope: Scope,
-    vector_candidates: &HashMap<Id, Candidate>,
+    identifier: Option<&str>,
 ) -> Result<Vec<(u32, Id, f64)>> {
     let terms = fts_terms(query);
-    if terms.is_empty() {
+    if terms.is_empty() && identifier.is_none() {
         return Ok(Vec::new());
     }
     let mut stmt = conn
@@ -122,7 +182,10 @@ fn lexical(
             scope.clause,
         ))
         .map_err(sql_error)?;
-    let args = [Value::Text(terms.join(" OR "))]
+    let expression = identifier
+        .map(|term| format!("content : \"{term}\""))
+        .unwrap_or_else(|| terms.join(" OR "));
+    let args = [Value::Text(expression)]
         .into_iter()
         .chain(scope.params)
         .chain([Value::Integer(i64::from(limit))]);
@@ -138,9 +201,9 @@ fn lexical(
             break;
         };
         let memory_id = id(row, "id").map_err(sql_error)?;
-        if required > 1
+        if identifier.is_none()
+            && required > 1
             && !row.get::<_, bool>("is_core_pin").map_err(sql_error)?
-            && !vector_candidates.contains_key(&memory_id)
         {
             // Use the same FTS tokenizer and indexed columns for BM25 and term coverage.
             let rowid: i64 = row.get("rowid").map_err(sql_error)?;
@@ -162,9 +225,15 @@ fn lexical(
     Ok(matches)
 }
 
-#[derive(Default)]
+struct VectorMatch {
+    rank: u32,
+    similarity: f64,
+    evidence: f64,
+}
+
 struct Candidate {
-    vector: Option<(u32, f64)>,
+    memory: Memory,
+    vector: Option<VectorMatch>,
     fts: Option<(u32, f64)>,
 }
 
@@ -193,42 +262,102 @@ fn collect_hits(
         return Ok(Vec::new());
     }
     let weights = req.rrf_override.as_ref().unwrap_or(&settings.rrf);
-    let candidates_per_channel = top_k.saturating_mul(4).max(32);
+    let lexical_limit = top_k.saturating_mul(4).max(32);
+    // The wider ANN shortlist leaves room for prose after filtering structured chunks.
+    let vector_limit = lexical_limit.max(64);
     let scope = || Scope::new(branch_id, filter, &req.filter);
     let mut candidates: HashMap<Id, Candidate> = HashMap::new();
 
+    let mut lookup = conn
+        .prepare_cached("SELECT * FROM memories WHERE id = ?1")
+        .map_err(sql_error)?;
+    let mut load = |id: Id| {
+        lookup
+            .query_row([id.to_string()], memory)
+            .optional()
+            .map_err(sql_error)?
+            .ok_or_else(|| CobaltError::Integrity(format!("search candidate {id} disappeared")))
+    };
     if let Some((retrieval, query)) = vector {
-        let vectors =
-            retrieval
-                .index
-                .scoped(conn, query, candidates_per_channel as usize, scope())?;
-        for (rank, entry) in (1..=candidates_per_channel).zip(vectors) {
-            let similarity = calibrated_similarity(
-                &retrieval.embedder.spec().id,
-                SimilarityKind::Query,
-                f64::from(entry.similarity),
-            );
+        let vectors = retrieval
+            .index
+            .scoped(conn, query, vector_limit as usize, scope())?;
+        let model_id = &retrieval.embedder.spec().id;
+        for (rank, entry) in (1..=vector_limit).zip(vectors) {
+            let similarity =
+                calibrated_similarity(model_id, SimilarityKind::Query, f64::from(entry.similarity));
             if similarity >= settings.min_similarity {
-                candidates.entry(entry.memory_id).or_default().vector = Some((rank, similarity));
+                let memory = load(entry.memory_id)?;
+                let evidence = vector_evidence(&memory, similarity);
+                if evidence >= settings.min_similarity {
+                    candidates.insert(
+                        entry.memory_id,
+                        Candidate {
+                            memory,
+                            vector: Some(VectorMatch {
+                                rank,
+                                similarity,
+                                evidence,
+                            }),
+                            fts: None,
+                        },
+                    );
+                }
             }
         }
     }
+    let identifier = identifier_query(&req.query);
     if weights.fts_weight > 0.0 {
-        for (rank, id, score) in lexical(
-            conn,
-            &req.query,
-            candidates_per_channel,
-            scope(),
-            &candidates,
-        )? {
-            candidates.entry(id).or_default().fts = Some((rank, score));
+        for (rank, id, score) in lexical(conn, &req.query, lexical_limit, scope(), identifier)? {
+            let candidate = match candidates.entry(id) {
+                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::hash_map::Entry::Vacant(entry) => entry.insert(Candidate {
+                    memory: load(id)?,
+                    vector: None,
+                    fts: None,
+                }),
+            };
+            candidate.fts = Some((rank, score));
         }
     }
+    // A weaker semantic hit needs lexical corroboration when the query has a clear leader.
+    let best_evidence = candidates
+        .values()
+        .filter(|candidate| !candidate.memory.is_core_pin)
+        .filter_map(|candidate| candidate.vector.as_ref().map(|entry| entry.evidence))
+        .fold(0.0, f64::max);
+    // E5-small's uncorroborated matches need extra headroom above the configured cutoff.
+    let semantic_floor = if vector.is_some_and(|(retrieval, _)| {
+        retrieval
+            .embedder
+            .spec()
+            .id
+            .eq_ignore_ascii_case(MODEL_MULTILINGUAL_E5_SMALL)
+    }) {
+        (settings.min_similarity + 0.03).min(1.0)
+    } else {
+        settings.min_similarity
+    };
+    let vector_only_floor = semantic_floor.max(best_evidence * 0.8);
+    let identifier = identifier.map(str::to_lowercase);
     let mut hits = Vec::with_capacity(candidates.len());
-    for (id, candidate) in candidates {
-        let memory = memory_by_id(conn, id)?
-            .ok_or_else(|| CobaltError::Integrity(format!("search candidate {id} disappeared")))?;
-        let vector_rank = candidate.vector.map(|(rank, _)| rank);
+    for candidate in candidates.into_values() {
+        let memory = candidate.memory;
+        if !memory.is_core_pin
+            && candidate.fts.is_none()
+            && candidate
+                .vector
+                .as_ref()
+                .is_none_or(|entry| entry.evidence < vector_only_floor)
+        {
+            continue;
+        }
+        let exact = !memory.is_core_pin
+            && candidate.fts.is_some()
+            && identifier
+                .as_ref()
+                .is_some_and(|term| contains_identifier(&memory.content, term));
+        let vector_rank = candidate.vector.as_ref().map(|entry| entry.rank);
         let fts_rank = candidate.fts.map(|(rank, _)| rank);
         let rrf_score = vector_rank.map_or(0.0, |rank| {
             weights.vector_weight / (weights.k + f64::from(rank))
@@ -241,25 +370,35 @@ fn collect_hits(
         } else {
             0.0
         };
-        hits.push(SearchHit {
-            memory,
-            score: rrf_score * confidence + boost,
-            rrf_score,
-            vector_rank,
-            fts_rank,
-            similarity_score: candidate.vector.map_or(0.0, |(_, similarity)| similarity),
-            bm25: candidate.fts.map(|(_, score)| score),
-        });
+        // Compare exact matches by their lexical rank before considering semantic evidence.
+        let exact_rank = fts_rank.filter(|_| exact);
+        hits.push((
+            exact_rank,
+            SearchHit {
+                memory,
+                score: rrf_score * confidence + boost,
+                rrf_score,
+                vector_rank,
+                fts_rank,
+                similarity_score: candidate.vector.map_or(0.0, |entry| entry.similarity),
+                bm25: candidate.fts.map(|(_, score)| score),
+            },
+        ));
     }
-    hits.sort_by(|a, b| {
+    hits.sort_by(|(exact_a, a), (exact_b, b)| {
         b.memory
             .is_core_pin
             .cmp(&a.memory.is_core_pin)
+            .then_with(|| {
+                exact_a
+                    .unwrap_or(u32::MAX)
+                    .cmp(&exact_b.unwrap_or(u32::MAX))
+            })
             .then_with(|| b.score.total_cmp(&a.score))
             .then_with(|| a.memory.id.cmp(&b.memory.id))
     });
     hits.truncate(top_k as usize);
-    Ok(hits)
+    Ok(hits.into_iter().map(|(_, hit)| hit).collect())
 }
 
 fn savings<'a>(
