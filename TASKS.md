@@ -111,7 +111,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] Pulido visual (2026-11-27): barra lateral plegable (Ctrl+B); panel de gráficos plegable a la derecha; transición "arena" al cambiar de gráfico; la cámara se queda donde la dejó el usuario; actividad de IA claramente visible (pulso con núcleo blanco y anillo, resto atenuado, aviso de nodos fuera de vista) y solo para peticiones de IAs; sin líneas decorativas en ningún gráfico; configuración manual de conectores con el bloque real
 - [x] Estadísticas (2026-11-27, contratos v1.10.0, esquema v2): calendario anual tipo GitHub, Hoy/Semana/Año, IA que más usa Cobalt, hora y día favoritos, rachas, proyecto más usado; resumen por horas permanente (`usage_hourly`)
 - [x] Temas para toda la app (2026-11-27, THEME_SPEC v1.2, contratos v1.11.0): Grafito, Porcelana, Abisal y Niebla incluidos en la tienda; tipografía Geist en toda la app; animaciones de nodos del laboratorio de estilo
-- [ ] Decidir el tema por defecto de una instalación nueva (hoy `cobalt-minimal`)
+- [x] Tema por defecto de una instalación nueva: `cobalt-minimal` (decidido por el usuario 2026-11-28)
 - [x] [GEMINI] Botón visible para pausar/reanudar el giro automático del cerebro 3D en todos los gráficos (pedido 2026-11-27; recordar la elección)
 - [x] [GEMINI] Cámara inicial un poco más lejos y mejor centrada en todos los gráficos (sin volver a moverla al cambiar de gráfico)
 - [x] [GEMINI] Animaciones suaves al mostrar o cargar contenido (vistas, paneles, tarjetas, listas, estados de carga), respetando "Movimiento reducido"
