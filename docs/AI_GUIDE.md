@@ -352,10 +352,10 @@ Start from the built-in theme (`src/themes/minimal/manifest.json`) and change va
 | `layout_params` | `level_spacing`, `radial_spread`, `show_virtual_anchors`, `semantic_edges_mode` (`always` \| `hover_only` \| `never`) | yes |
 | `palette.*` | every color `#RRGGBB`; `category_colors` per category | yes |
 | `node_geometry.base_size`, `scale_by_hits` | node size, grow with usage | yes |
-| `node_geometry.shape` | `point` (default) \| `sphere` \| `icosahedron` \| `octahedron` \| `box` \| `mesh` | **(planned)**: nodes render as points |
+| `node_geometry.shape` | `point` (default) \| `sphere` \| `icosahedron` \| `octahedron` \| `box` \| `mesh` (first mesh of `mesh_path`, ≤ 2,000 triangles) | yes; volumetric only on `balanced`/`ultra` and ≤ 5,000 visible nodes, else points |
 | `camera.position`, `fov`, `auto_rotate`, `auto_rotate_speed` | initial camera | yes |
-| `shaders.*` | paths `shaders/<name>.glsl` | validated, **rendering (planned)** |
-| `mesh_path` + `layout_type: custom_mesh` | `meshes/<name>.glb` | validated, **rendering (planned)** (falls back to `galaxy`) |
+| `shaders.*` | paths `shaders/<name>.glsl`; inputs in §7.4 | yes (not in Eco / degraded themes) |
+| `mesh_path` + `layout_type: custom_mesh` | `meshes/<name>.glb`, ≤ 200,000 vertices | yes (load failure falls back to `galaxy`) |
 
 Unknown fields are ignored, so you can add future fields safely.
 
@@ -375,6 +375,35 @@ signing process is **(planned)**.
 Performance rules: Eco profile disables post-processing and forces edges to `hover_only`;
 themes marked `balanced`/`ultra` run "degraded" on weaker machines. Keep previews small.
 
+### 7.4 Writing theme shaders (GLSL ES 1.00 / WebGL1)
+
+Each shader replaces the built-in program of one layer; you may replace only the vertex or only
+the fragment half. Full contract: `docs/THEME_SPEC.md` §6.2.
+
+| Manifest key | You receive | You write |
+|---|---|---|
+| `node_vertex` / `node_fragment` (point nodes) | attributes `aColor` vec3, `aSize` float (0 = hidden), `aMeta` vec4 (x Nuclear Law, y reusable, z focus 0–3, w opacity), `aPulse` vec4 (rgb operation color, a intensity); uniforms `uTime`, `uPixelRatio`, `uScaleFactor`, `uMinPointSize`, `uMaxPointSize`, `uCorePinColor`; varyings `vColor`, `vMeta`, `vPulse` | `gl_Position` + `gl_PointSize` / `gl_FragColor` |
+| `edge_vertex` / `edge_fragment` | attribute `color`; uniforms `uTime`, `uOpacity` | `gl_Position` / `gl_FragColor` |
+| `background_fragment` | varying `vUv`; uniforms `uTime`, `uResolution`, `uBackground` | `gl_FragColor` |
+
+Minimal background (`shaders/nebula.glsl`):
+
+```glsl
+precision mediump float;
+varying vec2 vUv;
+uniform float uTime;
+uniform vec3 uBackground;
+void main() {
+  float glow = 0.25 * smoothstep(0.9, 0.0, distance(vUv, vec2(0.5 + 0.1 * sin(uTime * 0.1), 0.5)));
+  gl_FragColor = vec4(uBackground + vec3(0.1, 0.15, 0.35) * glow, 1.0);
+}
+```
+
+Safety: a shader that does not compile falls back to the built-in one with a warning showing the
+compiler log; if frames stay slower than 100 ms for 3 s the custom shaders switch off for the
+session; users can disable theme shaders in Settings → Appearance. Custom node shaders apply to
+point nodes only.
+
 ---
 
 ## 8. The graph — layouts and making it yours
@@ -390,7 +419,7 @@ theme with `layout_type` and tune it with `layout_params`:
 | `knowledge_tree` | Hierarchical 3D canopy (project → category → memory) |
 | `project_clusters` | One sphere per project, colored with the project color |
 | `project_islands` | One flat disc ("island") per project, plus one for global memories |
-| `custom_mesh` | Nodes on your own 3D model **(planned)** |
+| `custom_mesh` | Every memory sits on the surface of your own 3D model (`mesh_path`); Nuclear Laws near its center |
 
 What you can customize without code: layout, spacing/spread, virtual anchors, when semantic edges
 show, all colors, node size, camera. Users can also switch layout live with the layout switcher

@@ -105,6 +105,8 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] Bug (2026-11-26): `update_settings` guardaba otro motor/modelo con memorias existentes sin re-vectorizar (quedaban sin vectores); ahora lo rechaza y solo `swap_engine` puede cambiarlo
 - [x] Bug (2026-11-26): la indexación de fondo retenía el permiso de escritura durante todo el trabajo y congelaba la UI tras cualquier acción exclusiva; ahora cada escritura la protege el store, como el vigilante
 - [x] [GEMINI] Bienvenida y "Guardar preferencias" cambian motor/modelo solo vía `swap_engine` y muestran el rechazo del backend
+- [x] Cualquier IA puede usar Cobalt (2026-11-26): `docs/AI_GUIDE.md` + `llms.txt`, servida en `GET /api/v1/guide`; herramientas MCP por REST (`GET /api/v1/tools?format=openai`, `POST /api/v1/tools/{name}`, cabeceras `X-Cobalt-Client`/`X-Cobalt-Cwd`); formato genérico de hooks para cualquier herramienta (`cobalt --hook <nombre>` o `POST /api/v1/hooks/{nombre}`, CLI_CAPTURE v1.5.0)
+- [x] Temas v1.1.0: shaders de tema (nodos, aristas, fondo) con respaldo si no compilan, vigilante de fotogramas e interruptor en Ajustes → Apariencia; nodos volumétricos (esfera/icosaedro/octaedro/caja/malla) en balanced/ultra; layout `custom_mesh` sobre un GLB propio
 - [ ] Pendiente: hooks de Antigravity (`agy`, vía plugin `hooks.json`; formato por verificar) y de Cursor/Windsurf/Cline (sin sistema de hooks: solo instrucciones); los hooks apuntan al binario actual (reinstalar al instalar la versión final)
 
 ## Fase 3.5 — Asistente conversacional, Personas y Estudio [PARALELO] (decidida 2026-11-25)
