@@ -1,4 +1,4 @@
-# Cobalt Themes — `.cobalt-theme` Specification (v1.0.0)
+# Cobalt Themes — `.cobalt-theme` Specification (v1.1.0)
 
 Owner: **[CLAUDE]** (Theme Store Manager in `src-tauri`, Rust DTOs in `cobalt_core::theme`).
 Consumers: **[GEMINI]** (`src/components/store/`, `src/components/canvas3d/`).
@@ -159,6 +159,41 @@ Nodes are **flat, camera-facing sprites inside a 3D space** (billboards), not vo
   attributes, filters = size 0), no per-node React components, labels only for hovered/selected
   nodes, edges only on hover/selection in Eco, picking via a spatial index (not per-node raycasts).
 - Target: 50,000 nodes at 30 FPS in Eco on integrated GPUs.
+
+## 6.2 Theme shaders, node shapes and custom meshes (v1.1.0)
+
+Custom GLSL replaces the built-in program of one layer. It is compiled by WebGL only (WebGL1/GLSL ES
+1.00 syntax; three.js prepends its usual `modelViewMatrix`, `projectionMatrix`, `position`, `uv`
+declarations). A shader that fails to compile or link falls back to the built-in one for that layer
+and the Store/brain shows a non-blocking warning with the compiler log (first 20 lines).
+
+| Layer (manifest key) | Inputs provided by Cobalt | Must write |
+|---|---|---|
+| `node_vertex` / `node_fragment` (points) | attributes `aColor` (vec3), `aSize` (float, 0 = hidden), `aMeta` (vec4: x isCorePin, y isReusable, z focus 0 none/1 hover/2 selected/3 RAG hit, w opacity scale), `aPulse` (vec4: rgb operation color, a intensity 0..1); uniforms `uTime` (s), `uPixelRatio`, `uScaleFactor`, `uMinPointSize`, `uMaxPointSize`, `uCorePinColor` (vec3) | vertex: `gl_Position`, `gl_PointSize`; fragment: `gl_FragColor` |
+| `edge_vertex` / `edge_fragment` | attribute `color` (vec3); uniforms `uTime`, `uOpacity` | `gl_Position` / `gl_FragColor` |
+| `background_fragment` | full-screen quad behind the scene; varying `vUv` (vec2 0..1); uniforms `uTime`, `uResolution` (vec2, px), `uBackground` (vec3 = `palette.background`) | `gl_FragColor` |
+
+A vertex shader may be given without its fragment (or vice versa); the other half stays built-in
+and must use the same varyings (`vColor`, `vMeta`, `vPulse` for nodes).
+
+**Safety & performance (renderer-enforced):**
+- Custom shaders are disabled in Eco and for `degraded` themes (same as post-processing).
+- Watchdog: if the average frame time stays above 100 ms for 3 s while custom shaders are active,
+  they are switched off for the session and the user is told (protects against GPU-hanging loops).
+- Settings → Appearance offers "Disable theme shaders" (persisted per device, local only).
+
+**Node shapes.** `node_geometry.shape = point` uses the point program above. Volumetric shapes
+(`sphere`, `icosahedron`, `octahedron`, `box`) render as one `InstancedMesh` (unlit, per-instance
+color/scale, `detail` = subdivision level ≤ 3) on `balanced`/`ultra` only, and fall back to points in
+Eco or above 5,000 visible nodes. `mesh` uses the first mesh of `mesh_path` as the instance
+geometry (≤ 2,000 triangles, else points). Custom node shaders apply only to points.
+
+**`custom_mesh` layout.** The GLB at `mesh_path` is loaded (first scene, transforms applied,
+normalized to a 100-unit bounding sphere) and drawn as a faint wireframe/solid backdrop using
+`palette.edge` at 15 % opacity. Each memory is placed on the mesh surface at a deterministic point:
+vertex index = FNV-1a(memory id) mod vertex count, offset along the vertex normal by
+`layout_params.level_spacing × 0.05`. Nuclear Laws use the vertices closest to the mesh centroid.
+Load failure falls back to `galaxy` with a warning. Mesh limits: ≤ 200,000 vertices.
 
 ## 7. Built-in theme
 
