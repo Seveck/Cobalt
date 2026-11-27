@@ -1,0 +1,11 @@
+# Cobalt
+
+> Local, persistent memory shared by all of a user's AI tools (MCP server + REST API on 127.0.0.1:7437).
+
+Any AI (cloud or local) should read the full guide before using or customizing Cobalt:
+
+- [AI guide](docs/AI_GUIDE.md): rules, how to connect (MCP stdio/HTTP, REST, local models without tool calling), the 8 tools, projects, hooks, .memoryignore, themes, graph layouts, events, troubleshooting
+- [MCP spec](docs/MCP_SPEC.md): exact tool schemas
+- [Contracts](docs/CONTRACTS.md): data types and database schema
+- [Theme spec](docs/THEME_SPEC.md): .cobalt-theme package format
+- [CLI capture](docs/CLI_CAPTURE.md): hooks and automatic capture
