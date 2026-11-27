@@ -18,6 +18,33 @@ export interface OpenSettingsSectionOptions {
   autoInstall?: boolean;
 }
 
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "cobalt.sidebarCollapsed";
+const NARROW_WINDOW_BREAKPOINT_PX = 900;
+
+function readInitialSidebarCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.innerWidth < NARROW_WINDOW_BREAKPOINT_PX) {
+    return true;
+  }
+  try {
+    const stored = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
+    if (stored === "true") return true;
+    if (stored === "false") return false;
+  } catch {
+    // Ignore storage access errors in restricted environments.
+  }
+  return false;
+}
+
+function writeSidebarCollapsed(collapsed: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? "true" : "false");
+  } catch {
+    // Ignore storage quota or restricted storage errors.
+  }
+}
+
 export interface UiState {
   activeNav: NavSection;
   toolsTab: ToolsTab;
@@ -35,6 +62,7 @@ export interface UiState {
     options?: OpenSettingsSectionOptions,
   ) => void;
   clearSettingsFocusSection: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
   setShowOnboardingOverride: (open: boolean) => void;
   dismissWelcome: () => void;
@@ -46,7 +74,7 @@ export const useUiStore = create<UiState>((set) => ({
   toolsTab: "projects",
   settingsFocusSection: null,
   settingsFocusAutoInstall: false,
-  sidebarCollapsed: false,
+  sidebarCollapsed: readInitialSidebarCollapsed(),
   appInfo: null,
   showOnboardingOverride: false,
   welcomeDismissed: false,
@@ -61,7 +89,16 @@ export const useUiStore = create<UiState>((set) => ({
     }),
   clearSettingsFocusSection: () =>
     set({ settingsFocusSection: null, settingsFocusAutoInstall: false }),
-  toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+  setSidebarCollapsed: (collapsed) => {
+    writeSidebarCollapsed(collapsed);
+    set({ sidebarCollapsed: collapsed });
+  },
+  toggleSidebar: () =>
+    set((state) => {
+      const next = !state.sidebarCollapsed;
+      writeSidebarCollapsed(next);
+      return { sidebarCollapsed: next };
+    }),
   setShowOnboardingOverride: (showOnboardingOverride) => set({ showOnboardingOverride }),
   dismissWelcome: () => set({ welcomeDismissed: true }),
   loadAppInfo: async () => {

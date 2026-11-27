@@ -35,7 +35,9 @@
     "desktopOnlyCommandLabel": "Open in development",
     "loading": "Loading Cobalt…",
     "branch": "Branch",
-    "readOnly": "Read-only"
+    "readOnly": "Read-only",
+    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand sidebar"
   },
   "tiers": {
     "eco": "Eco",

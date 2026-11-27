@@ -97,6 +97,48 @@ function FrameRateController({ maxFps }: FrameRateControllerProps) {
   return null;
 }
 
+/**
+ * Synchronizes WebGL viewport & camera aspect synchronously on container resize
+ * (e.g. during smooth sidebar width transitions) so frames never stretch or flash blank.
+ */
+function CanvasResizeSync({ manualFrameloop }: { manualFrameloop: boolean }) {
+  const gl = useThree((state) => state.gl);
+  const get = useThree((state) => state.get);
+
+  useEffect(() => {
+    const parent = gl.domElement.parentElement;
+    if (!parent || typeof ResizeObserver === "undefined") return;
+
+    const sync = () => {
+      const rect = parent.getBoundingClientRect();
+      const width = Math.round(rect.width);
+      const height = Math.round(rect.height);
+      if (width <= 0 || height <= 0) return;
+
+      const state = get();
+      if (
+        Math.abs(state.size.width - width) < 0.5 &&
+        Math.abs(state.size.height - height) < 0.5
+      ) {
+        return;
+      }
+
+      state.setSize(width, height, rect.top, rect.left);
+      if (manualFrameloop) {
+        state.advance(performance.now());
+      } else {
+        state.gl.render(state.scene, state.camera);
+      }
+    };
+
+    const observer = new ResizeObserver(sync);
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, [get, gl, manualFrameloop]);
+
+  return null;
+}
+
 export interface BrainSceneProps {
   graph: GraphData;
   manifest: ThemeManifest;
@@ -1368,11 +1410,12 @@ export function BrainScene({
   const activePulsedIndicesRef = useRef<Set<number>>(new Set());
 
   // Per-frame loop: watchdog, shader uniforms, layout lerp, and synaptic pulses in place
-  useFrame((_, rawDelta) => {
+  useFrame((rootState, rawDelta) => {
     const delta = Math.min(rawDelta, 0.1);
     const now = performance.now();
     const timeSec = now * 0.001;
     const dpr = gl.getPixelRatio();
+    const liveSize = rootState.size;
 
     // 0. Frame-time watchdog while custom shaders are active
     const watchdog = watchdogRef.current;
@@ -1423,7 +1466,7 @@ export function BrainScene({
         camera instanceof THREE.PerspectiveCamera
           ? THREE.MathUtils.degToRad(camera.fov)
           : THREE.MathUtils.degToRad(55);
-      scaleFactorUniform.value = size.height / (2 * Math.tan(fovRad * 0.5));
+      scaleFactorUniform.value = liveSize.height / (2 * Math.tan(fovRad * 0.5));
     }
     if (timeUniform) timeUniform.value = timeSec;
 
@@ -1444,7 +1487,7 @@ export function BrainScene({
       if (bgMat.uniforms.uTime) bgMat.uniforms.uTime.value = timeSec;
       const resUniform = bgMat.uniforms.uResolution;
       if (resUniform && resUniform.value instanceof THREE.Vector2) {
-        resUniform.value.set(Math.max(1, size.width * dpr), Math.max(1, size.height * dpr));
+        resUniform.value.set(Math.max(1, liveSize.width * dpr), Math.max(1, liveSize.height * dpr));
       }
     }
 
@@ -1537,6 +1580,7 @@ export function BrainScene({
   return (
     <>
       <FrameRateController maxFps={maxFps} />
+      <CanvasResizeSync manualFrameloop={maxFps !== null} />
       <color attach="background" args={[manifest.palette.background]} />
 
       {/* Full-screen custom theme background quad (THEME_SPEC §6.2) */}

@@ -237,7 +237,7 @@ export function BrainCanvas() {
         ref={containerRef}
         onPointerMove={handlePointerMove}
         onPointerLeave={() => handleHoverNode(null)}
-        className="relative flex-1 overflow-hidden select-none"
+        className="relative min-w-0 flex-1 overflow-hidden select-none"
         style={{ backgroundColor: manifest.palette.background }}
       >
         {/* Drag & drop onto 3D overlay */}
@@ -425,42 +425,45 @@ export function BrainCanvas() {
 
         {/* 3D R3F Canvas — camera-facing point sprites, zero lighting, Eco 30 FPS cap */}
         {graph && (
-          <CanvasErrorBoundary fallback={fallbackView}>
-            <Canvas
-              frameloop={hardwareTier === "ultra" ? "always" : "never"}
-              shadows={false}
-              dpr={dpr}
-              camera={{
-                position: manifest.camera.position,
-                fov: manifest.camera.fov,
-                near: 0.1,
-                far: 3000,
-              }}
-              gl={{
-                antialias: !isEco,
-                powerPreference: isEco ? "low-power" : "high-performance",
-              }}
-            >
-              <BrainScene
-                graph={graph}
-                manifest={manifest}
-                themeBasePath={themeBasePath}
-                activeLayout={activeLayout}
-                clusterSizeMetric={clusterSizeMetric}
-                showConnections={showConnections}
-                hardwareTier={hardwareTier}
-                filters={filters}
-                searchQuery={searchQuery}
-                hoveredNodeId={hoveredNodeId}
-                selectedNodeId={selectedNodeId}
-                highlightedNodeIds={highlightedNodeIds}
-                resetSignal={resetSignal}
-                onHoverNode={handleHoverNode}
-                onSelectNode={handleSelectNode}
-                onContainersChange={setProjectContainers}
-              />
-            </Canvas>
-          </CanvasErrorBoundary>
+          <div className="absolute inset-0">
+            <CanvasErrorBoundary fallback={fallbackView}>
+              <Canvas
+                frameloop={hardwareTier === "ultra" ? "always" : "never"}
+                resize={{ scroll: false, debounce: { scroll: 0, resize: 0 } }}
+                shadows={false}
+                dpr={dpr}
+                camera={{
+                  position: manifest.camera.position,
+                  fov: manifest.camera.fov,
+                  near: 0.1,
+                  far: 3000,
+                }}
+                gl={{
+                  antialias: !isEco,
+                  powerPreference: isEco ? "low-power" : "high-performance",
+                }}
+              >
+                <BrainScene
+                  graph={graph}
+                  manifest={manifest}
+                  themeBasePath={themeBasePath}
+                  activeLayout={activeLayout}
+                  clusterSizeMetric={clusterSizeMetric}
+                  showConnections={showConnections}
+                  hardwareTier={hardwareTier}
+                  filters={filters}
+                  searchQuery={searchQuery}
+                  hoveredNodeId={hoveredNodeId}
+                  selectedNodeId={selectedNodeId}
+                  highlightedNodeIds={highlightedNodeIds}
+                  resetSignal={resetSignal}
+                  onHoverNode={handleHoverNode}
+                  onSelectNode={handleSelectNode}
+                  onContainersChange={setProjectContainers}
+                />
+              </Canvas>
+            </CanvasErrorBoundary>
+          </div>
         )}
 
         {/* Helpful empty state for a brand-new install with 0 memories */}
