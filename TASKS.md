@@ -108,6 +108,11 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] [GEMINI] Bienvenida y "Guardar preferencias" cambian motor/modelo solo vía `swap_engine` y muestran el rechazo del backend
 - [x] Cualquier IA puede usar Cobalt (2026-11-26): `docs/AI_GUIDE.md` + `llms.txt`, servida en `GET /api/v1/guide`; herramientas MCP por REST (`GET /api/v1/tools?format=openai`, `POST /api/v1/tools/{name}`, cabeceras `X-Cobalt-Client`/`X-Cobalt-Cwd`); formato genérico de hooks para cualquier herramienta (`cobalt --hook <nombre>` o `POST /api/v1/hooks/{nombre}`, CLI_CAPTURE v1.5.0)
 - [x] Temas v1.1.0: shaders de tema (nodos, aristas, fondo) con respaldo si no compilan, vigilante de fotogramas e interruptor en Ajustes → Apariencia; nodos volumétricos (esfera/icosaedro/octaedro/caja/malla) en balanced/ultra; layout `custom_mesh` sobre un GLB propio
+- [x] Pulido visual (2026-11-27): barra lateral plegable (Ctrl+B); panel de gráficos plegable a la derecha; transición "arena" al cambiar de gráfico; la cámara se queda donde la dejó el usuario; actividad de IA claramente visible (pulso con núcleo blanco y anillo, resto atenuado, aviso de nodos fuera de vista) y solo para peticiones de IAs; sin líneas decorativas en ningún gráfico; configuración manual de conectores con el bloque real
+- [x] Estadísticas (2026-11-27, contratos v1.10.0, esquema v2): calendario anual tipo GitHub, Hoy/Semana/Año, IA que más usa Cobalt, hora y día favoritos, rachas, proyecto más usado; resumen por horas permanente (`usage_hourly`)
+- [x] Temas para toda la app (2026-11-27, THEME_SPEC v1.2, contratos v1.11.0): Grafito, Porcelana, Abisal y Niebla incluidos en la tienda; tipografía Geist en toda la app; animaciones de nodos del laboratorio de estilo
+- [ ] Decidir el tema por defecto de una instalación nueva (hoy `cobalt-minimal`)
+- [ ] Personalización de Apariencia por el usuario (acento, base, contraste, densidad, tamaño) con vista previa, según la investigación de diseño
 - [ ] Pendiente: hooks de Antigravity (`agy`, vía plugin `hooks.json`; formato por verificar) y de Cursor/Windsurf/Cline (sin sistema de hooks: solo instrucciones); los hooks apuntan al binario actual (reinstalar al instalar la versión final)
 
 ## Fase 3.5 — Asistente conversacional, Personas y Estudio [PARALELO] (decidida 2026-11-25)
