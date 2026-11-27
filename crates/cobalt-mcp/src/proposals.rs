@@ -20,20 +20,22 @@ const DECISION_CUES: &[&str] = &[
     "decidimos",
     "hemos decidido",
     "he decidido",
-    "decidí",
+    "decidí ",
     "vamos a usar",
     "usaremos",
     "optamos por",
     "elegimos",
-    "la decisión",
+    "la decisión fue",
+    "la decisión es usar",
     "se decidió",
     "we decided",
-    "decided to",
+    "i decided",
+    "decided to use",
     "we'll use",
     "we will use",
     "going with",
     "chose to",
-    "the decision is",
+    "the decision was",
 ];
 const FIX_CUES: &[&str] = &[
     "causa raíz",
@@ -66,16 +68,32 @@ const PREFERENCE_CUES: &[&str] = &[
     "don't ever",
 ];
 
+/// Markdown emphasis/code marks removed so they never leak into a memory.
+fn plain(s: &str) -> String {
+    s.replace("**", "").replace("__", "").replace('`', "")
+}
+
+/// A short "Label:" prefix (e.g. "IA:", "Usuario:", "Nota:") marks meta text, not a statement.
+fn has_label_prefix(s: &str) -> bool {
+    s.split_once(':')
+        .is_some_and(|(head, _)| head.chars().count() <= 14 && !head.contains(' '))
+}
+
 fn sentences(text: &str) -> impl Iterator<Item = String> + '_ {
     text.split(['\n', '.', '!', '?', ';'])
         .map(|s| {
-            s.trim()
-                .trim_start_matches(['-', '*', '•', '>', '#', ' '])
-                .trim()
-                .to_owned()
+            plain(
+                s.trim()
+                    .trim_start_matches(['-', '*', '•', '>', '#', ' '])
+                    .trim(),
+            )
         })
+        .map(|s| s.trim().to_owned())
         .filter(|s| (MIN_CHARS..=MAX_CHARS).contains(&s.chars().count()))
-        .filter(|s| !s.contains("```") && !s.starts_with('|'))
+        .filter(|s| {
+            !s.contains("```") && !s.starts_with('|') && !s.contains('"') && !s.contains('«')
+        })
+        .filter(|s| !has_label_prefix(s))
 }
 
 fn has_cue(s: &str, cues: &[&str]) -> bool {
@@ -271,6 +289,13 @@ mod tests {
         assert!(got.len() <= MAX_PER_TURN);
         assert!(got.iter().all(|(_, s, _)| !s.contains("let x")));
         assert!(extract(Some("Hecho. Todo compila."), Some("ok")).is_empty());
+        // Talking ABOUT decisions or quoting is not deciding (real false positive, 2026-11-28).
+        let meta = "- **IA:** el fragmento de su respuesta donde tomó la decisión, con lo que dijo justo antes y justo después.\nEl detector busca frases como \"decidimos usar…\" en la respuesta.";
+        assert!(
+            extract(Some(meta), None).is_empty(),
+            "{:?}",
+            extract(Some(meta), None)
+        );
     }
 
     #[test]
