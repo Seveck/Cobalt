@@ -1,34 +1,41 @@
 import { create } from "zustand";
-import {
-  OPERATION_COLORS,
-  type McpActivity,
-  type MemoryChangeKind,
-  type Uuid,
+import { resolveOperationPulseColor, toLuminousPulseHex } from "@/lib/pulseColors";
+import { useThemeStore } from "@/stores/theme";
+import type {
+  McpActivity,
+  MemoryChangeKind,
+  TelemetryOperation,
+  Uuid,
 } from "@/types/contracts";
 
 export interface SynapticPulse {
   memoryId: Uuid;
+  /** Luminous hex color (already lightened ≥ 40% for high visibility on dark backgrounds). */
   colorHex: string;
-  /** Peak intensity in [0.25 .. 1.0], weighted by `similarity_score`. */
+  /** Peak intensity in [0.65 .. 1.0], weighted by `similarity_score`. */
   intensity: number;
   startedAt: number;
   durationMs: number;
 }
 
-const DEFAULT_PULSE_DURATION_MS = 2800;
-const CHANGE_PULSE_COLORS: Record<MemoryChangeKind, string> = {
-  created: OPERATION_COLORS.write,
-  updated: OPERATION_COLORS.update,
-  superseded: OPERATION_COLORS.update,
-  archived: OPERATION_COLORS.blocked_firewall,
-  deleted: OPERATION_COLORS.blocked_firewall,
-  restored: OPERATION_COLORS.write,
+export const DEFAULT_PULSE_DURATION_MS = 6000;
+export const MAX_RECENT_ACTIVITIES = 12;
+
+const CHANGE_PULSE_OPERATIONS: Record<MemoryChangeKind, TelemetryOperation> = {
+  created: "write",
+  updated: "update",
+  superseded: "update",
+  archived: "blocked_firewall",
+  deleted: "blocked_firewall",
+  restored: "write",
 };
 
 export interface SynapticState {
   /** High-frequency pulse map read directly in `useFrame` without re-rendering React. */
   pulses: Map<Uuid, SynapticPulse>;
   pulseEpoch: number;
+  /** Monotonic counter incremented on every incoming `McpActivity` (drives HUD slide-in + glow). */
+  activityEpoch: number;
   latestActivity: McpActivity | null;
   recentFeed: McpActivity[];
   hudVisible: boolean;
@@ -48,6 +55,7 @@ export interface SynapticState {
 export const useSynapticStore = create<SynapticState>((set, get) => ({
   pulses: new Map<Uuid, SynapticPulse>(),
   pulseEpoch: 0,
+  activityEpoch: 0,
   latestActivity: null,
   recentFeed: [],
   hudVisible: false,
@@ -55,15 +63,17 @@ export const useSynapticStore = create<SynapticState>((set, get) => ({
 
   ingestActivity: (activity) => {
     const now = performance.now();
-    const colorHex = OPERATION_COLORS[activity.operation];
+    const palette = useThemeStore.getState().manifest.palette;
+    const baseHex = resolveOperationPulseColor(activity.operation, palette);
+    const luminousHex = toLuminousPulseHex(baseHex);
     const pulses = get().pulses;
 
     for (const matched of activity.matched_nodes) {
-      const score = Number.isFinite(matched.similarity_score) ? matched.similarity_score : 0.7;
-      const intensity = Math.max(0.3, Math.min(1.0, score));
+      const score = Number.isFinite(matched.similarity_score) ? matched.similarity_score : 0.85;
+      const intensity = Math.max(0.65, Math.min(1.0, score));
       pulses.set(matched.memory_id, {
         memoryId: matched.memory_id,
-        colorHex,
+        colorHex: luminousHex,
         intensity,
         startedAt: now,
         durationMs: DEFAULT_PULSE_DURATION_MS,
@@ -72,26 +82,30 @@ export const useSynapticStore = create<SynapticState>((set, get) => ({
 
     set((state) => ({
       pulseEpoch: state.pulseEpoch + 1,
+      activityEpoch: state.activityEpoch + 1,
       latestActivity: activity,
-      recentFeed: [activity, ...state.recentFeed].slice(0, 12),
+      recentFeed: [activity, ...state.recentFeed].slice(0, MAX_RECENT_ACTIVITIES),
       hudVisible: true,
     }));
   },
 
   pulseMemoryChange: (kind, memoryIds) => {
     if (memoryIds.length === 0) return;
-    get().pulseNodes(memoryIds, CHANGE_PULSE_COLORS[kind], 1800, 0.75);
+    const palette = useThemeStore.getState().manifest.palette;
+    const baseHex = resolveOperationPulseColor(CHANGE_PULSE_OPERATIONS[kind], palette);
+    get().pulseNodes(memoryIds, baseHex, DEFAULT_PULSE_DURATION_MS, 0.9);
   },
 
-  pulseNodes: (memoryIds, colorHex, durationMs = DEFAULT_PULSE_DURATION_MS, intensity = 0.9) => {
+  pulseNodes: (memoryIds, colorHex, durationMs = DEFAULT_PULSE_DURATION_MS, intensity = 0.95) => {
     if (memoryIds.length === 0) return;
     const now = performance.now();
     const pulses = get().pulses;
-    const clampedIntensity = Math.max(0.25, Math.min(1.0, intensity));
+    const luminousHex = toLuminousPulseHex(colorHex);
+    const clampedIntensity = Math.max(0.5, Math.min(1.0, intensity));
     for (const id of memoryIds) {
       pulses.set(id, {
         memoryId: id,
-        colorHex,
+        colorHex: luminousHex,
         intensity: clampedIntensity,
         startedAt: now,
         durationMs,

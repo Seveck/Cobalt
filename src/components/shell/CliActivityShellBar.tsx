@@ -9,6 +9,7 @@ import {
 } from "@/lib/format";
 import {
   CLI_ACTIVITY_COLORS,
+  DEFAULT_PULSE_DURATION_MS,
   useCliActivityStore,
   useMemoryStore,
   useSynapticStore,
@@ -108,6 +109,7 @@ export function CliActivityShellBar() {
 
   const graph = useMemoryStore((s) => s.graph);
   const setSelectedNodeId = useMemoryStore((s) => s.setSelectedNodeId);
+  const requestFocusNodes = useMemoryStore((s) => s.requestFocusNodes);
   const setActiveNav = useUiStore((s) => s.setActiveNav);
   const pulseNodes = useSynapticStore((s) => s.pulseNodes);
 
@@ -140,7 +142,8 @@ export function CliActivityShellBar() {
     const color = CLI_ACTIVITY_COLORS[entry.activity.kind];
     setActiveNav("brain");
     setSelectedNodeId(entry.matchedNodeIds[0] ?? null);
-    pulseNodes(entry.matchedNodeIds, color, 3200, 1.0);
+    requestFocusNodes(entry.matchedNodeIds);
+    pulseNodes(entry.matchedNodeIds, color, DEFAULT_PULSE_DURATION_MS, 1.0);
     setExpanded(false);
   };
 

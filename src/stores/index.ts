@@ -7,13 +7,19 @@ export {
 } from "./ui";
 export { useHardwareStore, type HardwareState } from "./hardware";
 export { useSettingsStore, type SettingsState } from "./settings";
-export { useMemoryStore, type MemoryState } from "./memory";
+export { useMemoryStore, type CameraFocusRequest, type MemoryState } from "./memory";
 export { useThemeStore, type ThemeState } from "./theme";
 export { useFiltersStore, matchesVisualFilters, type FiltersState } from "./filters";
 export { useLibraryStore, type LibraryState } from "./library";
 export { useTelemetryStore, type TelemetryState } from "./telemetry";
 export { useBranchesStore, type BranchesState } from "./branches";
-export { useSynapticStore, type SynapticPulse, type SynapticState } from "./synaptic";
+export {
+  useSynapticStore,
+  DEFAULT_PULSE_DURATION_MS,
+  MAX_RECENT_ACTIVITIES,
+  type SynapticPulse,
+  type SynapticState,
+} from "./synaptic";
 export {
   useCliActivityStore,
   CLI_ACTIVITY_COLORS,

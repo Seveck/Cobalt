@@ -39,10 +39,11 @@ import { CleanBrainPanel } from "@/components/tools/CleanBrainPanel";
 import { RagDebugger } from "@/components/tools/RagDebugger";
 import { TimeTravelBar } from "@/components/tools/TimeTravelBar";
 import { BUILTIN_THEME_ID, type GraphNode, type ProjectContainer } from "@/types/contracts";
-import { BrainScene } from "./BrainScene";
+import { BrainScene, type PulseVisibilitySummary } from "./BrainScene";
 import { FilterDock } from "./FilterDock";
 import { LayoutSwitcher } from "./LayoutSwitcher";
 import { NodeTooltip, type TooltipPointer } from "./NodeTooltip";
+import { PulseEdgeIndicator } from "./PulseEdgeIndicator";
 import { SynapticHud } from "./SynapticHud";
 import { ThemeWarningsBanner } from "./ThemeWarningsBanner";
 
@@ -92,6 +93,7 @@ export function BrainCanvas() {
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const setHoveredNodeId = useMemoryStore((s) => s.setHoveredNodeId);
   const setSelectedNodeId = useMemoryStore((s) => s.setSelectedNodeId);
+  const requestFocusNodes = useMemoryStore((s) => s.requestFocusNodes);
 
   const manifest = useThemeStore((s) => s.manifest);
   const installedThemes = useThemeStore((s) => s.installedThemes);
@@ -128,6 +130,7 @@ export function BrainCanvas() {
 
   const filters = useFiltersStore((s) => s.filters);
   const searchQuery = useFiltersStore((s) => s.searchQuery);
+  const resetFilters = useFiltersStore((s) => s.resetFilters);
   const startIngestPaths = useIngestStore((s) => s.startIngestPaths);
 
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
@@ -136,6 +139,7 @@ export function BrainCanvas() {
   const [activeDrawer, setActiveDrawer] = useState<ActiveDrawer>("none");
   const [timeTravelOpen, setTimeTravelOpen] = useState(false);
   const [projectContainers, setProjectContainers] = useState<readonly ProjectContainer[]>([]);
+  const [pulseVisibility, setPulseVisibility] = useState<PulseVisibilitySummary | null>(null);
 
   const handleDropOnto3D = useCallback(
     (paths: string[]) => {
@@ -193,6 +197,24 @@ export function BrainCanvas() {
       setActiveDrawer("inspector");
     },
     [setSelectedNodeId],
+  );
+
+  const handleFocusOffScreenPulses = useCallback(
+    (ids: readonly string[]) => {
+      if (ids.length === 0) return;
+      requestFocusNodes(ids);
+    },
+    [requestFocusNodes],
+  );
+
+  const handleRevealFilteredPulses = useCallback(
+    (ids: readonly string[]) => {
+      resetFilters();
+      if (ids.length > 0) {
+        requestFocusNodes(ids);
+      }
+    },
+    [requestFocusNodes, resetFilters],
   );
 
   const handleCloseDrawer = useCallback(() => {
@@ -460,6 +482,7 @@ export function BrainCanvas() {
                   onHoverNode={handleHoverNode}
                   onSelectNode={handleSelectNode}
                   onContainersChange={setProjectContainers}
+                  onPulseVisibilityChange={setPulseVisibility}
                 />
               </Canvas>
             </CanvasErrorBoundary>
@@ -525,6 +548,13 @@ export function BrainCanvas() {
             </div>
           </div>
         )}
+
+        {/* Off-screen / filtered-out live pulse edge indicator */}
+        <PulseEdgeIndicator
+          summary={pulseVisibility}
+          onFocusOffScreen={handleFocusOffScreenPulses}
+          onRevealFiltered={handleRevealFilteredPulses}
+        />
 
         {/* Pointer-tracked hover tooltip (only for hovered node — THEME_SPEC §6.1) */}
         {hoveredNode && (
