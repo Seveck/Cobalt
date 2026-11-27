@@ -16,8 +16,13 @@ export { useBranchesStore, type BranchesState } from "./branches";
 export {
   useSynapticStore,
   DEFAULT_PULSE_DURATION_MS,
+  INTERNAL_FLICKER_DURATION_MS,
+  INTERNAL_FLICKER_MAX_NODES,
+  INTERNAL_MEMORY_SOURCES,
   MAX_RECENT_ACTIVITIES,
+  isInternalMemorySource,
   type SynapticPulse,
+  type SynapticPulseKind,
   type SynapticState,
 } from "./synaptic";
 export {
