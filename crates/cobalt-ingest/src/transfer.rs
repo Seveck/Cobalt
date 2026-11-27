@@ -317,7 +317,7 @@ fn read_archive(
     path: &str,
     password: Option<&str>,
     backup: bool,
-) -> Result<(String, PortableData)> {
+) -> Result<(u32, String, PortableData)> {
     let bytes = read_bounded(std::fs::File::open(path)?, MAX_ARCHIVE)?;
     let sealed = cobalt_core::vault::is_sealed(&bytes);
     let bytes = if sealed {
@@ -379,7 +379,7 @@ fn read_archive(
         return Err(integrity("archive manifest counts do not match contents"));
     }
     data.validate()?;
-    Ok((model, data))
+    Ok((schema, model, data))
 }
 
 impl Context {
@@ -612,8 +612,9 @@ impl Context {
         let global = self.global_ignore.clone();
         let max = settings.firewall.max_tokens_per_memory as usize;
         let tokens = self.tokens.clone();
-        let (model, mut data) = blocking(move || {
-            let (model, mut data) = read_archive(&path, password.as_deref(), backup)?;
+        let (schema_version, model, mut data) = blocking(move || {
+            let (schema_version, model, mut data) =
+                read_archive(&path, password.as_deref(), backup)?;
             data.sanitize(global.as_deref(), true)?;
             let mut skipped = 0;
             data.memories.retain(|row| {
@@ -627,7 +628,7 @@ impl Context {
                     "{skipped} imported memories exceeded content limits"
                 ));
             }
-            Ok((model, data))
+            Ok((schema_version, model, data))
         })
         .await?;
         let active = self.store.active_branch().await?.id;
@@ -741,9 +742,21 @@ impl Context {
                     true
                 });
             }
-            store
-                .insert_portable_history(edges, versions, data.handoffs, data.telemetry)
-                .await?;
+            if backup {
+                store
+                    .insert_portable_history_for_schema(
+                        schema_version,
+                        edges,
+                        versions,
+                        data.handoffs,
+                        data.telemetry,
+                    )
+                    .await?;
+            } else {
+                store
+                    .insert_portable_history(edges, versions, data.handoffs, data.telemetry)
+                    .await?;
+            }
         }
         Ok(state.report)
     }

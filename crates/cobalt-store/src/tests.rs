@@ -875,6 +875,7 @@ async fn usearch_home_child() {
 }
 
 mod phase2;
+mod token_savings;
 mod usage_stats;
 
 #[tokio::test]

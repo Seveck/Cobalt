@@ -10,34 +10,158 @@ use cobalt_core::telemetry::{
     TelemetryRange, TelemetrySummary, TimeBucket, UsageStats, UsageStatsRequest,
 };
 use cobalt_core::traits::TelemetryRepository;
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
+use serde::Serialize;
 
 use crate::SqliteStore;
 use crate::db::sql_error;
-use crate::repositories::{id, json, load_settings, optional_id, stamp, text, timestamp};
+use crate::repositories::{id, json, load_settings, optional_id, text, timestamp};
+
+/// Maximum baseline tokens credited for one source document in a search.
+pub const READ_AVOIDED_CAP_PER_DOCUMENT: i64 = 2_000;
+
+/// Seconds before a source document may contribute to another search by the same client.
+pub const READ_DEDUP_WINDOW_SECS: i64 = 1_800;
 
 pub(crate) fn avoided_tokens(
     conn: &Connection,
     items: impl IntoIterator<Item = (Option<Id>, i64)>,
 ) -> Result<i64> {
+    Ok(read_tokens(conn, items, None)?.0)
+}
+
+fn read_tokens(
+    conn: &Connection,
+    items: impl IntoIterator<Item = (Option<Id>, i64)>,
+    history: Option<(&str, &Timestamp)>,
+) -> Result<(i64, HashSet<Id>)> {
     let mut documents = HashSet::new();
+    let mut credited = HashSet::new();
     let mut total = 0_i64;
     let mut stmt = conn
-        .prepare("SELECT total_tokens FROM source_documents WHERE id = ?1")
+        .prepare_cached("SELECT total_tokens FROM source_documents WHERE id = ?1")
         .map_err(sql_error)?;
+    let recent = match history {
+        Some((client, time)) => recently_credited_documents(conn, client, time)?,
+        None => HashSet::new(),
+    };
     for (source_id, chunk_tokens) in items {
         let tokens = match source_id {
-            Some(id) if documents.insert(id) => stmt
-                .query_row([id.to_string()], |row| row.get(0))
-                .optional()
-                .map_err(sql_error)?
-                .unwrap_or(0),
+            Some(id) if documents.insert(id) => {
+                let key = id.to_string();
+                if recent.contains(&key) {
+                    continue;
+                }
+                let tokens: Option<i64> = stmt
+                    .query_row([key], |row| row.get(0))
+                    .optional()
+                    .map_err(sql_error)?;
+                let tokens = tokens
+                    .unwrap_or_default()
+                    .clamp(0, READ_AVOIDED_CAP_PER_DOCUMENT);
+                if tokens > 0 {
+                    credited.insert(id);
+                }
+                tokens
+            }
             Some(_) => 0,
-            None => chunk_tokens,
+            None => chunk_tokens.max(0),
         };
-        total = total.saturating_add(tokens.max(0));
+        total = total.saturating_add(tokens);
     }
-    Ok(total)
+    Ok((total, credited))
+}
+
+fn recently_credited_documents(
+    conn: &Connection,
+    client: &str,
+    time: &Timestamp,
+) -> Result<HashSet<String>> {
+    let start = time.checked_sub_signed(TimeDelta::seconds(READ_DEDUP_WINDOW_SECS));
+    let mut recent = conn
+        .prepare_cached(
+            "SELECT item.value ->> 'source_doc_id'
+         FROM telemetry_logs AS log, json_each(log.returned_items_json) AS item
+         WHERE log.client_name = ?1 AND log.timestamp > ?2 AND log.timestamp <= ?3
+           AND log.operation = 'read' AND item.value ->> 'counted_for_read' = 1",
+        )
+        .map_err(sql_error)?;
+    recent
+        .query_map(
+            params![
+                client,
+                start.as_ref().map(timestamp_to_sql).unwrap_or_default(),
+                timestamp_to_sql(time)
+            ],
+            |row| row.get(0),
+        )
+        .map_err(sql_error)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(sql_error)
+}
+
+#[derive(Serialize)]
+struct StoredReturnedItem<'a> {
+    #[serde(flatten)]
+    item: &'a ReturnedItem,
+    counted_for_read: bool,
+}
+
+fn read_items_json(items: &[ReturnedItem], mut credited: HashSet<Id>) -> Result<String> {
+    let items: Vec<_> = items
+        .iter()
+        .map(|item| StoredReturnedItem {
+            item,
+            counted_for_read: item.source_doc_id.is_some_and(|id| credited.remove(&id)),
+        })
+        .collect();
+    Ok(serde_json::to_string(&items)?)
+}
+
+fn account_event(
+    conn: &Connection,
+    log: &TelemetryLog,
+    reuse_output: i64,
+) -> Result<(i64, i64, String)> {
+    let (avoided, items) = match log.operation {
+        TelemetryOperation::Read => {
+            let (avoided, credited) = read_tokens(
+                conn,
+                log.returned_items
+                    .iter()
+                    .map(|item| (item.source_doc_id, item.chunk_tokens)),
+                Some((&log.client_name, &log.timestamp)),
+            )?;
+            (avoided, read_items_json(&log.returned_items, credited)?)
+        }
+        TelemetryOperation::Reuse => (reuse_output, serde_json::to_string(&log.returned_items)?),
+        TelemetryOperation::Write
+        | TelemetryOperation::Update
+        | TelemetryOperation::Handoff
+        | TelemetryOperation::BlockedFirewall => (0, serde_json::to_string(&log.returned_items)?),
+    };
+    Ok((avoided, saved_tokens(avoided, log.injected_tokens), items))
+}
+
+pub(crate) fn account_imported_event(
+    conn: &Connection,
+    log: &TelemetryLog,
+    legacy: Option<bool>,
+) -> Result<(i64, i64, String)> {
+    // Without a manifest, a saved total above the v3 baseline reveals the legacy output bonus.
+    let legacy = legacy.unwrap_or_else(|| {
+        log.saved_tokens > saved_tokens(log.avoided_full_tokens, log.injected_tokens)
+    });
+    let reuse_output = if legacy {
+        legacy_reuse_output(log)
+    } else {
+        log.avoided_full_tokens
+    };
+    account_event(conn, log, reuse_output)
+}
+
+fn saved_tokens(avoided: i64, injected: i64) -> i64 {
+    avoided.saturating_sub(injected.max(0)).max(0)
 }
 
 fn log(row: &Row<'_>) -> rusqlite::Result<TelemetryLog> {
@@ -54,6 +178,66 @@ fn log(row: &Row<'_>) -> rusqlite::Result<TelemetryLog> {
         latency_ms: row.get("latency_ms")?,
         project_id: optional_id(row, "project_id")?,
     })
+}
+
+pub(crate) fn migrate_token_savings(conn: &Connection) -> Result<()> {
+    let mut select = conn
+        .prepare(
+            "SELECT * FROM telemetry_logs WHERE (timestamp, id) > (?1, ?2)
+                  ORDER BY timestamp, id LIMIT 256",
+        )
+        .map_err(sql_error)?;
+    let mut update = conn
+        .prepare(
+            "UPDATE telemetry_logs SET avoided_full_tokens = ?2, saved_tokens = ?3,
+                  returned_items_json = CASE WHEN operation = 'read' THEN ?4 ELSE returned_items_json END
+                  WHERE id = ?1",
+        )
+        .map_err(sql_error)?;
+    let mut cursor = (String::new(), String::new());
+    loop {
+        let batch = select
+            .query_map(params![cursor.0, cursor.1], |row| {
+                Ok((
+                    row.get::<_, String>("timestamp")?,
+                    row.get::<_, String>("id")?,
+                    log(row)?,
+                ))
+            })
+            .map_err(sql_error)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(sql_error)?;
+        if batch.is_empty() {
+            break;
+        }
+        for (time, id, log) in batch {
+            let (avoided, saved, items) = account_imported_event(conn, &log, Some(true))?;
+            update
+                .execute(params![id, avoided, saved, items])
+                .map_err(sql_error)?;
+            cursor = (time, id);
+        }
+    }
+    // Project deletion can leave historical request buckets whose logs now have no project.
+    // Rebuild savings using the project still present on each log and keep request counts intact.
+    conn.execute_batch(
+        "UPDATE usage_hourly SET saved_tokens = 0 WHERE saved_tokens <> 0;
+         INSERT INTO usage_hourly (hour_utc, client_name, operation, project_id, requests, saved_tokens)
+         SELECT substr(timestamp, 1, 13), client_name, operation, coalesce(project_id, ''),
+                0, sum(saved_tokens)
+         FROM telemetry_logs WHERE saved_tokens > 0
+         GROUP BY 1, 2, 3, 4
+         ON CONFLICT (hour_utc, client_name, operation, project_id) DO UPDATE
+         SET saved_tokens = excluded.saved_tokens;",
+    ).map_err(sql_error)?;
+    Ok(())
+}
+
+fn legacy_reuse_output(log: &TelemetryLog) -> i64 {
+    // The legacy formula added output savings after clamping the read baseline.
+    log.saved_tokens
+        .saturating_sub(saved_tokens(log.avoided_full_tokens, log.injected_tokens))
+        .max(0)
 }
 
 fn insert_event(conn: &Connection, event: NewTelemetryEvent) -> Result<TelemetryLog> {
@@ -74,24 +258,27 @@ fn insert_event(conn: &Connection, event: NewTelemetryEvent) -> Result<Telemetry
             "invalid telemetry event metrics or client".into(),
         ));
     }
-    let avoided = avoided_tokens(
-        conn,
-        event
-            .returned_items
-            .iter()
-            .map(|item| (item.source_doc_id, item.chunk_tokens)),
-    )?;
-    let saved = avoided
-        .saturating_sub(event.injected_tokens)
-        .max(0)
-        .saturating_add(event.output_tokens_saved);
+    let entry = TelemetryLog {
+        id: new_id(),
+        timestamp: now(),
+        client_name: event.client_name,
+        operation: event.operation,
+        query_text: event.query_text,
+        returned_items: event.returned_items,
+        injected_tokens: event.injected_tokens,
+        avoided_full_tokens: 0,
+        saved_tokens: 0,
+        latency_ms: event.latency_ms,
+        project_id: event.project_id,
+    };
+    let (avoided, saved, items) = account_event(conn, &entry, event.output_tokens_saved)?;
     conn.query_row(
         "INSERT INTO telemetry_logs (id, timestamp, client_name, operation, query_text,
           returned_items_json, injected_tokens, avoided_full_tokens, saved_tokens, latency_ms, project_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING *",
-        params![new_id().to_string(), stamp(), event.client_name, event.operation.as_str(),
-            event.query_text, serde_json::to_string(&event.returned_items)?, event.injected_tokens,
-            avoided, saved, event.latency_ms, event.project_id.map(|id| id.to_string())],
+        params![entry.id.to_string(), timestamp_to_sql(&entry.timestamp), entry.client_name, entry.operation.as_str(),
+            entry.query_text, items, entry.injected_tokens,
+            avoided, saved, entry.latency_ms, entry.project_id.map(|id| id.to_string())],
         log,
     ).map_err(sql_error)
 }
@@ -99,7 +286,16 @@ fn insert_event(conn: &Connection, event: NewTelemetryEvent) -> Result<Telemetry
 #[async_trait]
 impl TelemetryRepository for SqliteStore {
     async fn record_event(&self, event: NewTelemetryEvent) -> Result<TelemetryLog> {
-        self.db.write(move |conn| insert_event(conn, event)).await
+        self.db
+            .write(move |conn| {
+                let tx = conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(sql_error)?;
+                let log = insert_event(&tx, event)?;
+                tx.commit().map_err(sql_error)?;
+                Ok(log)
+            })
+            .await
     }
 
     async fn usage_stats(&self, req: UsageStatsRequest) -> Result<UsageStats> {
@@ -108,6 +304,7 @@ impl TelemetryRepository for SqliteStore {
             .await
     }
 
+    // Callers without a client identity receive the capped estimate before history deduplication.
     async fn compute_avoided_tokens(&self, items: &[ReturnedItem]) -> Result<i64> {
         let items: Vec<_> = items
             .iter()

@@ -156,7 +156,7 @@ fn stage_restore(
     let check: String = source
         .pragma_query_value(None, "quick_check", |row| row.get(0))
         .map_err(sql_error)?;
-    if !matches!(version, 1 | SCHEMA_VERSION) || check != "ok" {
+    if !(1..=SCHEMA_VERSION).contains(&version) || check != "ok" {
         return Err(CobaltError::Integrity(
             "snapshot database failed schema or integrity check".into(),
         ));
