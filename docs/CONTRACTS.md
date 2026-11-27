@@ -343,6 +343,9 @@ selectable only in Pro mode (`PRO_ENGLISH_MODELS`). Defaults come from
   "ocrs-latin"`): detection + recognition ONNX files for [ocrs](https://github.com/robertknight/ocrs),
   pinned by SHA-256 + size (upstream URLs are unversioned, so a replaced upstream file fails
   verification instead of loading). Latin script only (Spanish, English, …).
+  OCR is approximate: it can misread handwriting, but also computer-made text (small or
+  stylized fonts, low resolution, blur, noisy backgrounds, tables, columns). The UI must say so,
+  and OCR memories (`category = ocr`) should be treated as possibly inexact.
 - `EngineManager::{ocr_status, install_ocr, ocr_model_paths}`; downloads reuse
   `cobalt://download-progress`.
 - Trait `OcrEngine { fn recognize(&self, image: &[u8]) -> Result<String> }` (CPU-bound, called on a

@@ -185,6 +185,10 @@ path, or `"global"`; omit it to auto-detect.
 | `archive_memory` | A memory is wrong (not just outdated) | `memory_id`, `reason`, `confirm` |
 
 Behavior you must know:
+- **Memories with category `ocr`** were read from images or scanned PDFs by local OCR. OCR makes
+  mistakes, with handwriting and also with computer-made text (small or stylized fonts, low
+  resolution, blur, tables). Treat exact values in them (numbers, names, codes) as possibly
+  wrong and confirm with the user or the original file before relying on them.
 - **Duplicates are handled for you** (Check-Before-Write merges or versions near-duplicates): do
   not search just to avoid duplicates.
 - **`archive_memory` is two-step:** call with `confirm=false` (dry run: shows which other AIs use
