@@ -94,6 +94,24 @@ pub struct DownloadArtifact {
     pub archive: Option<String>,
 }
 
+/// OCR model state (`get_ocr_status`, `install_ocr`; contract v1.7.0). Downloads stream the
+/// usual `cobalt://download-progress` events (artifact ids `<model>/<file>`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OcrStatus {
+    pub model_id: String,
+    pub display_name: String,
+    /// Scripts it reads, e.g. `latin`.
+    pub languages: Vec<String>,
+    pub state: EngineState,
+    pub size_bytes: u64,
+    pub installed_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OcrInstallRequest {
+    pub model_id: String,
+}
+
 /// Payload of `cobalt://download-progress`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DownloadProgress {

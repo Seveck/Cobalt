@@ -334,6 +334,20 @@ selectable only in Pro mode (`PRO_ENGLISH_MODELS`). Defaults come from
 - Token counting for chunking/telemetry is always `tiktoken-rs` (`TokenEncoding`), independent
   of the embedding tokenizer.
 
+## 6.1 OCR (v1.7.0)
+
+- Catalog: `crates/cobalt-core/catalog/ocr.json` (`Catalog::ocr_models`, `DEFAULT_OCR_MODEL =
+  "ocrs-latin"`): detection + recognition ONNX files for [ocrs](https://github.com/robertknight/ocrs),
+  pinned by SHA-256 + size (upstream URLs are unversioned, so a replaced upstream file fails
+  verification instead of loading). Latin script only (Spanish, English, …).
+- `EngineManager::{ocr_status, install_ocr, ocr_model_paths}`; downloads reuse
+  `cobalt://download-progress`.
+- Trait `OcrEngine { fn recognize(&self, image: &[u8]) -> Result<String> }` (CPU-bound, called on a
+  blocking thread). Implemented in `cobalt-ingest` with `ocrs`; injected into the ingest service
+  only when the model is installed. Without it, images/scanned PDFs keep failing with a clear
+  "install OCR" error. OCR text becomes memories with `category = ocr`.
+- IPC (v1.7.0): `get_ocr_status() -> OcrStatus`, `install_ocr({ model_id }) -> OcrStatus`.
+
 ## 7. Process model & local endpoints (`cobalt_core::paths`)
 
 - Data home: `~/.cobalt/` on **Linux, macOS and Windows** (`%USERPROFILE%\.cobalt`), never the

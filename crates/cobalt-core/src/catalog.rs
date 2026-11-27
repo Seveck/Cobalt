@@ -16,6 +16,37 @@ use crate::error::{CobaltError, Result};
 
 const MODELS_JSON: &str = include_str!("../catalog/models.json");
 const ENGINES_JSON: &str = include_str!("../catalog/engines.json");
+const OCR_JSON: &str = include_str!("../catalog/ocr.json");
+
+/// Default OCR model (detection + recognition) used for images and scanned PDFs.
+pub const DEFAULT_OCR_MODEL: &str = "ocrs-latin";
+
+/// An OCR model pair (text detection + recognition) under `~/.cobalt/models/<id>/`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OcrModelEntry {
+    pub id: String,
+    pub display_name: String,
+    /// Scripts it reads, e.g. `latin` (Spanish, English, French…).
+    pub languages: Vec<String>,
+    pub size_bytes: u64,
+    pub revision: String,
+    /// Exactly two files: `…/text-detection.onnx` and `…/text-recognition.onnx`.
+    pub files: Vec<DownloadArtifact>,
+}
+
+impl OcrModelEntry {
+    /// The detection and recognition artifacts, in that order.
+    pub fn detection_and_recognition(&self) -> Option<(&DownloadArtifact, &DownloadArtifact)> {
+        let find = |suffix: &str| self.files.iter().find(|f| f.relative_dest.ends_with(suffix));
+        Some((find("text-detection.onnx")?, find("text-recognition.onnx")?))
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct OcrFile {
+    schema_version: u32,
+    ocr_models: Vec<OcrModelEntry>,
+}
 
 /// One embedding model and the files it needs under `~/.cobalt/models/<id>/`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -59,6 +90,7 @@ struct EnginesFile {
 pub struct Catalog {
     models: Vec<ModelEntry>,
     engines: Vec<EngineEntry>,
+    ocr_models: Vec<OcrModelEntry>,
 }
 
 static BUILTIN: OnceLock<Result<Catalog, String>> = OnceLock::new();
@@ -74,15 +106,57 @@ impl Catalog {
         let catalog = Self {
             models: models.models,
             engines: engines.engines,
+            ocr_models: Vec::new(),
         };
         catalog.validate()?;
         Ok(catalog)
     }
 
+    /// Adds the OCR catalog document (validated like model files).
+    pub fn with_ocr_json(mut self, ocr_json: &str) -> Result<Self> {
+        let ocr: OcrFile = serde_json::from_str(ocr_json)?;
+        if ocr.schema_version != 1 {
+            return Err(CobaltError::Unsupported("OCR catalog schema version".into()));
+        }
+        for model in &ocr.ocr_models {
+            let total: u64 = model.files.iter().map(|f| f.size_bytes).sum();
+            if total != model.size_bytes || model.detection_and_recognition().is_none() {
+                return Err(CobaltError::Integrity(format!(
+                    "OCR model {} must have detection + recognition files totalling size_bytes",
+                    model.id
+                )));
+            }
+            let expected_prefix = format!("models/{}/", model.id);
+            for file in &model.files {
+                validate_artifact(file)?;
+                if !file.relative_dest.starts_with(&expected_prefix) {
+                    return Err(CobaltError::Integrity(format!(
+                        "{} must live under {expected_prefix}",
+                        file.id
+                    )));
+                }
+            }
+        }
+        self.ocr_models = ocr.ocr_models;
+        Ok(self)
+    }
+
+    pub fn ocr_models(&self) -> &[OcrModelEntry] {
+        &self.ocr_models
+    }
+
+    pub fn ocr_model(&self, id: &str) -> Option<&OcrModelEntry> {
+        self.ocr_models.iter().find(|m| m.id == id)
+    }
+
     /// The catalog compiled into this binary.
     pub fn builtin() -> Result<&'static Catalog> {
         BUILTIN
-            .get_or_init(|| Self::from_json(MODELS_JSON, ENGINES_JSON).map_err(|e| e.to_string()))
+            .get_or_init(|| {
+                Self::from_json(MODELS_JSON, ENGINES_JSON)
+                    .and_then(|c| c.with_ocr_json(OCR_JSON))
+                    .map_err(|e| e.to_string())
+            })
             .as_ref()
             .map_err(|e| CobaltError::Internal(format!("invalid built-in catalog: {e}")))
     }
@@ -224,6 +298,9 @@ mod tests {
     #[test]
     fn builtin_catalog_is_valid_and_has_defaults() {
         let catalog = Catalog::builtin().unwrap();
+        let ocr = catalog.ocr_model(DEFAULT_OCR_MODEL).unwrap();
+        assert!(ocr.detection_and_recognition().is_some());
+        assert!(ocr.languages.iter().any(|l| l == "latin"));
         for tier in HardwareTier::ALL {
             let id = default_model_for_tier(*tier);
             let model = catalog

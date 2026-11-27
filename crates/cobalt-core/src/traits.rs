@@ -283,6 +283,13 @@ impl<T> CobaltStore for T where
 
 // ===================================================================== ingestion
 
+/// Local OCR (contract v1.7.0): text from an encoded image (PNG/JPEG/WebP/…). CPU-bound and
+/// synchronous: callers run it on a blocking thread. Built from catalog-verified model files.
+pub trait OcrEngine: Send + Sync {
+    /// Recognized text in reading order (lines separated by `\n`); empty when no text is found.
+    fn recognize(&self, image: &[u8]) -> Result<String>;
+}
+
 #[async_trait]
 pub trait IngestService: Send + Sync {
     async fn ingest_paths(

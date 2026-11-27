@@ -11,8 +11,8 @@ use tokio::sync::Mutex;
 
 use super::downloader::{CancelFlag, Downloader, extract_archive, marker_path};
 use super::sidecar::{QdrantSidecar, SidecarConfig, default_storage_dir};
-use crate::catalog::{Catalog, is_ollama_model};
-use crate::engine::{DownloadArtifact, DownloadProgress, EngineInstallRequest};
+use crate::catalog::{Catalog, OcrModelEntry, is_ollama_model};
+use crate::engine::{DownloadArtifact, DownloadProgress, EngineInstallRequest, OcrStatus};
 use crate::enums::{DownloadPhase, EngineKind, EngineState};
 use crate::error::{CobaltError, Result};
 use crate::paths::{ENGINES_DIR, LOGS_DIR, MODELS_DIR};
@@ -157,6 +157,15 @@ impl EngineManager {
         progress: ProgressSink<DownloadProgress>,
     ) -> Result<()> {
         let artifacts = self.catalog.artifacts_for(req.engine, &req.model_id)?;
+        self.install_artifacts(artifacts, progress).await
+    }
+
+    /// Downloads every missing artifact sequentially (verified against the catalog SHA-256).
+    async fn install_artifacts(
+        &self,
+        artifacts: Vec<DownloadArtifact>,
+        progress: ProgressSink<DownloadProgress>,
+    ) -> Result<()> {
         for artifact in artifacts {
             if self.is_artifact_installed(&artifact) {
                 progress(DownloadProgress {
@@ -229,6 +238,74 @@ impl EngineManager {
         // The marker written by the downloader stays next to the (removed) archive path.
         debug_assert!(marker_path(&path).exists());
         Ok(())
+    }
+
+    // ------------------------------------------------------------------ OCR models
+
+    fn ocr_entry(&self, model_id: &str) -> Result<&'static OcrModelEntry> {
+        self.catalog
+            .ocr_model(model_id)
+            .ok_or_else(|| CobaltError::NotFound(format!("OCR model '{model_id}'")))
+    }
+
+    /// Installed / downloading / not installed for an OCR model of the catalog.
+    pub fn ocr_status(&self, model_id: &str) -> Result<OcrStatus> {
+        let entry = self.ocr_entry(model_id)?;
+        let downloading = {
+            let active = self.active();
+            entry.files.iter().any(|f| active.contains_key(&f.id))
+        };
+        let installed: Vec<bool> = entry
+            .files
+            .iter()
+            .map(|f| self.is_artifact_installed(f))
+            .collect();
+        let state = if downloading {
+            EngineState::Downloading
+        } else if installed.iter().all(|i| *i) {
+            EngineState::Installed
+        } else {
+            EngineState::NotInstalled
+        };
+        let installed_bytes = entry
+            .files
+            .iter()
+            .zip(&installed)
+            .filter(|(_, i)| **i)
+            .map(|(f, _)| f.size_bytes)
+            .sum();
+        Ok(OcrStatus {
+            model_id: entry.id.clone(),
+            display_name: entry.display_name.clone(),
+            languages: entry.languages.clone(),
+            state,
+            size_bytes: entry.size_bytes,
+            installed_bytes,
+        })
+    }
+
+    /// Downloads and verifies the OCR model files.
+    pub async fn install_ocr(
+        &self,
+        model_id: &str,
+        progress: ProgressSink<DownloadProgress>,
+    ) -> Result<OcrStatus> {
+        let entry = self.ocr_entry(model_id)?;
+        self.install_artifacts(entry.files.clone(), progress).await?;
+        self.ocr_status(model_id)
+    }
+
+    /// Verified `(detection, recognition)` model paths, or `None` until installed.
+    pub fn ocr_model_paths(&self, model_id: &str) -> Option<(PathBuf, PathBuf)> {
+        let entry = self.catalog.ocr_model(model_id)?;
+        let (det, rec) = entry.detection_and_recognition()?;
+        if !(self.is_artifact_installed(det) && self.is_artifact_installed(rec)) {
+            return None;
+        }
+        Some((
+            self.downloader.dest_path(det).ok()?,
+            self.downloader.dest_path(rec).ok()?,
+        ))
     }
 
     /// Requests cancellation of an in-flight artifact download.
@@ -423,5 +500,35 @@ mod tests {
         let freed = mgr.remove(None, Some(&model.spec.id)).await.unwrap();
         assert!(freed >= model.spec.size_bytes);
         assert_eq!(mgr.model_state(&model.spec.id), EngineState::NotInstalled);
+    }
+
+    #[tokio::test]
+    async fn ocr_models_report_state_and_paths_once_verified() {
+        let home = tempfile::tempdir().unwrap();
+        let mgr = EngineManager::new(home.path().to_path_buf()).unwrap();
+        let id = crate::catalog::DEFAULT_OCR_MODEL;
+        let status = mgr.ocr_status(id).unwrap();
+        assert_eq!(status.state, EngineState::NotInstalled);
+        assert_eq!(status.installed_bytes, 0);
+        assert!(mgr.ocr_model_paths(id).is_none());
+        assert!(matches!(mgr.ocr_status("nope"), Err(CobaltError::NotFound(_))));
+
+        // Same simulation as above: exact-size files plus the downloader's verification marker.
+        let entry = mgr.catalog().ocr_model(id).unwrap().clone();
+        for f in &entry.files {
+            let dest = home.path().join(&f.relative_dest);
+            std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+            std::fs::File::create(&dest).unwrap().set_len(f.size_bytes).unwrap();
+            std::fs::write(marker_path(&dest), &f.sha256).unwrap();
+        }
+        let status = mgr.ocr_status(id).unwrap();
+        assert_eq!(status.state, EngineState::Installed);
+        assert_eq!(status.installed_bytes, entry.size_bytes);
+        let (det, rec) = mgr.ocr_model_paths(id).unwrap();
+        assert!(det.ends_with("models/ocrs-latin/text-detection.onnx"));
+        assert!(rec.ends_with("models/ocrs-latin/text-recognition.onnx"));
+        // Already verified: install only reports completion, no network.
+        let status = mgr.install_ocr(id, Arc::new(|_| {})).await.unwrap();
+        assert_eq!(status.state, EngineState::Installed);
     }
 }

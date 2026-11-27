@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "ocr_models": [
+    {
+      "id": "ocrs-latin",
+      "display_name": "ocrs (Latin alphabet)",
+      "languages": ["latin"],
+      "size_bytes": 12212656,
+      "revision": "ocrs-models 2024 (pinned by SHA-256; upstream URLs are unversioned)",
+      "files": [
+        {
+          "id": "ocrs-latin/text-detection.onnx",
+          "url": "https://ocrs-models.s3-accelerate.amazonaws.com/text-detection.onnx",
+          "sha256": "a917b23dbd9524b465df7e922641b3ff2981623df4ded5a0234004ef2fee7cfe",
+          "size_bytes": 2499479,
+          "relative_dest": "models/ocrs-latin/text-detection.onnx",
+          "archive": null
+        },
+        {
+          "id": "ocrs-latin/text-recognition.onnx",
+          "url": "https://ocrs-models.s3-accelerate.amazonaws.com/text-recognition.onnx",
+          "sha256": "86c145c2edb96c8caed5b1ebb8f44d706408922211451c309c625157dd6061c5",
+          "size_bytes": 9713177,
+          "relative_dest": "models/ocrs-latin/text-recognition.onnx",
+          "archive": null
+        }
+      ]
+    }
+  ]
+}
