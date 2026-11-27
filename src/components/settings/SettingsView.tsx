@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowRightLeft,
@@ -14,6 +14,7 @@ import {
   PauseCircle,
   RotateCcw,
   Save,
+  ScanText,
   Shield,
   Sparkles,
   Trash2,
@@ -25,6 +26,7 @@ import {
   formatBytes,
   formatRamGb,
   isEngineModelInstalled,
+  isEngineStateInstalled,
 } from "@/lib/format";
 import {
   useHardwareStore,
@@ -37,6 +39,7 @@ import { DownloadProgressBar, HardwareConfigForm } from "@/components/onboarding
 import { Select, Toggle, type SelectOption } from "@/components/ui";
 import {
   CONTRACT_VERSION,
+  DEFAULT_OCR_MODEL,
   type CaptureSettings,
   type EngineKind,
   type HardwareTier,
@@ -66,22 +69,36 @@ export function SettingsView() {
   const profile = useHardwareStore((s) => s.profile);
   const models = useHardwareStore((s) => s.models);
   const engineStatus = useHardwareStore((s) => s.engineStatus);
+  const ocrStatus = useHardwareStore((s) => s.ocrStatus);
   const downloadProgress = useHardwareStore((s) => s.downloadProgress);
   const isInstalling = useHardwareStore((s) => s.isInstalling);
   const isCancelling = useHardwareStore((s) => s.isCancelling);
+  const ocrDownloadProgress = useHardwareStore((s) => s.ocrDownloadProgress);
+  const isInstallingOcr = useHardwareStore((s) => s.isInstallingOcr);
+  const isCancellingOcr = useHardwareStore((s) => s.isCancellingOcr);
+  const ocrError = useHardwareStore((s) => s.ocrError);
   const swapProgress = useHardwareStore((s) => s.swapProgress);
   const swapReport = useHardwareStore((s) => s.swapReport);
   const isSwapping = useHardwareStore((s) => s.isSwapping);
   const error = useHardwareStore((s) => s.error);
+  const loadOcrStatus = useHardwareStore((s) => s.loadOcrStatus);
   const installEngine = useHardwareStore((s) => s.installEngine);
   const cancelDownload = useHardwareStore((s) => s.cancelDownload);
+  const installOcr = useHardwareStore((s) => s.installOcr);
+  const cancelOcrDownload = useHardwareStore((s) => s.cancelOcrDownload);
   const swapEngine = useHardwareStore((s) => s.swapEngine);
   const removeEngineArtifacts = useHardwareStore((s) => s.removeEngineArtifacts);
   const clearError = useHardwareStore((s) => s.clearError);
+  const clearOcrError = useHardwareStore((s) => s.clearOcrError);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
 
   const appInfo = useUiStore((s) => s.appInfo);
+  const settingsFocusSection = useUiStore((s) => s.settingsFocusSection);
+  const clearSettingsFocusSection = useUiStore((s) => s.clearSettingsFocusSection);
   const setShowOnboardingOverride = useUiStore((s) => s.setShowOnboardingOverride);
+
+  const ocrSectionRef = useRef<HTMLElement | null>(null);
+  const [ocrHighlight, setOcrHighlight] = useState(false);
 
   const disableThemeShaders = useThemeStore((s) => s.disableThemeShaders);
   const shadersDisabledForSession = useThemeStore((s) => s.shadersDisabledForSession);
@@ -95,6 +112,19 @@ export function SettingsView() {
   const [proMode, setProMode] = useState<boolean>(settings.pro_mode);
   const [savedNotice, setSavedNotice] = useState(false);
   const [removingOld, setRemovingOld] = useState(false);
+
+  useEffect(() => {
+    void loadOcrStatus();
+  }, [loadOcrStatus]);
+
+  useEffect(() => {
+    if (settingsFocusSection !== "ocr") return;
+    ocrSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setOcrHighlight(true);
+    clearSettingsFocusSection();
+    const timer = window.setTimeout(() => setOcrHighlight(false), 2400);
+    return () => window.clearTimeout(timer);
+  }, [settingsFocusSection, clearSettingsFocusSection]);
 
   useEffect(() => {
     setDisplayName(settings.user_display_name ?? "");
@@ -236,6 +266,27 @@ export function SettingsView() {
       showSavedFlash();
     } finally {
       setRemovingOld(false);
+    }
+  };
+
+  const ocrIsDownloading = isInstallingOcr || ocrStatus?.state === "downloading";
+  const ocrIsInstalled =
+    !ocrIsDownloading && Boolean(ocrStatus && isEngineStateInstalled(ocrStatus.state));
+  const ocrStateKey = ocrIsDownloading
+    ? "downloading"
+    : ocrIsInstalled
+      ? "installed"
+      : ocrStatus?.state === "error"
+        ? "error"
+        : "not_installed";
+  const ocrSizeBytes = ocrStatus?.size_bytes ?? 12_212_656;
+  const ocrSizeLabel = formatBytes(ocrSizeBytes);
+
+  const handleInstallOcr = async () => {
+    clearOcrError();
+    const status = await installOcr(ocrStatus?.model_id ?? DEFAULT_OCR_MODEL);
+    if (status && isEngineStateInstalled(status.state)) {
+      showSavedFlash();
     }
   };
 
@@ -647,12 +698,138 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* 05 — Detected hardware & re-open onboarding */}
+        {/* 05 — Text in images (OCR) section */}
+        <section
+          id="settings-ocr"
+          ref={ocrSectionRef}
+          className={`rounded-[2px] border bg-surface transition-colors duration-300 ${
+            ocrHighlight ? "border-cobalt-ink ring-1 ring-cobalt-ink" : "border-rule"
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule px-5 py-3">
+            <div>
+              <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+                <ScanText size={13} className="text-cobalt-ink" aria-hidden />
+                05 — {t("settings.ocr.title")}
+              </h2>
+              <p className="mt-1 text-xs text-bone-muted">{t("settings.ocr.subtitle")}</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 ${
+                  ocrIsDownloading
+                    ? "border-cobalt-rule bg-cobalt-wash text-cobalt-ink"
+                    : ocrIsInstalled
+                      ? "border-verdigris-rule bg-verdigris-wash text-verdigris"
+                      : ocrStateKey === "error"
+                        ? "border-cinnabar-rule bg-cinnabar-wash text-cinnabar"
+                        : "border-rule bg-void text-bone-muted"
+                }`}
+              >
+                {ocrIsDownloading && <Loader2 size={11} className="animate-spin" aria-hidden />}
+                {ocrIsInstalled && <Check size={11} aria-hidden />}
+                <strong className="font-semibold">{t(`engineState.${ocrStateKey}`)}</strong>
+              </span>
+              <span className="rounded-[2px] border border-rule bg-void px-2.5 py-1 tabular-nums text-bone-muted">
+                {ocrIsInstalled && ocrStatus && ocrStatus.installed_bytes > 0
+                  ? formatBytes(ocrStatus.installed_bytes)
+                  : ocrSizeLabel}
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-4 p-5">
+            <p className="text-xs leading-relaxed text-bone-muted">
+              {t("settings.ocr.description")}
+            </p>
+
+            <div className="grid grid-cols-1 gap-3 rounded-[2px] border border-rule bg-void p-3.5 text-xs sm:grid-cols-3">
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                  {t("settings.ocr.sizeLabel")}
+                </div>
+                <div className="mt-1 font-mono text-xs font-medium tabular-nums text-bone">
+                  {ocrSizeLabel}{" "}
+                  <span className="text-bone-subtle">({t("settings.ocr.approxSizeNote")})</span>
+                </div>
+              </div>
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                  {t("settings.ocr.privacyLabel")}
+                </div>
+                <div className="mt-1 font-mono text-xs font-medium text-verdigris">
+                  {t("settings.ocr.localOnlyBadge")}
+                </div>
+              </div>
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                  {t("settings.ocr.modelLabel")}
+                </div>
+                <div className="mt-1 truncate font-mono text-xs text-bone-muted">
+                  {ocrStatus?.display_name ?? DEFAULT_OCR_MODEL}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[2px] border border-ochre-rule/60 bg-ochre-wash/40 px-3.5 py-2.5 text-xs text-bone-muted">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-ochre">
+                {t("settings.ocr.languagesLabel")}:{" "}
+              </span>
+              <span>{t("settings.ocr.languagesNote")}</span>
+            </div>
+
+            <DownloadProgressBar
+              progress={ocrDownloadProgress}
+              isInstalling={isInstallingOcr}
+              isCancelling={isCancellingOcr}
+              error={ocrError}
+              onCancel={() => void cancelOcrDownload()}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-rule bg-surface-2 px-5 py-3.5">
+            <span className="text-xs text-bone-muted">
+              {ocrIsInstalled
+                ? t("settings.ocr.installedReadyHint")
+                : t("settings.ocr.notInstalledHint")}
+            </span>
+
+            {ocrIsInstalled ? (
+              <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-3.5 py-1.5 font-mono text-xs font-semibold text-verdigris">
+                <Check size={13} aria-hidden />
+                {t("engineState.installed")}
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={ocrIsDownloading}
+                onClick={() => void handleInstallOcr()}
+                className="inline-flex items-center gap-2 rounded-[2px] border border-cobalt-rule bg-cobalt px-4 py-2 text-xs font-semibold text-bone transition-colors hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
+              >
+                {ocrIsDownloading ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" aria-hidden />
+                    <span>{t("settings.ocr.installingButton")}</span>
+                  </>
+                ) : (
+                  <>
+                    <Download size={13} aria-hidden />
+                    <span>{t("settings.ocr.installButton")}</span>
+                    <span className="font-mono tabular-nums opacity-85">({ocrSizeLabel})</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </section>
+
+        {/* 06 — Detected hardware & re-open onboarding */}
         <section className="rounded-[2px] border border-rule bg-surface">
           <div className="border-b border-rule px-5 py-3">
             <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
               <Cpu size={13} className="text-cobalt-ink" aria-hidden />
-              05 — {t("settings.hardwareTitle")}
+              06 — {t("settings.hardwareTitle")}
             </h2>
           </div>
 
@@ -678,12 +855,12 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* 06 — About section (app version + contract version) */}
+        {/* 07 — About section (app version + contract version) */}
         <section className="rounded-[2px] border border-rule bg-surface">
           <div className="border-b border-rule px-5 py-3">
             <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
               <Info size={13} className="text-cobalt-ink" aria-hidden />
-              06 — {t("settings.aboutTitle")}
+              07 — {t("settings.aboutTitle")}
             </h2>
           </div>
 

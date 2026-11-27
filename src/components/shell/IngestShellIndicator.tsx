@@ -16,6 +16,7 @@ import {
   Loader2,
   Pause,
   Play,
+  ScanText,
   X,
 } from "lucide-react";
 import {
@@ -24,6 +25,8 @@ import {
   formatElapsed,
   formatIngestEta,
   formatIngestStage,
+  isOcrNotInstalledMessage,
+  reportHasOcrNotInstalledError,
   type AnalyzedIngestReport,
 } from "@/lib/ingest";
 import {
@@ -120,6 +123,12 @@ function FileChunkProgress({
         {label}
       </div>
     </div>
+  );
+}
+
+function jobHasOcrNotInstalledError(job: IngestJob): boolean {
+  return (
+    isOcrNotInstalledMessage(job.error) || reportHasOcrNotInstalledError(job.report)
   );
 }
 
@@ -282,7 +291,9 @@ function CompactSummaryLine({ job }: { job: IngestJob }) {
       )}
       {analyzed.errorIssues.length > 0 && (
         <span className="text-cinnabar">
-          {t("ingest.summary.errors", { count: analyzed.errorIssues.length })}
+          {analyzed.hasOcrNotInstalledError
+            ? t("ingest.ocrNotInstalledShort")
+            : t("ingest.summary.errors", { count: analyzed.errorIssues.length })}
         </span>
       )}
     </span>
@@ -296,6 +307,7 @@ function IngestReportDetail({
   onBack,
   onDismiss,
   onOpenImporter,
+  onInstallOcr,
 }: {
   job: IngestJob;
   now: number;
@@ -303,6 +315,7 @@ function IngestReportDetail({
   onBack: () => void;
   onDismiss: () => void;
   onOpenImporter: () => void;
+  onInstallOcr: () => void;
 }) {
   const { t } = useTranslation();
   const analyzed = useMemo(
@@ -310,6 +323,7 @@ function IngestReportDetail({
     [job.report],
   );
   const elapsed = formatElapsed(jobElapsedMs(job, now));
+  const jobErrorIsOcr = isOcrNotInstalledMessage(job.error);
 
   return (
     <div className="space-y-3 p-4">
@@ -342,8 +356,18 @@ function IngestReportDetail({
       </div>
 
       {job.error && (
-        <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash p-2.5 text-xs text-cinnabar">
-          {job.error}
+        <div className="space-y-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash p-2.5 text-xs text-cinnabar">
+          <p>{job.error}</p>
+          {jobErrorIsOcr && (
+            <button
+              type="button"
+              onClick={onInstallOcr}
+              className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[11px] font-semibold text-bone transition-colors hover:bg-cobalt-bright"
+            >
+              <ScanText size={11} aria-hidden />
+              {t("ocr.installAction")}
+            </button>
+          )}
         </div>
       )}
 
@@ -466,13 +490,25 @@ function IngestReportDetail({
 
           {analyzed.errorIssues.length > 0 && (
             <div className="space-y-1.5 rounded-[2px] border border-cinnabar-rule/80 bg-cinnabar-wash/50 p-3">
-              <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-cinnabar">
-                <AlertTriangle size={12} aria-hidden />
-                <span>
-                  {t("ingest.report.errorsSectionTitle", {
-                    count: analyzed.errorIssues.length,
-                  })}
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-cinnabar">
+                  <AlertTriangle size={12} aria-hidden />
+                  <span>
+                    {t("ingest.report.errorsSectionTitle", {
+                      count: analyzed.errorIssues.length,
+                    })}
+                  </span>
+                </div>
+                {analyzed.hasOcrNotInstalledError && (
+                  <button
+                    type="button"
+                    onClick={onInstallOcr}
+                    className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[10px] font-semibold text-bone transition-colors hover:bg-cobalt-bright"
+                  >
+                    <ScanText size={11} aria-hidden />
+                    {t("ocr.installAction")}
+                  </button>
+                )}
               </div>
               <ul className="max-h-36 space-y-1 overflow-y-auto font-mono text-[11px]">
                 {analyzed.errorIssues.map((issue, idx) => (
@@ -541,6 +577,12 @@ export function IngestShellIndicator() {
 
   const graphProjects = useMemoryStore((s) => s.graph?.projects);
   const openToolsTab = useUiStore((s) => s.openToolsTab);
+  const openSettingsSection = useUiStore((s) => s.openSettingsSection);
+
+  const handleOpenOcrSettings = () => {
+    setExpanded(false);
+    openSettingsSection("ocr");
+  };
 
   const projectLookup = useMemo(() => {
     const map = new Map<Uuid, { name: string; color: string }>();
@@ -997,6 +1039,20 @@ export function IngestShellIndicator() {
             </button>
 
             <div className="flex shrink-0 items-center gap-1.5">
+              {jobHasOcrNotInstalledError(leadFgFinished) && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenOcrSettings();
+                  }}
+                  className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2 py-0.5 font-mono text-[11px] font-semibold text-bone transition-colors hover:bg-cobalt-bright"
+                >
+                  <ScanText size={11} aria-hidden />
+                  {t("ocr.installAction")}
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={(e) => {
@@ -1141,6 +1197,7 @@ export function IngestShellIndicator() {
                 setExpanded(false);
                 openToolsTab("importer");
               }}
+              onInstallOcr={handleOpenOcrSettings}
             />
           ) : (
             <div className="space-y-3 p-4">
@@ -1429,6 +1486,16 @@ export function IngestShellIndicator() {
                           </div>
 
                           <div className="flex shrink-0 items-center gap-1.5">
+                            {jobHasOcrNotInstalledError(job) && (
+                              <button
+                                type="button"
+                                onClick={handleOpenOcrSettings}
+                                className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2 py-0.5 font-mono text-[10px] font-semibold text-bone hover:bg-cobalt-bright"
+                              >
+                                <ScanText size={10} aria-hidden />
+                                {t("ocr.installAction")}
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => openReport(job.id)}

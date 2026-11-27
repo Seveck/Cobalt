@@ -68,6 +68,11 @@
     "note": "Note",
     "ocr": "OCR"
   },
+  "ocr": {
+    "badge": "OCR",
+    "badgeTooltip": "Text extracted from an image or scanned PDF (local OCR)",
+    "installAction": "Install OCR"
+  },
   "statuses": {
     "active": "Active",
     "superseded": "Superseded",
@@ -433,6 +438,22 @@
     "vectorCount": "Indexed vectors",
     "applyAndInstall": "Install & Apply Engine",
     "saveConfigOnly": "Save preferences",
+    "ocr": {
+      "title": "Text in images (OCR)",
+      "subtitle": "Local optical character recognition for images and scanned PDFs.",
+      "description": "Reads text from images (screenshots, photos, diagrams) and scanned PDFs so it becomes searchable in your memory and across your AIs. Everything runs 100% locally on your device, with nothing sent to the cloud.",
+      "sizeLabel": "Download size",
+      "approxSizeNote": "~12 MB",
+      "privacyLabel": "Privacy",
+      "localOnlyBadge": "100% local",
+      "modelLabel": "Model",
+      "languagesLabel": "Languages",
+      "languagesNote": "Latin alphabet: Spanish, English…; not Chinese, Russian, or Arabic.",
+      "installButton": "Install OCR",
+      "installingButton": "Installing OCR…",
+      "installedReadyHint": "Ready to read text from images and scanned PDFs 100% locally.",
+      "notInstalledHint": "One-time ~12 MB download. Nothing is downloaded until you click Install."
+    },
     "hardwareTitle": "Hardware summary & onboarding",
     "rerunOnboarding": "Welcome wizard",
     "rerunOnboardingDesc": "Re-open the initial hardware detection and setup screen.",
@@ -928,6 +949,8 @@
     "chunkProgressOnly": "chunk {{done}} of {{total}}",
     "recentFinishedTitle": "Recent imports",
     "indexingPausedBanner": "Automatic indexing paused",
+    "ocrNotInstalledShort": "OCR not installed",
+    "ocrNotInstalledBanner": "To read text from images or scanned PDFs, install the local OCR model (~12 MB).",
     "etaLessThanMin": "< 1 min left",
     "etaMinutes": "~{{count}} min left",
     "etaHours": "~{{hours}} h left",

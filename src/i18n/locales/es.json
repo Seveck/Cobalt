@@ -68,6 +68,11 @@
     "note": "Nota",
     "ocr": "OCR"
   },
+  "ocr": {
+    "badge": "OCR",
+    "badgeTooltip": "Texto extraído de una imagen o PDF escaneado (OCR local)",
+    "installAction": "Instalar OCR"
+  },
   "statuses": {
     "active": "Activo",
     "superseded": "Reemplazado",
@@ -433,6 +438,22 @@
     "vectorCount": "Vectores indexados",
     "applyAndInstall": "Instalar y aplicar motor",
     "saveConfigOnly": "Guardar preferencias",
+    "ocr": {
+      "title": "Texto en imágenes (OCR)",
+      "subtitle": "Reconocimiento óptico de texto local para imágenes y PDFs escaneados.",
+      "description": "Lee texto dentro de imágenes (capturas, fotos, diagramas) y PDFs escaneados para guardarlo en tu memoria y hacerlo buscable por tus IAs. Todo se procesa 100 % local en tu equipo, sin enviar nada a la nube.",
+      "sizeLabel": "Tamaño de descarga",
+      "approxSizeNote": "~12 MB",
+      "privacyLabel": "Privacidad",
+      "localOnlyBadge": "100 % local",
+      "modelLabel": "Modelo",
+      "languagesLabel": "Idiomas",
+      "languagesNote": "Alfabeto latino: español, inglés…; no chino, ruso ni árabe.",
+      "installButton": "Instalar OCR",
+      "installingButton": "Instalando OCR…",
+      "installedReadyHint": "Listo para leer texto de imágenes y PDFs escaneados de forma 100 % local.",
+      "notInstalledHint": "Descarga única de ~12 MB. No se instala nada hasta que pulsas Instalar."
+    },
     "hardwareTitle": "Resumen de hardware y onboarding",
     "rerunOnboarding": "Asistente de bienvenida",
     "rerunOnboardingDesc": "Vuelve a abrir la pantalla inicial de detección de hardware.",
@@ -928,6 +949,8 @@
     "chunkProgressOnly": "fragmento {{done}} de {{total}}",
     "recentFinishedTitle": "Importaciones recientes",
     "indexingPausedBanner": "Indexación automática en pausa",
+    "ocrNotInstalledShort": "OCR no instalado",
+    "ocrNotInstalledBanner": "Para leer texto de imágenes o PDFs escaneados necesitas instalar el modelo local de OCR (~12 MB).",
     "etaLessThanMin": "queda < 1 min",
     "etaMinutes": "quedan ~{{count}} min",
     "etaHours": "quedan ~{{hours}} h",

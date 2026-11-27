@@ -1,4 +1,10 @@
-export { useUiStore, type NavSection, type ToolsTab, type UiState } from "./ui";
+export {
+  useUiStore,
+  type NavSection,
+  type SettingsSectionId,
+  type ToolsTab,
+  type UiState,
+} from "./ui";
 export { useHardwareStore, type HardwareState } from "./hardware";
 export { useSettingsStore, type SettingsState } from "./settings";
 export { useMemoryStore, type MemoryState } from "./memory";

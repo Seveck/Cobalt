@@ -2,7 +2,12 @@ import { create } from "zustand";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { backendCall, backendOn } from "@/lib/backend";
 import { IpcError } from "@/lib/ipc";
-import { extractFileName, isTerminalIngestStage } from "@/lib/ingest";
+import {
+  extractFileName,
+  isOcrNotInstalledMessage,
+  isTerminalIngestStage,
+  reportHasOcrNotInstalledError,
+} from "@/lib/ingest";
 import {
   INGEST_STAGES,
   type IngestProgress,
@@ -193,7 +198,12 @@ export const useIngestStore = create<IngestState>((set, get) => {
           return state;
         }
         const target = state.jobs.find((j) => j.id === id);
-        if (!target || !isFinishedStatus(target.status)) {
+        if (
+          !target ||
+          !isFinishedStatus(target.status) ||
+          isOcrNotInstalledMessage(target.error) ||
+          reportHasOcrNotInstalledError(target.report)
+        ) {
           return state;
         }
         const jobs = state.jobs.filter((j) => j.id !== id);
@@ -455,8 +465,11 @@ export const useIngestStore = create<IngestState>((set, get) => {
           ? INGEST_STAGES.cancelled
           : INGEST_STAGES.completed;
 
-      if (isFinishedStatus(nextStatus)) {
+      const hasOcrMissing = reportHasOcrNotInstalledError(report);
+      if (isFinishedStatus(nextStatus) && !hasOcrMissing) {
         shouldAutoRemove = true;
+      } else if (hasOcrMissing) {
+        clearAutoRemoveTimer(existing.id);
       }
 
       const updated: IngestJob = {
@@ -519,8 +532,11 @@ export const useIngestStore = create<IngestState>((set, get) => {
           ? INGEST_STAGES.cancelled
           : INGEST_STAGES.failed;
 
-      if (isFinishedStatus(nextStatus)) {
+      const hasOcrMissing = !isPaused && !cancelled && isOcrNotInstalledMessage(message);
+      if (isFinishedStatus(nextStatus) && !hasOcrMissing) {
         shouldAutoRemove = true;
+      } else if (hasOcrMissing) {
+        clearAutoRemoveTimer(existing.id);
       }
 
       const updated: IngestJob = {
