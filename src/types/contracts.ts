@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.8.0";
+export const CONTRACT_VERSION = "1.9.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -1033,6 +1033,8 @@ export interface ConnectorStatus {
   broken: boolean;
   last_backup_path: string | null;
   error: string | null;
+  /** Ready-to-paste block for `config_path` with the real executable path (v1.9.0). */
+  manual_snippet: string;
 }
 
 export interface ConnectorToggleRequest {
