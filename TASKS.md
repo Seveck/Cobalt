@@ -115,7 +115,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] [GEMINI] Botón visible para pausar/reanudar el giro automático del cerebro 3D en todos los gráficos (pedido 2026-11-27; recordar la elección)
 - [x] [GEMINI] Cámara inicial un poco más lejos y mejor centrada en todos los gráficos (sin volver a moverla al cambiar de gráfico)
 - [x] [GEMINI] Animaciones suaves al mostrar o cargar contenido (vistas, paneles, tarjetas, listas, estados de carga), respetando "Movimiento reducido"
-- [ ] Personalización de Apariencia por el usuario (acento, base, contraste, densidad, tamaño) con vista previa, según la investigación de diseño
+- [x] Cobalt totalmente personalizable (2026-11-28, contratos v1.12.0): editor "Personalizar" con vista previa en vivo (modo, acento, base, contraste, densidad, esquinas, tamaño, colores del cerebro), "Mis temas" (aplicar, editar, exportar, eliminar), compartir = exportar `.cobalt-theme`, herramienta MCP `create_theme` para que cualquier IA diseñe un tema; explicación de bienvenida (Guarda · Conecta · Recuerda · Ahorra + principios)
 - [ ] Pendiente: hooks de Antigravity (`agy`, vía plugin `hooks.json`; formato por verificar) y de Cursor/Windsurf/Cline (sin sistema de hooks: solo instrucciones); los hooks apuntan al binario actual (reinstalar al instalar la versión final)
 
 ## Fase 3.5 — Asistente conversacional, Personas y Estudio [PARALELO] (decidida 2026-11-25)
