@@ -15,7 +15,7 @@ import {
   User,
 } from "lucide-react";
 import { SUPPORTED_LANGUAGES } from "@/i18n";
-import { backendCall, isCommandMocked } from "@/lib/backend";
+import { backendCall } from "@/lib/backend";
 import {
   estimateDownloadBytes,
   extractFirstName,
@@ -25,7 +25,6 @@ import {
 } from "@/lib/format";
 import { useHardwareStore, useMemoryStore, useSettingsStore, useUiStore } from "@/stores";
 import { CobaltMark } from "@/components/shell/CobaltMark";
-import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, type SelectOption } from "@/components/ui";
 import {
   DEFAULT_ENGINE_BY_TIER,
@@ -191,7 +190,6 @@ export function OnboardingScreen() {
   );
 
   const currentLanguage = (i18n.resolvedLanguage as Language | undefined) ?? settings.language;
-  const isMocked = isCommandMocked("get_hardware_profile") || isCommandMocked("install_engine");
 
   const recommendedTier = profile?.recommendation.tier ?? "eco";
   const recommendedEngine =
@@ -361,7 +359,6 @@ export function OnboardingScreen() {
               <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-cobalt-ink">
                 {t("onboarding.badge")}
               </span>
-              {isMocked && <MockBadge />}
             </div>
           </div>
 

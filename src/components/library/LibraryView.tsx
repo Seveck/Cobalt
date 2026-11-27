@@ -27,7 +27,6 @@ import {
   useSettingsStore,
   useUiStore,
 } from "@/stores";
-import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, type SelectOption } from "@/components/ui";
 import {
   SOURCE_TYPES,
@@ -202,7 +201,6 @@ export function LibraryView() {
     if (readOnly) return;
     const selected = await pickSinglePath({
       title: t("library.promoteDialogTitle"),
-      fallbackPlaceholder: "/workspace/src/helper.ts",
     });
     if (selected) {
       await handlePromotePaths([selected]);
@@ -267,7 +265,6 @@ export function LibraryView() {
     const newPath = await pickSinglePath({
       title: t("library.relinkDialogTitle"),
       defaultPath: asset.file_path ?? undefined,
-      fallbackPlaceholder: asset.file_path ?? "/workspace/src/relinked.ts",
     });
     if (!newPath) return;
 
@@ -320,8 +317,7 @@ export function LibraryView() {
   const availableSourceTypes = useMemo(() => {
     const present = new Set<SourceType>(assets.map((a) => a.source_type));
     for (const s of filter.source_types) present.add(s);
-    const list = SOURCE_TYPES.filter((st) => present.has(st));
-    return list.length > 0 ? list : (["md", "ts", "rs", "py", "sql", "note"] as SourceType[]);
+    return SOURCE_TYPES.filter((st) => present.has(st));
   }, [assets, filter.source_types]);
 
   const hasActiveFilters =
@@ -361,7 +357,6 @@ export function LibraryView() {
               <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
                 {t("library.title")}
               </h1>
-              <MockBadge />
             </div>
             <p className="mt-1.5 text-sm text-bone-muted">{t("library.subtitle")}</p>
           </div>
@@ -542,29 +537,31 @@ export function LibraryView() {
             </div>
 
             {/* Source types */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="w-24 shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-                {t("filterDock.sourceTypes")}
-              </span>
-              {availableSourceTypes.map((st) => {
-                const active = filter.source_types.includes(st);
-                return (
-                  <button
-                    key={st}
-                    type="button"
-                    onClick={() => toggleSourceType(st)}
-                    aria-pressed={active}
-                    className={`rounded-[2px] border px-2 py-0.5 font-mono text-[10px] uppercase transition-colors ${
-                      active
-                        ? "border-cobalt-rule bg-cobalt-wash text-cobalt-ink"
-                        : "border-rule bg-void text-bone-muted hover:border-rule-strong hover:text-bone"
-                    }`}
-                  >
-                    {st}
-                  </button>
-                );
-              })}
-            </div>
+            {availableSourceTypes.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="w-24 shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                  {t("filterDock.sourceTypes")}
+                </span>
+                {availableSourceTypes.map((st) => {
+                  const active = filter.source_types.includes(st);
+                  return (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => toggleSourceType(st)}
+                      aria-pressed={active}
+                      className={`rounded-[2px] border px-2 py-0.5 font-mono text-[10px] uppercase transition-colors ${
+                        active
+                          ? "border-cobalt-rule bg-cobalt-wash text-cobalt-ink"
+                          : "border-rule bg-void text-bone-muted hover:border-rule-strong hover:text-bone"
+                      }`}
+                    >
+                      {st}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </section>
 
@@ -576,8 +573,22 @@ export function LibraryView() {
           </div>
         ) : displayedAssets.length === 0 ? (
           <div className="rounded-[2px] border border-rule bg-surface p-10 text-center">
-            <p className="text-sm text-bone-muted">{t("library.empty")}</p>
-            <p className="mt-1.5 text-xs text-bone-subtle">{t("library.emptyHint")}</p>
+            <p className="text-sm font-medium text-bone">
+              {hasActiveFilters ? t("library.empty") : t("library.emptyBrandNew")}
+            </p>
+            <p className="mx-auto mt-1.5 max-w-md text-xs text-bone-muted">
+              {hasActiveFilters ? t("library.emptyFilteredHint") : t("library.emptyHint")}
+            </p>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-1.5 font-mono text-xs text-bone-muted hover:border-cobalt-ink/60 hover:text-bone"
+              >
+                <RotateCcw size={12} aria-hidden />
+                {t("filterDock.reset")}
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">

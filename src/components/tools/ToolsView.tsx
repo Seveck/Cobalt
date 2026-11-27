@@ -29,7 +29,6 @@ import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickPaths, pickSavePath, pickSinglePath, useFileDrop } from "@/lib/dialogs";
 import { analyzeIngestReport } from "@/lib/ingest";
 import { useIngestStore, useMemoryStore, useSettingsStore, useUiStore, type ToolsTab } from "@/stores";
-import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
 import type {
   BackupManifest,
@@ -394,7 +393,6 @@ export function ToolsView() {
       title: directory ? t("tools.importer.pickFolder") : t("tools.importer.pickFiles"),
       directory,
       multiple: true,
-      fallbackPlaceholder: directory ? "/workspace/notes" : "/workspace/notes/guide.md",
     });
     if (picked.length > 0) {
       setIngestPathsList((prev) => [...new Set([...prev, ...picked])]);
@@ -420,11 +418,6 @@ export function ToolsView() {
     const picked = await pickSinglePath({
       title: t("tools.pastLife.pickTitle"),
       directory: isDir,
-      fallbackPlaceholder: isDir
-        ? "/home/user/notes"
-        : pastLifeSource === "chatgpt_export"
-          ? "/downloads/conversations.json"
-          : "/workspace/CLAUDE.md",
     });
     if (picked) setPastLifePath(picked);
   };
@@ -452,7 +445,6 @@ export function ToolsView() {
       title: t("tools.capsules.exportDialogTitle"),
       defaultPath: "cobalt-capsule.cbrain",
       filters: [{ name: "Cobalt Capsule", extensions: ["cbrain"] }],
-      fallbackPlaceholder: "/exports/cobalt-capsule.cbrain",
     });
     if (!destPath) return;
 
@@ -479,7 +471,6 @@ export function ToolsView() {
     const path = await pickSinglePath({
       title: t("tools.capsules.importDialogTitle"),
       filters: [{ name: "Cobalt Capsule", extensions: ["cbrain"] }],
-      fallbackPlaceholder: "/exports/cobalt-capsule.cbrain",
     });
     if (!path) return;
 
@@ -504,7 +495,6 @@ export function ToolsView() {
       title: t("tools.backup.exportDialogTitle"),
       defaultPath: "cobalt-brain.cobalt-backup",
       filters: [{ name: "Cobalt Backup", extensions: ["cobalt-backup"] }],
-      fallbackPlaceholder: "/backups/cobalt-brain.cobalt-backup",
     });
     if (!destPath) return;
 
@@ -532,7 +522,6 @@ export function ToolsView() {
     const path = await pickSinglePath({
       title: t("tools.backup.importDialogTitle"),
       filters: [{ name: "Cobalt Backup", extensions: ["cobalt-backup"] }],
-      fallbackPlaceholder: "/backups/cobalt-brain.cobalt-backup",
     });
     if (!path) return;
 
@@ -596,7 +585,6 @@ export function ToolsView() {
             <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
               {t("tools.title")}
             </h1>
-            <MockBadge />
           </div>
           <p className="mt-1.5 text-sm text-bone-muted">{t("tools.subtitle")}</p>
 
@@ -694,7 +682,6 @@ export function ToolsView() {
                         void pickSinglePath({
                           title: t("tools.projects.pickFolder"),
                           directory: true,
-                          fallbackPlaceholder: "/workspace/my-project",
                         }).then((p) => {
                           if (p) setNewProjPath(p);
                         })

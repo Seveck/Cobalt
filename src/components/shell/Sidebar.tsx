@@ -20,7 +20,6 @@ import {
 import { Select, type SelectOption } from "@/components/ui";
 import type { Language } from "@/types/contracts";
 import { CobaltMark } from "./CobaltMark";
-import { MockBadge } from "./MockBadge";
 
 interface NavItem {
   key: NavSection;
@@ -42,7 +41,6 @@ export function Sidebar() {
   const langLabelId = useId();
   const activeNav = useUiStore((s) => s.activeNav);
   const setActiveNav = useUiStore((s) => s.setActiveNav);
-  const globalMockMode = useUiStore((s) => s.globalMockMode);
 
   const settings = useSettingsStore((s) => s.settings);
   const saving = useSettingsStore((s) => s.saving);
@@ -76,7 +74,6 @@ export function Sidebar() {
               </span>
             </div>
           </div>
-          {globalMockMode && <MockBadge />}
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-bone-muted">{t("app.tagline")}</p>
       </div>

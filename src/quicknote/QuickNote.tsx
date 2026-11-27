@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Check, Loader2 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { isTauri } from "@/lib/ipc";
+import { DesktopOnlyNotice } from "@/components/shell/DesktopOnlyNotice";
 import type { ProjectStats } from "@/types/contracts";
 
 /**
@@ -11,6 +12,13 @@ import type { ProjectStats } from "@/types/contracts";
  * Wired to `submit_quick_note` on Enter, then hides the window in Tauri.
  */
 export default function QuickNote() {
+  if (!isTauri()) {
+    return <DesktopOnlyNotice />;
+  }
+  return <QuickNoteWindow />;
+}
+
+function QuickNoteWindow() {
   const { t, i18n } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
 

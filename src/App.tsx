@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { backendOn } from "@/lib/backend";
+import { isTauri } from "@/lib/ipc";
 import {
   useBranchesStore,
   useCliActivityStore,
@@ -21,6 +22,7 @@ import { OnboardingScreen } from "@/components/onboarding";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { CliActivityShellBar } from "@/components/shell/CliActivityShellBar";
 import { CobaltMark } from "@/components/shell/CobaltMark";
+import { DesktopOnlyNotice } from "@/components/shell/DesktopOnlyNotice";
 import { IngestShellIndicator } from "@/components/shell/IngestShellIndicator";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { WelcomeGreeting } from "@/components/shell/WelcomeGreeting";
@@ -30,6 +32,13 @@ import { ToolsView } from "@/components/tools/ToolsView";
 import { BUILTIN_THEME_ID } from "@/types/contracts";
 
 export default function App() {
+  if (!isTauri()) {
+    return <DesktopOnlyNotice />;
+  }
+  return <DesktopApp />;
+}
+
+function DesktopApp() {
   const { t } = useTranslation();
 
   const activeNav = useUiStore((s) => s.activeNav);

@@ -117,19 +117,9 @@ export function resolveThemeAssetUrl(
   if (!isSafeThemeRelativePath(relativePath)) return null;
   if (themeBasePath.startsWith("builtin://")) return null;
 
-  if (isTauri()) {
-    if (themeBasePath.startsWith("~")) return null;
-    const fullPath = joinThemePath(themeBasePath, relativePath);
-    return convertFileSrc(fullPath);
-  }
-
-  // Non-Tauri browser preview: allow direct http(s) or root-relative dev paths
-  if (/^https?:\/\//i.test(themeBasePath) || themeBasePath.startsWith("/")) {
-    const cleanBase = themeBasePath.replace(/\/+$/, "");
-    return `${cleanBase}/${relativePath}`;
-  }
-
-  return null;
+  if (!isTauri() || themeBasePath.startsWith("~")) return null;
+  const fullPath = joinThemePath(themeBasePath, relativePath);
+  return convertFileSrc(fullPath);
 }
 
 async function fetchShaderText(url: string, signal: AbortSignal): Promise<string> {

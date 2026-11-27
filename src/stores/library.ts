@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { backendCall, isCommandMocked } from "@/lib/backend";
+import { backendCall } from "@/lib/backend";
 import type { LibraryFilter, ReusableAsset } from "@/types/contracts";
 
 const DEFAULT_LIBRARY_FILTER: LibraryFilter = {
@@ -16,7 +16,6 @@ export interface LibraryState {
   filter: LibraryFilter;
   loading: boolean;
   error: string | null;
-  isMockData: boolean;
   loadLibrary: (override?: Partial<LibraryFilter>) => Promise<void>;
   setFilter: (patch: Partial<LibraryFilter>) => void;
 }
@@ -26,7 +25,6 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   filter: DEFAULT_LIBRARY_FILTER,
   loading: false,
   error: null,
-  isMockData: isCommandMocked("list_library"),
 
   loadLibrary: async (override) => {
     const nextFilter: LibraryFilter = { ...get().filter, ...override };
@@ -34,7 +32,6 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       filter: nextFilter,
       loading: true,
       error: null,
-      isMockData: isCommandMocked("list_library"),
     });
     try {
       const assets = await backendCall("list_library", nextFilter);
