@@ -10,19 +10,29 @@ const DEFAULT_GRAPH_QUERY: GraphQuery = {
   limit: null,
 };
 
+export interface CameraFocusRequest {
+  nodeIds: Uuid[];
+  nonce: number;
+}
+
 export interface MemoryState {
   graph: GraphData | null;
   graphRevision: number;
   selectedNodeId: Uuid | null;
   hoveredNodeId: Uuid | null;
   highlightedNodeIds: ReadonlySet<Uuid>;
+  focusRequest: CameraFocusRequest | null;
   loading: boolean;
   error: string | null;
   loadGraph: (query?: Partial<GraphQuery>) => Promise<void>;
   setSelectedNodeId: (id: Uuid | null) => void;
   setHoveredNodeId: (id: Uuid | null) => void;
   setHighlightedNodeIds: (ids: readonly Uuid[]) => void;
+  requestFocusNodes: (ids: readonly Uuid[]) => void;
+  clearFocusRequest: () => void;
 }
+
+let focusNonceCounter = 0;
 
 export const useMemoryStore = create<MemoryState>((set) => ({
   graph: null,
@@ -30,6 +40,7 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   selectedNodeId: null,
   hoveredNodeId: null,
   highlightedNodeIds: new Set<Uuid>(),
+  focusRequest: null,
   loading: false,
   error: null,
 
@@ -52,4 +63,11 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
   setHoveredNodeId: (hoveredNodeId) => set({ hoveredNodeId }),
   setHighlightedNodeIds: (ids) => set({ highlightedNodeIds: new Set(ids) }),
+  requestFocusNodes: (ids) => {
+    const unique = Array.from(new Set(ids.filter(Boolean)));
+    if (unique.length === 0) return;
+    focusNonceCounter += 1;
+    set({ focusRequest: { nodeIds: unique, nonce: focusNonceCounter } });
+  },
+  clearFocusRequest: () => set({ focusRequest: null }),
 }));

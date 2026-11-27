@@ -1,12 +1,12 @@
 import { create } from "zustand";
+import { BRIGHT_OPERATION_COLORS } from "@/lib/pulseColors";
 import { resolveNodesForTouchedFiles } from "@/lib/sourceDocCache";
 import { useMemoryStore } from "@/stores/memory";
-import { useSynapticStore } from "@/stores/synaptic";
-import {
-  OPERATION_COLORS,
-  type CliActivity,
-  type CliActivityKind,
-  type Uuid,
+import { DEFAULT_PULSE_DURATION_MS, useSynapticStore } from "@/stores/synaptic";
+import type {
+  CliActivity,
+  CliActivityKind,
+  Uuid,
 } from "@/types/contracts";
 
 export interface CliActivityEntry {
@@ -16,12 +16,12 @@ export interface CliActivityEntry {
 }
 
 export const CLI_ACTIVITY_COLORS: Record<CliActivityKind, string> = {
-  session_start: OPERATION_COLORS.read,
-  file_edit: OPERATION_COLORS.update,
-  command: OPERATION_COLORS.read,
-  turn_end: OPERATION_COLORS.handoff,
-  session_end: OPERATION_COLORS.handoff,
-  git_commit: OPERATION_COLORS.write,
+  session_start: BRIGHT_OPERATION_COLORS.read,
+  file_edit: BRIGHT_OPERATION_COLORS.update,
+  command: BRIGHT_OPERATION_COLORS.read,
+  turn_end: BRIGHT_OPERATION_COLORS.handoff,
+  session_end: BRIGHT_OPERATION_COLORS.handoff,
+  git_commit: BRIGHT_OPERATION_COLORS.write,
 };
 
 const MAX_FEED_ENTRIES = 24;
@@ -62,7 +62,9 @@ export const useCliActivityStore = create<CliActivityState>((set) => ({
       ).then((matchedIds) => {
         if (matchedIds.length === 0) return;
         const pulseColor = CLI_ACTIVITY_COLORS[activity.kind];
-        useSynapticStore.getState().pulseNodes(matchedIds, pulseColor, 3200, 0.95);
+        useSynapticStore
+          .getState()
+          .pulseNodes(matchedIds, pulseColor, DEFAULT_PULSE_DURATION_MS, 0.95);
         set((state) => ({
           entries: state.entries.map((entry) =>
             entry.id === id ? { ...entry, matchedNodeIds: matchedIds } : entry,

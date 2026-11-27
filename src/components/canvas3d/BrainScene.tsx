@@ -4,7 +4,12 @@ import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { isTauri } from "@/lib/ipc";
-import { matchesVisualFilters, useSynapticStore, useThemeStore } from "@/stores";
+import {
+  matchesVisualFilters,
+  useMemoryStore,
+  useSynapticStore,
+  useThemeStore,
+} from "@/stores";
 import type {
   ClusterSizeMetric,
   GraphData,
@@ -50,12 +55,31 @@ import {
 } from "./themeShaders";
 
 const LERP_DURATION_SEC = 0.72;
+const CAMERA_FOCUS_DURATION_SEC = 0.65;
+const PULSE_DIM_OPACITY = 0.3;
+const PULSE_VISIBILITY_REPORT_MS = 100;
 const INITIAL_CAPACITY = 1024;
 const VOLUMETRIC_MAX_VISIBLE_NODES = 5_000;
 const VOLUMETRIC_SCALE_MULTIPLIER = 0.45;
 const WATCHDOG_FRAME_MS_THRESHOLD = 100;
 const WATCHDOG_SUSTAINED_MS = 3_000;
 const WATCHDOG_WINDOW_MS = 1_000;
+
+export type ViewportEdge = "top" | "bottom" | "left" | "right";
+
+export interface PulseVisibilitySummary {
+  totalActive: number;
+  onScreenCount: number;
+  offScreenCount: number;
+  filteredOutCount: number;
+  missingFromGraphCount: number;
+  edge: ViewportEdge | null;
+  /** Fraction [0.18 .. 0.82] along the active viewport edge. */
+  edgeOffset: number;
+  colorHex: string;
+  offScreenIds: Uuid[];
+  filteredOutIds: Uuid[];
+}
 
 interface FrameRateControllerProps {
   maxFps: number | null;
@@ -156,6 +180,7 @@ export interface BrainSceneProps {
   onHoverNode: (node: GraphNode | null) => void;
   onSelectNode: (node: GraphNode | null) => void;
   onContainersChange?: (containers: readonly ProjectContainer[]) => void;
+  onPulseVisibilityChange?: (summary: PulseVisibilitySummary | null) => void;
 }
 
 function resolveNodeColorHex(
@@ -181,6 +206,7 @@ interface PointBuffers {
   targetPositions: Float32Array;
   colors: Float32Array;
   sizes: Float32Array;
+  baseOpacities: Float32Array;
   meta: Float32Array;
   pulse: Float32Array;
   posAttr: THREE.BufferAttribute;
@@ -197,6 +223,8 @@ function createPointBuffers(capacity: number): PointBuffers {
   const targetPositions = new Float32Array(capacity * 3);
   const colors = new Float32Array(capacity * 3);
   const sizes = new Float32Array(capacity);
+  const baseOpacities = new Float32Array(capacity);
+  baseOpacities.fill(1);
   const meta = new Float32Array(capacity * 4);
   const pulse = new Float32Array(capacity * 4);
 
@@ -225,6 +253,7 @@ function createPointBuffers(capacity: number): PointBuffers {
     targetPositions,
     colors,
     sizes,
+    baseOpacities,
     meta,
     pulse,
     posAttr,
@@ -275,6 +304,7 @@ export function BrainScene({
   onHoverNode,
   onSelectNode,
   onContainersChange,
+  onPulseVisibilityChange,
 }: BrainSceneProps) {
   const { t, i18n } = useTranslation();
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null);
@@ -782,9 +812,15 @@ export function BrainScene({
   const scratchScaleRef = useRef(new THREE.Vector3());
   const scratchColorRef = useRef(new THREE.Color());
   const scratchPulseColorRef = useRef(new THREE.Color());
+  const scratchWhiteColorRef = useRef(new THREE.Color("#FFFFFF"));
   const scratchRagColorRef = useRef(new THREE.Color("#78A8FF"));
   const bgColorRef = useRef(new THREE.Color(manifest.palette.background));
   bgColorRef.current.set(manifest.palette.background);
+
+  // Smooth dimming & pulse tracking refs (zero-allocation per-frame updates)
+  const dimFactorRef = useRef(1.0);
+  const appliedDimFactorRef = useRef(1.0);
+  const activePulsedIndicesRef = useRef<Set<number>>(new Set());
 
   const writeVolumetricInstance = useCallback(
     (mesh: THREE.InstancedMesh, idx: number, updateColor: boolean) => {
@@ -807,7 +843,7 @@ export function BrainScene({
       if (sizeVal <= 0.0001) {
         scl.set(0, 0, 0);
       } else {
-        const s = sizeVal * VOLUMETRIC_SCALE_MULTIPLIER * (1 + pulseIntensity * 0.72);
+        const s = sizeVal * VOLUMETRIC_SCALE_MULTIPLIER * (1 + pulseIntensity * 1.9);
         scl.set(s, s, s);
       }
 
@@ -822,7 +858,7 @@ export function BrainScene({
           buffers.colors[i3 + 2] ?? 1,
         );
         const opacityScale = buffers.meta[i4 + 3] ?? 1;
-        if (opacityScale < 0.9) {
+        if (opacityScale < 0.99) {
           col.lerp(bgColorRef.current, 1 - opacityScale);
         }
         const focus = buffers.meta[i4 + 2] ?? 0;
@@ -836,7 +872,8 @@ export function BrainScene({
             buffers.pulse[i4 + 1] ?? 1,
             buffers.pulse[i4 + 2] ?? 1,
           );
-          col.lerp(pCol, Math.min(1, pulseIntensity * 0.85));
+          col.lerp(pCol, Math.min(1, pulseIntensity * 0.95));
+          col.lerp(scratchWhiteColorRef.current, Math.min(0.65, pulseIntensity * 0.45));
         }
         mesh.setColorAt(idx, col);
       }
@@ -898,10 +935,12 @@ export function BrainScene({
   // Update colors, sizes (filters = size 0), and meta attributes IN PLACE (zero geometry rebuild)
   useEffect(() => {
     const count = graph.nodes.length;
-    const { colors, sizes, meta, colorAttr, sizeAttr, metaAttr } = buffers;
+    const { colors, sizes, baseOpacities, meta, colorAttr, sizeAttr, metaAttr } = buffers;
     const tmpColor = new THREE.Color();
     const baseSize = Math.max(0.4, manifest.node_geometry.base_size) * 2.4;
     const scaleByHits = manifest.node_geometry.scale_by_hits;
+    const activePulses = activePulsedIndicesRef.current;
+    const currentDim = dimFactorRef.current;
 
     for (let i = 0; i < count; i += 1) {
       const node = graph.nodes[i];
@@ -933,16 +972,24 @@ export function BrainScene({
       colors[i3 + 1] = tmpColor.g;
       colors[i3 + 2] = tmpColor.b;
 
+      const baseOpacity = node.status === "active" ? 1.0 : 0.45;
+      baseOpacities[i] = baseOpacity;
+
       const i4 = i * 4;
       meta[i4] = node.is_core_pin ? 1 : 0;
       meta[i4 + 1] = node.is_reusable ? 1 : 0;
       meta[i4 + 2] = isSelected ? 2 : isHovered ? 1 : isHighlighted ? 3 : 0;
-      meta[i4 + 3] = node.status === "active" ? 1.0 : 0.45;
+      meta[i4 + 3] = activePulses.has(i)
+        ? 1.0
+        : isSelected || isHovered
+          ? Math.max(baseOpacity * currentDim, 0.85)
+          : baseOpacity * currentDim;
     }
 
     colorAttr.needsUpdate = true;
     sizeAttr.needsUpdate = true;
     metaAttr.needsUpdate = true;
+    appliedDimFactorRef.current = currentDim;
     spatialDirtyRef.current = true;
   }, [
     activeLayout,
@@ -991,8 +1038,33 @@ export function BrainScene({
     return computeIslandsCameraFraming(containers, manifest.camera.fov, aspect);
   }, [isProjectIslands, layoutResult.projectContainers, manifest.camera.fov]);
 
+  // Smooth camera focus transition state (triggered by HUD clicks or off-screen edge indicator)
+  const focusRequest = useMemoryStore((s) => s.focusRequest);
+  const cameraFocusAnimRef = useRef<{
+    startPos: THREE.Vector3;
+    endPos: THREE.Vector3;
+    startTarget: THREE.Vector3;
+    endTarget: THREE.Vector3;
+    progress: number;
+  } | null>(null);
+
+  // Cancel camera focus animation immediately when the user grabs OrbitControls
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    const cancelFocus = () => {
+      cameraFocusAnimRef.current = null;
+    };
+    controls.addEventListener("start", cancelFocus);
+    return () => {
+      controls.removeEventListener("start", cancelFocus);
+    };
+  }, []);
+
   // Apply camera defaults, island overview framing, & explicit reset signal
   useEffect(() => {
+    cameraFocusAnimRef.current = null;
+
     if (isProjectIslands && islandFraming) {
       const [px, py, pz] = islandFraming.position;
       const [tx, ty, tz] = islandFraming.target;
@@ -1020,6 +1092,73 @@ export function BrainScene({
       controlsRef.current.update();
     }
   }, [activeLayout, camera, isProjectIslands, islandFraming, manifest.camera, resetSignal]);
+
+  // Smoothly focus camera on requested memory node(s)
+  useEffect(() => {
+    if (!focusRequest || focusRequest.nodeIds.length === 0) return;
+
+    const points: THREE.Vector3[] = [];
+    for (const id of focusRequest.nodeIds) {
+      const idx = nodeIndexMap.get(id);
+      if (idx !== undefined) {
+        const i3 = idx * 3;
+        points.push(
+          new THREE.Vector3(
+            buffers.positions[i3] ?? 0,
+            buffers.positions[i3 + 1] ?? 0,
+            buffers.positions[i3 + 2] ?? 0,
+          ),
+        );
+      } else {
+        const pos = layoutResult.nodePositions[id];
+        if (pos) {
+          points.push(new THREE.Vector3(pos[0], pos[1], pos[2]));
+        }
+      }
+    }
+
+    if (points.length === 0) return;
+
+    const centroid = new THREE.Vector3();
+    for (const pt of points) {
+      centroid.add(pt);
+    }
+    centroid.divideScalar(points.length);
+
+    let radius = 0;
+    for (const pt of points) {
+      radius = Math.max(radius, pt.distanceTo(centroid));
+    }
+
+    const currentTarget = controlsRef.current
+      ? controlsRef.current.target.clone()
+      : new THREE.Vector3(0, 0, 0);
+    const viewDir = camera.position.clone().sub(currentTarget);
+    const currentDist = viewDir.length();
+    if (currentDist < 0.001) {
+      viewDir.set(0, 0.28, 1).normalize();
+    } else {
+      viewDir.normalize();
+    }
+
+    const fovRad =
+      camera instanceof THREE.PerspectiveCamera
+        ? THREE.MathUtils.degToRad(camera.fov)
+        : THREE.MathUtils.degToRad(55);
+    const desiredDist =
+      points.length === 1
+        ? Math.max(26, Math.min(46, currentDist > 26 ? Math.min(currentDist, 40) : 34))
+        : Math.max(36, Math.min(240, (radius / Math.tan(fovRad * 0.5)) * 1.45 + 26));
+
+    const endPos = centroid.clone().addScaledVector(viewDir, desiredDist);
+    cameraFocusAnimRef.current = {
+      startPos: camera.position.clone(),
+      endPos,
+      startTarget: currentTarget,
+      endTarget: centroid,
+      progress: 0,
+    };
+  }, [buffers.positions, camera, focusRequest, layoutResult.nodePositions, nodeIndexMap]);
 
   // Keep latest callbacks/nodes in refs for zero-rebind DOM pointer listeners
   const latestNodesRef = useRef(graph.nodes);
@@ -1405,11 +1544,23 @@ export function BrainScene({
     };
   }, []);
 
-  // Reusable scratch Color + set for zero-allocation pulse frame updates
+  // Reusable scratch objects for zero-allocation pulse & off-screen frame updates
   const pulseColorScratchRef = useRef(new THREE.Color());
-  const activePulsedIndicesRef = useRef<Set<number>>(new Set());
+  const scratchWorldPosRef = useRef(new THREE.Vector3());
+  const scratchViewPosRef = useRef(new THREE.Vector3());
+  const scratchProjPosRef = useRef(new THREE.Vector3());
+  const onPulseVisibilityRef = useRef(onPulseVisibilityChange);
+  onPulseVisibilityRef.current = onPulseVisibilityChange;
+  const lastVisibilityReportTsRef = useRef(0);
+  const lastVisibilitySigRef = useRef("");
 
-  // Per-frame loop: watchdog, shader uniforms, layout lerp, and synaptic pulses in place
+  useEffect(() => {
+    return () => {
+      onPulseVisibilityRef.current?.(null);
+    };
+  }, []);
+
+  // Per-frame loop: watchdog, shader uniforms, layout lerp, camera focus, and synaptic pulses
   useFrame((rootState, rawDelta) => {
     const delta = Math.min(rawDelta, 0.1);
     const now = performance.now();
@@ -1518,11 +1669,29 @@ export function BrainScene({
       }
     }
 
-    // 2. Synaptic live pulses (O(activePulses) in-place update)
+    // 1b. Smooth camera focus transition
+    const focusAnim = cameraFocusAnimRef.current;
+    if (focusAnim) {
+      focusAnim.progress = Math.min(1, focusAnim.progress + delta / CAMERA_FOCUS_DURATION_SEC);
+      const tEase = 1 - Math.pow(1 - focusAnim.progress, 3);
+      camera.position.lerpVectors(focusAnim.startPos, focusAnim.endPos, tEase);
+      if (controlsRef.current) {
+        controlsRef.current.target.lerpVectors(focusAnim.startTarget, focusAnim.endTarget, tEase);
+        controlsRef.current.update();
+      }
+      if (focusAnim.progress >= 1) {
+        cameraFocusAnimRef.current = null;
+      }
+    }
+
+    // 2. Synaptic live pulses (6 s ease-out fade) + smooth dimming of non-pulsing nodes via aMeta.w
     const pulses = useSynapticStore.getState().pulses;
     const activeSet = activePulsedIndicesRef.current;
-    const { pulse, pulseAttr } = buffers;
+    const { pulse, pulseAttr, meta, metaAttr, baseOpacities, positions, sizes } = buffers;
     let pulseDirty = false;
+    let membershipChanged = false;
+    let maxPulseIntensity = 0;
+    let primaryPulseColor = "#60A5FA";
     const touchedVolumetric: number[] = [];
 
     if (pulses.size > 0 || activeSet.size > 0) {
@@ -1530,24 +1699,31 @@ export function BrainScene({
       const nextActive = new Set<number>();
 
       for (const [memoryId, entry] of pulses.entries()) {
-        const elapsed = now - entry.startedAt;
+        const elapsed = Math.max(0, now - entry.startedAt);
         if (elapsed >= entry.durationMs) {
           pulses.delete(memoryId);
           continue;
         }
+        const progress = Math.min(1, elapsed / entry.durationMs);
+        // Smooth ease-out fade: holds bright early, eases gently to 0 at 6 s
+        const easeOutFade = Math.pow(1 - progress * progress, 1.5);
+        const currentIntensity = entry.intensity * easeOutFade;
+        if (currentIntensity > maxPulseIntensity) {
+          maxPulseIntensity = currentIntensity;
+          primaryPulseColor = entry.colorHex;
+        }
+
         const idx = nodeIndexMap.get(memoryId);
         if (idx === undefined) continue;
 
-        const norm = 1 - elapsed / entry.durationMs;
-        const currentIntensity = entry.intensity * Math.pow(norm, 1.5);
         scratch.set(entry.colorHex);
-
         const i4 = idx * 4;
         pulse[i4] = scratch.r;
         pulse[i4 + 1] = scratch.g;
         pulse[i4 + 2] = scratch.b;
         pulse[i4 + 3] = currentIntensity;
         nextActive.add(idx);
+        if (!activeSet.has(idx)) membershipChanged = true;
         if (instancedMesh) touchedVolumetric.push(idx);
         pulseDirty = true;
       }
@@ -1556,6 +1732,7 @@ export function BrainScene({
       for (const prevIdx of activeSet) {
         if (!nextActive.has(prevIdx)) {
           pulse[prevIdx * 4 + 3] = 0;
+          membershipChanged = true;
           if (instancedMesh) touchedVolumetric.push(prevIdx);
           pulseDirty = true;
         }
@@ -1571,6 +1748,161 @@ export function BrainScene({
           instancedMesh.instanceMatrix.needsUpdate = true;
           if (instancedMesh.instanceColor) {
             instancedMesh.instanceColor.needsUpdate = true;
+          }
+        }
+      }
+    }
+
+    // 2b. Smoothly dim all other nodes to ~30% opacity while any pulse is active (Eco-friendly: uses aMeta.w)
+    const dimStrength =
+      maxPulseIntensity > 0.02 ? Math.min(1, maxPulseIntensity / 0.24) : 0;
+    const targetDim = 1.0 - (1.0 - PULSE_DIM_OPACITY) * dimStrength;
+    const dimSpeed = targetDim < dimFactorRef.current ? 9.0 : 3.8;
+    const nextDim =
+      Math.abs(targetDim - dimFactorRef.current) < 0.0015
+        ? targetDim
+        : dimFactorRef.current + (targetDim - dimFactorRef.current) * (1 - Math.exp(-delta * dimSpeed));
+    dimFactorRef.current = nextDim;
+
+    const dimDelta = Math.abs(nextDim - appliedDimFactorRef.current);
+    if (dimDelta > 0.002 || (membershipChanged && (nextDim < 0.998 || appliedDimFactorRef.current < 0.998))) {
+      const count = graph.nodes.length;
+      const currentActive = activePulsedIndicesRef.current;
+      for (let i = 0; i < count; i += 1) {
+        const i4 = i * 4;
+        const baseOp = baseOpacities[i] ?? 1.0;
+        const focus = meta[i4 + 2] ?? 0;
+        if (currentActive.has(i)) {
+          meta[i4 + 3] = 1.0;
+        } else if (focus === 1 || focus === 2) {
+          meta[i4 + 3] = Math.max(baseOp * nextDim, 0.85);
+        } else {
+          meta[i4 + 3] = baseOp * nextDim;
+        }
+      }
+      metaAttr.needsUpdate = true;
+      appliedDimFactorRef.current = nextDim;
+
+      if (instancedMesh) {
+        for (let i = 0; i < count; i += 1) {
+          writeVolumetricInstance(instancedMesh, i, true);
+        }
+        if (instancedMesh.instanceColor) {
+          instancedMesh.instanceColor.needsUpdate = true;
+        }
+      }
+    }
+
+    // 2c. Detect off-screen / filtered-out pulsing nodes for the viewport edge indicator
+    const visibilityCb = onPulseVisibilityRef.current;
+    if (visibilityCb) {
+      if (pulses.size === 0) {
+        if (lastVisibilitySigRef.current !== "") {
+          lastVisibilitySigRef.current = "";
+          visibilityCb(null);
+        }
+      } else if (
+        membershipChanged ||
+        now - lastVisibilityReportTsRef.current >= PULSE_VISIBILITY_REPORT_MS
+      ) {
+        lastVisibilityReportTsRef.current = now;
+        let onScreenCount = 0;
+        let offScreenCount = 0;
+        let filteredOutCount = 0;
+        let missingFromGraphCount = 0;
+        const offScreenIds: Uuid[] = [];
+        const filteredOutIds: Uuid[] = [];
+        let sumDx = 0;
+        let sumDy = 0;
+
+        const worldPos = scratchWorldPosRef.current;
+        const viewPos = scratchViewPosRef.current;
+        const projPos = scratchProjPosRef.current;
+
+        for (const [memoryId] of pulses.entries()) {
+          const idx = nodeIndexMap.get(memoryId);
+          if (idx === undefined) {
+            missingFromGraphCount += 1;
+            continue;
+          }
+          if ((sizes[idx] ?? 0) <= 0.0001) {
+            filteredOutCount += 1;
+            filteredOutIds.push(memoryId);
+            continue;
+          }
+
+          const i3 = idx * 3;
+          worldPos.set(positions[i3] ?? 0, positions[i3 + 1] ?? 0, positions[i3 + 2] ?? 0);
+          viewPos.copy(worldPos).applyMatrix4(camera.matrixWorldInverse);
+          const isBehindCamera = viewPos.z >= 0;
+          projPos.copy(worldPos).project(camera);
+
+          const isVisibleInView =
+            !isBehindCamera &&
+            Math.abs(projPos.x) <= 0.98 &&
+            Math.abs(projPos.y) <= 0.98 &&
+            projPos.z >= -1 &&
+            projPos.z <= 1;
+
+          if (isVisibleInView) {
+            onScreenCount += 1;
+          } else {
+            offScreenCount += 1;
+            offScreenIds.push(memoryId);
+            let dx = isBehindCamera ? -projPos.x : projPos.x;
+            let dy = isBehindCamera ? -projPos.y : projPos.y;
+            const len = Math.hypot(dx, dy);
+            if (len < 0.001) {
+              dx = 0;
+              dy = -1;
+            } else {
+              dx /= len;
+              dy /= len;
+            }
+            sumDx += dx;
+            sumDy += dy;
+          }
+        }
+
+        let edge: ViewportEdge | null = null;
+        let edgeOffset = 0.5;
+        if (offScreenCount > 0) {
+          if (Math.abs(sumDx) >= Math.abs(sumDy)) {
+            edge = sumDx >= 0 ? "right" : "left";
+            const slopeY = Math.abs(sumDx) > 0.001 ? sumDy / Math.abs(sumDx) : 0;
+            const clampedNdcY = Math.max(-1, Math.min(1, slopeY));
+            edgeOffset = Math.max(0.2, Math.min(0.78, 0.5 - clampedNdcY * 0.42));
+          } else {
+            edge = sumDy >= 0 ? "top" : "bottom";
+            const slopeX = Math.abs(sumDy) > 0.001 ? sumDx / Math.abs(sumDy) : 0;
+            const clampedNdcX = Math.max(-1, Math.min(1, slopeX));
+            edgeOffset = Math.max(0.22, Math.min(0.78, 0.5 + clampedNdcX * 0.42));
+          }
+        }
+
+        const totalHidden = offScreenCount + filteredOutCount + missingFromGraphCount;
+        const sig =
+          totalHidden === 0
+            ? "all-visible"
+            : `${onScreenCount}:${offScreenCount}:${filteredOutCount}:${missingFromGraphCount}:${edge ?? "none"}:${Math.round(edgeOffset * 20)}:${primaryPulseColor}`;
+
+        if (sig !== lastVisibilitySigRef.current) {
+          lastVisibilitySigRef.current = sig;
+          if (totalHidden === 0) {
+            visibilityCb(null);
+          } else {
+            visibilityCb({
+              totalActive: pulses.size,
+              onScreenCount,
+              offScreenCount,
+              filteredOutCount,
+              missingFromGraphCount,
+              edge,
+              edgeOffset,
+              colorHex: primaryPulseColor,
+              offScreenIds,
+              filteredOutIds,
+            });
           }
         }
       }

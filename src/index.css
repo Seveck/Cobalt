@@ -36,12 +36,12 @@
   --color-cinnabar-wash: #261214;
   --color-cinnabar-rule: #6e2729;
 
-  /* Contract pulse colors */
-  --color-pulse-read: #0047ab;
-  --color-pulse-reuse: #9b87f5;
-  --color-pulse-write: #34b37e;
-  --color-pulse-update: #d4a359;
-  --color-pulse-blocked: #e05252;
+  /* Bright live-activity pulse colors */
+  --color-pulse-read: #60a5fa;
+  --color-pulse-reuse: #a78bfa;
+  --color-pulse-write: #34d399;
+  --color-pulse-update: #fbbf24;
+  --color-pulse-blocked: #f87171;
 
   /* Typography pairing (bundled locally via @fontsource) */
   --font-display: "IBM Plex Serif", Georgia, "Times New Roman", serif;
@@ -125,4 +125,32 @@
   to {
     transform: scaleX(0);
   }
+}
+
+@keyframes cobalt-synaptic-enter {
+  0% {
+    opacity: 0.35;
+    transform: translate3d(-10px, 12px, 0) scale(0.985);
+    box-shadow:
+      0 0 0 1px var(--synaptic-glow, #60a5fa),
+      0 0 28px var(--synaptic-glow-soft, rgba(96, 165, 250, 0.55)),
+      0 14px 36px rgba(0, 0, 0, 0.78);
+  }
+  28% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    box-shadow:
+      0 0 0 1px var(--synaptic-glow, #60a5fa),
+      0 0 26px var(--synaptic-glow-soft, rgba(96, 165, 250, 0.45)),
+      0 14px 36px rgba(0, 0, 0, 0.78);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.78);
+  }
+}
+
+.cobalt-synaptic-card-enter {
+  animation: cobalt-synaptic-enter 1.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
