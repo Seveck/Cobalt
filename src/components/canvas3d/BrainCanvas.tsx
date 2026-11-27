@@ -43,7 +43,7 @@ import { BrainScene, type PulseVisibilitySummary } from "./BrainScene";
 import { FilterDock } from "./FilterDock";
 import { LayoutsPanel } from "./LayoutsPanel";
 import { NodeTooltip, type TooltipPointer } from "./NodeTooltip";
-import { PulseEdgeIndicator } from "./PulseEdgeIndicator";
+import { PulseEdgeIndicator, type PulseIndicatorSafeInsets } from "./PulseEdgeIndicator";
 import { SynapticHud } from "./SynapticHud";
 import { ThemeWarningsBanner } from "./ThemeWarningsBanner";
 
@@ -83,6 +83,9 @@ class CanvasErrorBoundary extends Component<
 export function BrainCanvas() {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
+  const topToolbarRef = useRef<HTMLDivElement>(null);
+  const bottomDockRef = useRef<HTMLDivElement>(null);
+  const hudWrapperRef = useRef<HTMLDivElement>(null);
 
   const graph = useMemoryStore((s) => s.graph);
   const loading = useMemoryStore((s) => s.loading);
@@ -140,6 +143,75 @@ export function BrainCanvas() {
   const [timeTravelOpen, setTimeTravelOpen] = useState(false);
   const [projectContainers, setProjectContainers] = useState<readonly ProjectContainer[]>([]);
   const [pulseVisibility, setPulseVisibility] = useState<PulseVisibilitySummary | null>(null);
+  const [indicatorSafeInsets, setIndicatorSafeInsets] = useState<PulseIndicatorSafeInsets>({
+    top: 68,
+    bottom: 72,
+    containerWidth: 800,
+    containerHeight: 600,
+    hudRight: 0,
+    hudTopFromBottom: 0,
+  });
+
+  // Measure top toolbar, bottom dock, and SynapticHud bounds so PulseEdgeIndicator never overlaps buttons
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const measure = () => {
+      const containerRect = container.getBoundingClientRect();
+      if (containerRect.width <= 0 || containerRect.height <= 0) return;
+
+      const topEl = topToolbarRef.current;
+      const topInset = topEl
+        ? Math.max(56, Math.ceil(topEl.getBoundingClientRect().bottom - containerRect.top) + 12)
+        : 68;
+
+      const dockEl = bottomDockRef.current;
+      const dockRect = dockEl?.getBoundingClientRect();
+      const bottomInset =
+        dockRect && dockRect.height > 0
+          ? Math.max(56, Math.ceil(containerRect.bottom - dockRect.top) + 12)
+          : 56;
+
+      const hudEl = hudWrapperRef.current;
+      const hudRect = hudEl?.getBoundingClientRect();
+      const hudVisibleNow = Boolean(hudRect && hudRect.height > 0 && hudRect.width > 0);
+      const hudRight = hudVisibleNow && hudRect ? Math.ceil(hudRect.right - containerRect.left) : 0;
+      const hudTopFromBottom =
+        hudVisibleNow && hudRect ? Math.ceil(containerRect.bottom - hudRect.top) : 0;
+
+      const nextWidth = Math.round(containerRect.width);
+      const nextHeight = Math.round(containerRect.height);
+
+      setIndicatorSafeInsets((prev) =>
+        prev.top === topInset &&
+        prev.bottom === bottomInset &&
+        prev.containerWidth === nextWidth &&
+        prev.containerHeight === nextHeight &&
+        prev.hudRight === hudRight &&
+        prev.hudTopFromBottom === hudTopFromBottom
+          ? prev
+          : {
+              top: topInset,
+              bottom: bottomInset,
+              containerWidth: nextWidth,
+              containerHeight: nextHeight,
+              hudRight,
+              hudTopFromBottom,
+            },
+      );
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    if (topToolbarRef.current) observer.observe(topToolbarRef.current);
+    if (bottomDockRef.current) observer.observe(bottomDockRef.current);
+    if (hudWrapperRef.current) observer.observe(hudWrapperRef.current);
+    return () => observer.disconnect();
+  }, [graph?.nodes.length, timeTravelOpen]);
 
   const handleDropOnto3D = useCallback(
     (paths: string[]) => {
@@ -275,7 +347,10 @@ export function BrainCanvas() {
           </div>
         )}
         {/* Top HUD bar: left status + center layout switcher + right tool buttons */}
-        <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex flex-wrap items-start justify-between gap-2">
+        <div
+          ref={topToolbarRef}
+          className="pointer-events-none absolute inset-x-3 top-3 z-20 flex flex-wrap items-start justify-between gap-2"
+        >
           {/* Top-left: Branch Switcher, counts, FPS badge, Read-Only toggle, Daemon status */}
           <div className="flex flex-wrap items-center gap-1.5">
             <BranchSwitcher />
@@ -544,6 +619,7 @@ export function BrainCanvas() {
         {/* Off-screen / filtered-out live pulse edge indicator */}
         <PulseEdgeIndicator
           summary={pulseVisibility}
+          safeInsets={indicatorSafeInsets}
           onFocusOffScreen={handleFocusOffScreenPulses}
           onRevealFiltered={handleRevealFilteredPulses}
         />
@@ -564,7 +640,9 @@ export function BrainCanvas() {
         {/* Bottom overlays: Synaptic Live HUD, Time-Travel Bar, Filter Dock */}
         <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 flex flex-col gap-2">
           <div className="flex flex-wrap items-end justify-between gap-2">
-            <SynapticHud />
+            <div ref={hudWrapperRef} className="max-w-full">
+              <SynapticHud />
+            </div>
 
             {/* Minimal palette legend */}
             {graph && graph.nodes.length > 0 && (
@@ -594,11 +672,13 @@ export function BrainCanvas() {
             )}
           </div>
 
-          {timeTravelOpen && <TimeTravelBar onClose={() => setTimeTravelOpen(false)} />}
+          <div ref={bottomDockRef} className="flex flex-col gap-2">
+            {timeTravelOpen && <TimeTravelBar onClose={() => setTimeTravelOpen(false)} />}
 
-          {graph && graph.nodes.length > 0 && (
-            <FilterDock nodes={graph.nodes} projects={graph.projects} />
-          )}
+            {graph && graph.nodes.length > 0 && (
+              <FilterDock nodes={graph.nodes} projects={graph.projects} />
+            )}
+          </div>
         </div>
       </div>
 

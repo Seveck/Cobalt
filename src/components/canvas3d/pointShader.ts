@@ -134,6 +134,11 @@ export const NODE_POINT_FRAGMENT_SHADER = /* glsl */ `
       col = mix(col, ringCol, clamp(expandingRing * 0.96, 0.0, 1.0));
       col = mix(col, vec3(1.0), clamp(whiteCore * 0.96 + coreBloom * 0.48, 0.0, 1.0));
       alpha = max(alpha, clamp(haloStrength + expandingRing * 0.98 + whiteCore * 0.98, 0.0, 1.0));
+    } else if (vPulse.a < -0.005) {
+      // Very faint internal change flicker: subtle disc tint only, no halo or size expansion
+      float flicker = clamp(-vPulse.a, 0.0, 1.0);
+      vec3 flickerTint = mix(vPulse.rgb, vec3(1.0), 0.16);
+      col = mix(col, flickerTint, flicker * 0.48 * disc);
     }
 
     // Subtle soft ambient rim on regular discs

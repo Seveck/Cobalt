@@ -2,7 +2,14 @@ import { create } from "zustand";
 import { BRIGHT_OPERATION_COLORS } from "@/lib/pulseColors";
 import { resolveNodesForTouchedFiles } from "@/lib/sourceDocCache";
 import { useMemoryStore } from "@/stores/memory";
-import { DEFAULT_PULSE_DURATION_MS, useSynapticStore } from "@/stores/synaptic";
+import {
+  DEFAULT_PULSE_DURATION_MS,
+  INTERNAL_FLICKER_DURATION_MS,
+  INTERNAL_FLICKER_INTENSITY,
+  INTERNAL_FLICKER_MAX_NODES,
+  isInternalMemorySource,
+  useSynapticStore,
+} from "@/stores/synaptic";
 import type {
   CliActivity,
   CliActivityKind,
@@ -62,9 +69,21 @@ export const useCliActivityStore = create<CliActivityState>((set) => ({
       ).then((matchedIds) => {
         if (matchedIds.length === 0) return;
         const pulseColor = CLI_ACTIVITY_COLORS[activity.kind];
-        useSynapticStore
-          .getState()
-          .pulseNodes(matchedIds, pulseColor, DEFAULT_PULSE_DURATION_MS, 0.95);
+        if (!isInternalMemorySource(activity.client_name)) {
+          useSynapticStore
+            .getState()
+            .pulseNodes(matchedIds, pulseColor, DEFAULT_PULSE_DURATION_MS, 0.95, "ai");
+        } else if (matchedIds.length <= INTERNAL_FLICKER_MAX_NODES) {
+          useSynapticStore
+            .getState()
+            .pulseNodes(
+              matchedIds,
+              pulseColor,
+              INTERNAL_FLICKER_DURATION_MS,
+              INTERNAL_FLICKER_INTENSITY,
+              "flicker",
+            );
+        }
         set((state) => ({
           entries: state.entries.map((entry) =>
             entry.id === id ? { ...entry, matchedNodeIds: matchedIds } : entry,

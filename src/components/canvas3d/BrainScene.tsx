@@ -898,6 +898,7 @@ export function BrainScene({
   const appliedChromeOpacityRef = useRef(1.0);
   const appliedSemanticFadeRef = useRef(1.0);
   const activePulsedIndicesRef = useRef<Set<number>>(new Set());
+  const activeVisualPulseIndicesRef = useRef<Set<number>>(new Set());
 
   const prefersReducedMotion = usePrefersReducedMotion();
   const prefersReducedMotionRef = useRef(prefersReducedMotion);
@@ -908,7 +909,9 @@ export function BrainScene({
       const i3 = idx * 3;
       const i4 = idx * 4;
       const sizeVal = buffers.sizes[idx] ?? 0;
-      const pulseIntensity = buffers.pulse[i4 + 3] ?? 0;
+      const rawPulse = buffers.pulse[i4 + 3] ?? 0;
+      const aiPulse = rawPulse > 0 ? rawPulse : 0;
+      const flickerPulse = rawPulse < 0 ? -rawPulse : 0;
 
       const mat = scratchMatrixRef.current;
       const pos = scratchPosRef.current;
@@ -924,7 +927,7 @@ export function BrainScene({
       if (sizeVal <= 0.0001) {
         scl.set(0, 0, 0);
       } else {
-        const s = sizeVal * VOLUMETRIC_SCALE_MULTIPLIER * (1 + pulseIntensity * 1.9);
+        const s = sizeVal * VOLUMETRIC_SCALE_MULTIPLIER * (1 + aiPulse * 1.9);
         scl.set(s, s, s);
       }
 
@@ -946,15 +949,23 @@ export function BrainScene({
         if (focus > 2.5) {
           col.lerp(scratchRagColorRef.current, 0.45);
         }
-        if (pulseIntensity > 0.01) {
+        if (aiPulse > 0.01) {
           const pCol = scratchPulseColorRef.current;
           pCol.setRGB(
             buffers.pulse[i4] ?? 1,
             buffers.pulse[i4 + 1] ?? 1,
             buffers.pulse[i4 + 2] ?? 1,
           );
-          col.lerp(pCol, Math.min(1, pulseIntensity * 0.95));
-          col.lerp(scratchWhiteColorRef.current, Math.min(0.65, pulseIntensity * 0.45));
+          col.lerp(pCol, Math.min(1, aiPulse * 0.95));
+          col.lerp(scratchWhiteColorRef.current, Math.min(0.65, aiPulse * 0.45));
+        } else if (flickerPulse > 0.01) {
+          const pCol = scratchPulseColorRef.current;
+          pCol.setRGB(
+            buffers.pulse[i4] ?? 1,
+            buffers.pulse[i4 + 1] ?? 1,
+            buffers.pulse[i4 + 2] ?? 1,
+          );
+          col.lerp(pCol, Math.min(0.35, flickerPulse * 0.45));
         }
         mesh.setColorAt(idx, col);
       }
@@ -2038,19 +2049,22 @@ export function BrainScene({
       }
     }
 
-    // 2. Synaptic live pulses (6 s ease-out fade) + smooth dimming of non-pulsing nodes via aMeta.w
+    // 2. Synaptic live pulses (AI: 6 s ease-out strong pulse + dimming; internal: faint 1 s disc flicker only)
     const pulses = useSynapticStore.getState().pulses;
-    const activeSet = activePulsedIndicesRef.current;
+    const activeAiSet = activePulsedIndicesRef.current;
+    const activeVisualSet = activeVisualPulseIndicesRef.current;
     const { pulse, pulseAttr, meta, metaAttr, baseOpacities, positions, sizes } = buffers;
     let pulseDirty = false;
-    let membershipChanged = false;
-    let maxPulseIntensity = 0;
-    let primaryPulseColor = "#60A5FA";
+    let aiMembershipChanged = false;
+    let maxAiPulseIntensity = 0;
+    let primaryAiPulseColor = "#60A5FA";
+    let activeAiPulseCount = 0;
     const touchedVolumetric: number[] = [];
 
-    if (pulses.size > 0 || activeSet.size > 0) {
+    if (pulses.size > 0 || activeVisualSet.size > 0 || activeAiSet.size > 0) {
       const scratch = pulseColorScratchRef.current;
-      const nextActive = new Set<number>();
+      const nextActiveAi = new Set<number>();
+      const nextActiveVisual = new Set<number>();
 
       for (const [memoryId, entry] of pulses.entries()) {
         const elapsed = Math.max(0, now - entry.startedAt);
@@ -2059,12 +2073,17 @@ export function BrainScene({
           continue;
         }
         const progress = Math.min(1, elapsed / entry.durationMs);
-        // Smooth ease-out fade: holds bright early, eases gently to 0 at 6 s
+        // Smooth ease-out fade: holds bright early, eases gently to 0 at durationMs
         const easeOutFade = Math.pow(1 - progress * progress, 1.5);
         const currentIntensity = entry.intensity * easeOutFade;
-        if (currentIntensity > maxPulseIntensity) {
-          maxPulseIntensity = currentIntensity;
-          primaryPulseColor = entry.colorHex;
+        const isAi = entry.kind === "ai";
+
+        if (isAi) {
+          activeAiPulseCount += 1;
+          if (currentIntensity > maxAiPulseIntensity) {
+            maxAiPulseIntensity = currentIntensity;
+            primaryAiPulseColor = entry.colorHex;
+          }
         }
 
         const idx = nodeIndexMap.get(memoryId);
@@ -2075,24 +2094,35 @@ export function BrainScene({
         pulse[i4] = scratch.r;
         pulse[i4 + 1] = scratch.g;
         pulse[i4 + 2] = scratch.b;
-        pulse[i4 + 3] = currentIntensity;
-        nextActive.add(idx);
-        if (!activeSet.has(idx)) membershipChanged = true;
+        // Positive aPulse.a = strong AI pulse with halo; negative aPulse.a = faint disc flicker only
+        pulse[i4 + 3] = isAi ? currentIntensity : -currentIntensity;
+
+        nextActiveVisual.add(idx);
+        if (isAi) {
+          nextActiveAi.add(idx);
+          if (!activeAiSet.has(idx)) aiMembershipChanged = true;
+        }
         if (instancedMesh) touchedVolumetric.push(idx);
         pulseDirty = true;
       }
 
-      // Clear any previously pulsed indices that have now expired
-      for (const prevIdx of activeSet) {
-        if (!nextActive.has(prevIdx)) {
+      // Clear any previously pulsed or flickered indices that have now expired or been suppressed
+      for (const prevIdx of activeVisualSet) {
+        if (!nextActiveVisual.has(prevIdx)) {
           pulse[prevIdx * 4 + 3] = 0;
-          membershipChanged = true;
           if (instancedMesh) touchedVolumetric.push(prevIdx);
           pulseDirty = true;
         }
       }
 
-      activePulsedIndicesRef.current = nextActive;
+      for (const prevAiIdx of activeAiSet) {
+        if (!nextActiveAi.has(prevAiIdx)) {
+          aiMembershipChanged = true;
+        }
+      }
+
+      activePulsedIndicesRef.current = nextActiveAi;
+      activeVisualPulseIndicesRef.current = nextActiveVisual;
       if (pulseDirty) {
         pulseAttr.needsUpdate = true;
         if (instancedMesh && touchedVolumetric.length > 0) {
@@ -2107,9 +2137,9 @@ export function BrainScene({
       }
     }
 
-    // 2b. Smoothly dim all other nodes to ~30% opacity while any pulse is active (Eco-friendly: uses aMeta.w)
+    // 2b. Smoothly dim non-AI nodes to ~30% opacity ONLY while an AI pulse is active (internal flickers never dim)
     const dimStrength =
-      maxPulseIntensity > 0.02 ? Math.min(1, maxPulseIntensity / 0.24) : 0;
+      maxAiPulseIntensity > 0.02 ? Math.min(1, maxAiPulseIntensity / 0.24) : 0;
     const targetDim = 1.0 - (1.0 - PULSE_DIM_OPACITY) * dimStrength;
     const dimSpeed = targetDim < dimFactorRef.current ? 9.0 : 3.8;
     const nextDim =
@@ -2124,7 +2154,7 @@ export function BrainScene({
     if (
       dimDelta > 0.002 ||
       fadeDelta > 0.002 ||
-      (membershipChanged && (nextDim < 0.998 || appliedDimFactorRef.current < 0.998))
+      (aiMembershipChanged && (nextDim < 0.998 || appliedDimFactorRef.current < 0.998))
     ) {
       const count = graph.nodes.length;
       const currentActive = activePulsedIndicesRef.current;
@@ -2156,16 +2186,16 @@ export function BrainScene({
       }
     }
 
-    // 2c. Detect off-screen / filtered-out pulsing nodes for the viewport edge indicator
+    // 2c. Detect off-screen / filtered-out AI-pulsed nodes ONLY (internal flickers are never counted)
     const visibilityCb = onPulseVisibilityRef.current;
     if (visibilityCb) {
-      if (pulses.size === 0) {
+      if (activeAiPulseCount === 0) {
         if (lastVisibilitySigRef.current !== "") {
           lastVisibilitySigRef.current = "";
           visibilityCb(null);
         }
       } else if (
-        membershipChanged ||
+        aiMembershipChanged ||
         now - lastVisibilityReportTsRef.current >= PULSE_VISIBILITY_REPORT_MS
       ) {
         lastVisibilityReportTsRef.current = now;
@@ -2182,7 +2212,9 @@ export function BrainScene({
         const viewPos = scratchViewPosRef.current;
         const projPos = scratchProjPosRef.current;
 
-        for (const [memoryId] of pulses.entries()) {
+        for (const [memoryId, entry] of pulses.entries()) {
+          if (entry.kind !== "ai") continue;
+
           const idx = nodeIndexMap.get(memoryId);
           if (idx === undefined) {
             missingFromGraphCount += 1;
@@ -2247,7 +2279,7 @@ export function BrainScene({
         const sig =
           totalHidden === 0
             ? "all-visible"
-            : `${onScreenCount}:${offScreenCount}:${filteredOutCount}:${missingFromGraphCount}:${edge ?? "none"}:${Math.round(edgeOffset * 20)}:${primaryPulseColor}`;
+            : `${onScreenCount}:${offScreenCount}:${filteredOutCount}:${missingFromGraphCount}:${edge ?? "none"}:${Math.round(edgeOffset * 20)}:${primaryAiPulseColor}`;
 
         if (sig !== lastVisibilitySigRef.current) {
           lastVisibilitySigRef.current = sig;
@@ -2255,14 +2287,14 @@ export function BrainScene({
             visibilityCb(null);
           } else {
             visibilityCb({
-              totalActive: pulses.size,
+              totalActive: activeAiPulseCount,
               onScreenCount,
               offScreenCount,
               filteredOutCount,
               missingFromGraphCount,
               edge,
               edgeOffset,
-              colorHex: primaryPulseColor,
+              colorHex: primaryAiPulseColor,
               offScreenIds,
               filteredOutIds,
             });
