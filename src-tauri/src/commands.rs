@@ -50,6 +50,17 @@ pub async fn update_settings(
     args: AppSettings,
 ) -> CmdResult<AppSettings> {
     let previous = state.config.get();
+    let engine_changed = args.vector_engine != previous.vector_engine
+        || args.embedding_model_id != previous.embedding_model_id;
+    // Existing vectors belong to the current model: switching without re-embedding leaves
+    // most memories unsearchable. Only `swap_engine` may change engine/model then.
+    if engine_changed && state.memory_counts().await?.0 > 0 {
+        return Err(CobaltError::Conflict(
+            "changing the vector engine or embedding model with existing memories requires \
+             re-indexing: use swap_engine"
+                .into(),
+        ));
+    }
     let saved = state.config.update(args).await?;
     state
         .vault
@@ -65,14 +76,9 @@ pub async fn update_settings(
     if saved.shortcuts != previous.shortcuts {
         crate::desktop::register_shortcuts(&app, &saved);
     }
-    if saved.vector_engine != previous.vector_engine
-        || saved.embedding_model_id != previous.embedding_model_id
-    {
-        // Switching models with existing memories requires re-embedding (swap_engine, Phase 3).
-        let (indexed, _) = state.memory_counts().await?;
-        if indexed == 0 || !state.activate_engine().await.unwrap_or(false) {
-            state.activate_engine().await?;
-        }
+    if engine_changed {
+        // Empty brain: nothing to re-embed, switch right away.
+        state.activate_engine().await?;
     }
     Ok(saved)
 }
