@@ -39,7 +39,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 ### Correcciones pendientes detectadas en la integración (→ Fase 2)
 - [ ] [CODEX] `cobalt-embeddings`: construir specs y archivos solo desde `cobalt_core::catalog` (quitar la ruta `BuiltIn` que descarga por hf-hub; `pooling` del spec)
 - [ ] [CODEX] Unificar dependencias con el workspace (reqwest 0.13, sha2 0.11) tras subir el MSRV a 1.95
-- [ ] [CODEX] Calibrar umbrales por modelo: con e5 dos notas no relacionadas ya dan coseno ≈ 0.78 (Check-Before-Write 0.85 / duplicados 0.90)
+- [x] [CODEX] Calibrar umbrales por modelo (2026-11-27): medido con 60 pares ES/EN; calibración separada para búsqueda (100 % paráfrasis, 75-80 % mismo tema) y para escritura (35-50 % paráfrasis fusionadas, 0 falsos duplicados; antes 0 %). Límite conocido: el coseno de E5 no separa bien "misma idea" de "otra idea del mismo tema"
 
 ## Fase 2 — Daemon, MCP, gobernanza y 3D polimórfico [PARALELO] ✅
 ### [CLAUDE] `cobalt-mcp` + `src-tauri`
