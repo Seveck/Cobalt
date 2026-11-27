@@ -67,11 +67,11 @@ the filesystem or network. Assets are served through Tauri's asset protocol scop
     "reusable": "#A78BFA",
     "edge": "#1E3A8A",
     "text": "#E2E8F0",
-    "pulse_read": "#0047AB",
-    "pulse_reuse": "#8B5CF6",
-    "pulse_write": "#10B981",
-    "pulse_update": "#F59E0B",
-    "pulse_blocked": "#EF4444",
+    "pulse_read": "#60A5FA",
+    "pulse_reuse": "#A78BFA",
+    "pulse_write": "#34D399",
+    "pulse_update": "#FBBF24",
+    "pulse_blocked": "#F87171",
     "category_colors": { "decision": "#60A5FA", "code": "#34D399" }
   },
   "node_geometry": { "shape": "icosahedron", "base_size": 0.6, "scale_by_hits": true, "detail": 1 },
@@ -147,6 +147,10 @@ compatibility badge computed against the detected profile (`ThemeCompatibility`)
   forced to `hover_only` when it is `always`.
 - On theme or layout change, dispose every geometry, material, texture and render target
   created for the previous theme (no WebGL leaks).
+
+- Live AI activity must be noticeable (v1.1.1): pulse colors are rendered luminous (lightened, white
+  core), halo 3–4× node size, ~6 s with fade, other nodes dimmed while pulses are active, and an
+  off-screen indicator when matched nodes are not visible. Dark pulse colors are discouraged.
 
 ## 6.1 Node rendering & scalability (decision, Phase 2)
 
