@@ -2,7 +2,10 @@
 //! file watcher. Sources, in increasing precedence:
 //! 1. built-in defaults (VCS/build folders, lockfiles, keys, env files, databases);
 //! 2. the global `~/.cobalt/.memoryignore`;
-//! 3. `<root>/.memoryignore` of the project.
+//! 3. the project's git ignores: `<root>/.gitignore` and `<root>/.git/info/exclude` (what git
+//!    ignores is generated or private, never useful as memory; nested `.gitignore` files are not
+//!    read);
+//! 4. `<root>/.memoryignore` of the project.
 //!
 //! Later rules override earlier ones, so a project can re-include a default with `!pattern`.
 
@@ -112,9 +115,15 @@ impl MemoryIgnore {
         if let Some(dir) = global_dir {
             files.push(dir.join(MEMORY_IGNORE_FILE));
         }
+        files.push(root.join(".gitignore"));
+        files.push(root.join(".git").join("info").join("exclude"));
         files.push(root.join(MEMORY_IGNORE_FILE));
         for file in files.into_iter().filter(|f| f.is_file()) {
             if let Some(err) = builder.add(&file) {
+                if file.file_name().is_some_and(|n| n != MEMORY_IGNORE_FILE) {
+                    // A git ignore file Cobalt does not own: keep its valid lines, never fail.
+                    continue;
+                }
                 return Err(CobaltError::InvalidInput(format!(
                     "invalid {}: {err}",
                     file.display()
@@ -154,6 +163,23 @@ impl MemoryIgnore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn git_ignores_apply_and_memoryignore_can_reinclude() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join(".gitignore"), "gen/schemas/\n/private/\nnotes.md\n").unwrap();
+        std::fs::create_dir_all(root.join(".git/info")).unwrap();
+        std::fs::write(root.join(".git/info/exclude"), "scratch.txt\n").unwrap();
+        std::fs::write(root.join(MEMORY_IGNORE_FILE), "!notes.md\n").unwrap();
+        let mi = MemoryIgnore::for_root(root, None).unwrap();
+
+        assert!(mi.is_ignored(&root.join("gen/schemas/acl.json"), false));
+        assert!(mi.is_ignored(&root.join("private"), true));
+        assert!(mi.is_ignored(&root.join("scratch.txt"), false));
+        assert!(!mi.is_ignored(&root.join("notes.md"), false), "re-included by .memoryignore");
+        assert!(!mi.is_ignored(&root.join("src/main.rs"), false));
+    }
 
     #[test]
     fn defaults_and_project_rules() {
