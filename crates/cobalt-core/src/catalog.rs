@@ -37,7 +37,11 @@ pub struct OcrModelEntry {
 impl OcrModelEntry {
     /// The detection and recognition artifacts, in that order.
     pub fn detection_and_recognition(&self) -> Option<(&DownloadArtifact, &DownloadArtifact)> {
-        let find = |suffix: &str| self.files.iter().find(|f| f.relative_dest.ends_with(suffix));
+        let find = |suffix: &str| {
+            self.files
+                .iter()
+                .find(|f| f.relative_dest.ends_with(suffix))
+        };
         Some((find("text-detection.onnx")?, find("text-recognition.onnx")?))
     }
 }
@@ -116,7 +120,9 @@ impl Catalog {
     pub fn with_ocr_json(mut self, ocr_json: &str) -> Result<Self> {
         let ocr: OcrFile = serde_json::from_str(ocr_json)?;
         if ocr.schema_version != 1 {
-            return Err(CobaltError::Unsupported("OCR catalog schema version".into()));
+            return Err(CobaltError::Unsupported(
+                "OCR catalog schema version".into(),
+            ));
         }
         for model in &ocr.ocr_models {
             let total: u64 = model.files.iter().map(|f| f.size_bytes).sum();

@@ -291,7 +291,8 @@ impl EngineManager {
         progress: ProgressSink<DownloadProgress>,
     ) -> Result<OcrStatus> {
         let entry = self.ocr_entry(model_id)?;
-        self.install_artifacts(entry.files.clone(), progress).await?;
+        self.install_artifacts(entry.files.clone(), progress)
+            .await?;
         self.ocr_status(model_id)
     }
 
@@ -511,14 +512,20 @@ mod tests {
         assert_eq!(status.state, EngineState::NotInstalled);
         assert_eq!(status.installed_bytes, 0);
         assert!(mgr.ocr_model_paths(id).is_none());
-        assert!(matches!(mgr.ocr_status("nope"), Err(CobaltError::NotFound(_))));
+        assert!(matches!(
+            mgr.ocr_status("nope"),
+            Err(CobaltError::NotFound(_))
+        ));
 
         // Same simulation as above: exact-size files plus the downloader's verification marker.
         let entry = mgr.catalog().ocr_model(id).unwrap().clone();
         for f in &entry.files {
             let dest = home.path().join(&f.relative_dest);
             std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
-            std::fs::File::create(&dest).unwrap().set_len(f.size_bytes).unwrap();
+            std::fs::File::create(&dest)
+                .unwrap()
+                .set_len(f.size_bytes)
+                .unwrap();
             std::fs::write(marker_path(&dest), &f.sha256).unwrap();
         }
         let status = mgr.ocr_status(id).unwrap();
