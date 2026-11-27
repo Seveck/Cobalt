@@ -20,6 +20,7 @@ import type {
   ProjectContainer,
   ThemeManifest,
   Uuid,
+  Vec3,
   VisualFilters,
 } from "@/types/contracts";
 import { createNodeGeometry } from "./geometry";
@@ -62,6 +63,8 @@ import {
 } from "./themeShaders";
 
 const CAMERA_FOCUS_DURATION_SEC = 0.65;
+const CAMERA_TRANSITION_DURATION_SEC = 0.8;
+const FRUSTUM_CHECK_INTERVAL_MS = 160;
 const PULSE_DIM_OPACITY = 0.3;
 const PULSE_VISIBILITY_REPORT_MS = 100;
 const INITIAL_CAPACITY = 1024;
@@ -187,10 +190,12 @@ export interface BrainSceneProps {
   selectedNodeId: Uuid | null;
   highlightedNodeIds: ReadonlySet<Uuid>;
   resetSignal: number;
+  centerViewSignal: number;
   onHoverNode: (node: GraphNode | null) => void;
   onSelectNode: (node: GraphNode | null) => void;
   onContainersChange?: (containers: readonly ProjectContainer[]) => void;
   onPulseVisibilityChange?: (summary: PulseVisibilitySummary | null) => void;
+  onNodesInViewChange?: (anyInView: boolean) => void;
 }
 
 function resolveNodeColorHex(
@@ -369,10 +374,12 @@ export function BrainScene({
   selectedNodeId,
   highlightedNodeIds,
   resetSignal,
+  centerViewSignal,
   onHoverNode,
   onSelectNode,
   onContainersChange,
   onPulseVisibilityChange,
+  onNodesInViewChange,
 }: BrainSceneProps) {
   const { t, i18n } = useTranslation();
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null);
@@ -1256,85 +1263,314 @@ export function BrainScene({
     return computeIslandsCameraFraming(containers, manifest.camera.fov, aspect);
   }, [isProjectIslands, layoutResult.projectContainers, manifest.camera.fov]);
 
-  // Smooth camera focus transition state (triggered by HUD clicks or off-screen edge indicator)
+  // Keep OrbitControls maxDistance monotonic so switching layouts never pulls a zoomed-out camera inward
+  const maxOrbitDistanceRef = useRef(480);
+  const desiredMaxOrbitDistance = Math.max(480, islandFraming?.maxDistance ?? 480);
+  if (desiredMaxOrbitDistance > maxOrbitDistanceRef.current) {
+    maxOrbitDistanceRef.current = desiredMaxOrbitDistance;
+  }
+
+  // Latest layout/theme/node data in refs so camera actions never re-trigger on layout switches
+  const manifestCameraRef = useRef(manifest.camera);
+  manifestCameraRef.current = manifest.camera;
+  const isProjectIslandsRef = useRef(isProjectIslands);
+  isProjectIslandsRef.current = isProjectIslands;
+  const islandFramingRef = useRef(islandFraming);
+  islandFramingRef.current = islandFraming;
+  const layoutPositionsRef = useRef(layoutResult.nodePositions);
+  layoutPositionsRef.current = layoutResult.nodePositions;
+  const nodeIndexMapRef = useRef(nodeIndexMap);
+  nodeIndexMapRef.current = nodeIndexMap;
+  const visibleNodeIdsRef = useRef(visibleNodeIds);
+  visibleNodeIdsRef.current = visibleNodeIds;
+  const buffersPositionsRef = useRef(buffers.positions);
+  buffersPositionsRef.current = buffers.positions;
+
+  // Unified smooth camera transition state (node focus, reset camera, center view, theme change)
   const focusRequest = useMemoryStore((s) => s.focusRequest);
-  const cameraFocusAnimRef = useRef<{
+  const cameraAnimRef = useRef<{
     startPos: THREE.Vector3;
     endPos: THREE.Vector3;
     startTarget: THREE.Vector3;
     endTarget: THREE.Vector3;
+    startFov: number;
+    endFov: number;
+    startZoom: number;
+    endZoom: number;
     progress: number;
+    durationSec: number;
+    easeMode: "out" | "inOut";
   } | null>(null);
 
-  // Cancel camera focus animation immediately when the user grabs OrbitControls
+  const startCameraAnimation = useCallback(
+    (
+      endPosTuple: Vec3,
+      endTargetTuple: Vec3,
+      endFov: number,
+      durationSec: number,
+      easeMode: "out" | "inOut",
+      resetZoom = false,
+    ) => {
+      const startPos = camera.position.clone();
+      const endPos = new THREE.Vector3(endPosTuple[0], endPosTuple[1], endPosTuple[2]);
+      const startTarget = controlsRef.current
+        ? controlsRef.current.target.clone()
+        : new THREE.Vector3(0, 0, 0);
+      const endTarget = new THREE.Vector3(endTargetTuple[0], endTargetTuple[1], endTargetTuple[2]);
+      const startFov = camera instanceof THREE.PerspectiveCamera ? camera.fov : endFov;
+      const startZoom = camera instanceof THREE.PerspectiveCamera ? camera.zoom : 1;
+      const endZoom = resetZoom ? 1 : startZoom;
+
+      const desiredDist = endPos.distanceTo(endTarget);
+      if (desiredDist * 1.6 > maxOrbitDistanceRef.current) {
+        maxOrbitDistanceRef.current = Math.ceil(desiredDist * 1.6);
+        if (controlsRef.current) {
+          controlsRef.current.maxDistance = maxOrbitDistanceRef.current;
+        }
+      }
+
+      if (
+        startPos.distanceTo(endPos) < 0.02 &&
+        startTarget.distanceTo(endTarget) < 0.02 &&
+        Math.abs(startFov - endFov) < 0.05 &&
+        Math.abs(startZoom - endZoom) < 0.005
+      ) {
+        cameraAnimRef.current = null;
+        return;
+      }
+
+      cameraAnimRef.current = {
+        startPos,
+        endPos,
+        startTarget,
+        endTarget,
+        startFov,
+        endFov,
+        startZoom,
+        endZoom,
+        progress: 0,
+        durationSec,
+        easeMode,
+      };
+    },
+    [camera],
+  );
+
+  // Cancel any camera transition immediately when the user grabs OrbitControls
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) return;
-    const cancelFocus = () => {
-      cameraFocusAnimRef.current = null;
+    const cancelAnim = () => {
+      cameraAnimRef.current = null;
     };
-    controls.addEventListener("start", cancelFocus);
+    controls.addEventListener("start", cancelAnim);
     return () => {
-      controls.removeEventListener("start", cancelFocus);
+      controls.removeEventListener("start", cancelAnim);
     };
   }, []);
 
-  // Apply camera defaults, island overview framing, & explicit reset signal
-  useEffect(() => {
-    cameraFocusAnimRef.current = null;
+  // Apply theme camera ONLY on first load (immediate) and theme switch (smooth ~0.8 s ease).
+  // Switching layouts NEVER touches camera position, target, zoom, FOV, or auto-rotate state.
+  const cameraInitializedRef = useRef(false);
+  const lastThemeIdRef = useRef<string | null>(null);
 
-    if (isProjectIslands && islandFraming) {
-      const [px, py, pz] = islandFraming.position;
-      const [tx, ty, tz] = islandFraming.target;
+  useEffect(() => {
+    const cam = manifest.camera;
+    const controls = controlsRef.current;
+
+    if (!cameraInitializedRef.current) {
+      cameraAnimRef.current = null;
+      const [px, py, pz] = cam.position;
+      const [tx, ty, tz] = cam.target;
       camera.position.set(px, py, pz);
       if (camera instanceof THREE.PerspectiveCamera) {
-        camera.fov = manifest.camera.fov;
+        camera.fov = cam.fov;
         camera.updateProjectionMatrix();
       }
-      if (controlsRef.current) {
-        controlsRef.current.target.set(tx, ty, tz);
-        controlsRef.current.update();
+      if (controls) {
+        controls.target.set(tx, ty, tz);
+        controls.autoRotate = cam.auto_rotate;
+        controls.autoRotateSpeed = cam.auto_rotate_speed;
+        controls.update();
       }
+      cameraInitializedRef.current = true;
+      lastThemeIdRef.current = manifest.id;
       return;
     }
 
-    const [px, py, pz] = manifest.camera.position;
-    const [tx, ty, tz] = manifest.camera.target;
-    camera.position.set(px, py, pz);
-    if (camera instanceof THREE.PerspectiveCamera) {
-      camera.fov = manifest.camera.fov;
-      camera.updateProjectionMatrix();
+    if (lastThemeIdRef.current !== manifest.id) {
+      lastThemeIdRef.current = manifest.id;
+      if (controls) {
+        controls.autoRotate = cam.auto_rotate;
+        controls.autoRotateSpeed = cam.auto_rotate_speed;
+      }
+      startCameraAnimation(
+        cam.position,
+        cam.target,
+        cam.fov,
+        CAMERA_TRANSITION_DURATION_SEC,
+        "inOut",
+        true,
+      );
     }
-    if (controlsRef.current) {
-      controlsRef.current.target.set(tx, ty, tz);
-      controlsRef.current.update();
-    }
-  }, [activeLayout, camera, isProjectIslands, islandFraming, manifest.camera, resetSignal]);
+  }, [camera, manifest.camera, manifest.id, startCameraAnimation]);
 
-  // Smoothly focus camera on requested memory node(s)
+  // Explicit reset-camera button: smoothly (~0.8 s) ease back to the active theme's camera
+  const lastResetSignalRef = useRef(resetSignal);
+  useEffect(() => {
+    if (resetSignal === lastResetSignalRef.current) return;
+    lastResetSignalRef.current = resetSignal;
+
+    const cam = manifestCameraRef.current;
+    if (controlsRef.current) {
+      controlsRef.current.autoRotate = cam.auto_rotate;
+      controlsRef.current.autoRotateSpeed = cam.auto_rotate_speed;
+    }
+    startCameraAnimation(
+      cam.position,
+      cam.target,
+      cam.fov,
+      CAMERA_TRANSITION_DURATION_SEC,
+      "inOut",
+      true,
+    );
+  }, [resetSignal, startCameraAnimation]);
+
+  // Explicit "Center view" action: island overview for project_islands, or smooth visible-nodes framing
+  const lastCenterViewSignalRef = useRef(centerViewSignal);
+  useEffect(() => {
+    if (centerViewSignal === lastCenterViewSignalRef.current) return;
+    lastCenterViewSignalRef.current = centerViewSignal;
+
+    const cam = manifestCameraRef.current;
+    if (isProjectIslandsRef.current && islandFramingRef.current) {
+      const framing = islandFramingRef.current;
+      if (framing.maxDistance > maxOrbitDistanceRef.current) {
+        maxOrbitDistanceRef.current = framing.maxDistance;
+        if (controlsRef.current) {
+          controlsRef.current.maxDistance = framing.maxDistance;
+        }
+      }
+      startCameraAnimation(
+        framing.position,
+        framing.target,
+        cam.fov,
+        CAMERA_TRANSITION_DURATION_SEC,
+        "inOut",
+        true,
+      );
+      return;
+    }
+
+    const visibleIds = visibleNodeIdsRef.current;
+    const nodePositions = layoutPositionsRef.current;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    let count = 0;
+
+    for (const id of visibleIds) {
+      const pos = nodePositions[id];
+      if (!pos) continue;
+      if (pos[0] < minX) minX = pos[0];
+      if (pos[0] > maxX) maxX = pos[0];
+      if (pos[1] < minY) minY = pos[1];
+      if (pos[1] > maxY) maxY = pos[1];
+      if (pos[2] < minZ) minZ = pos[2];
+      if (pos[2] > maxZ) maxZ = pos[2];
+      count += 1;
+    }
+
+    if (count === 0) {
+      startCameraAnimation(
+        cam.position,
+        cam.target,
+        cam.fov,
+        CAMERA_TRANSITION_DURATION_SEC,
+        "inOut",
+        true,
+      );
+      return;
+    }
+
+    const cx = (minX + maxX) * 0.5;
+    const cy = (minY + maxY) * 0.5;
+    const cz = (minZ + maxZ) * 0.5;
+
+    let radiusSq = 0;
+    for (const id of visibleIds) {
+      const pos = nodePositions[id];
+      if (!pos) continue;
+      const dx = pos[0] - cx;
+      const dy = pos[1] - cy;
+      const dz = pos[2] - cz;
+      const dSq = dx * dx + dy * dy + dz * dz;
+      if (dSq > radiusSq) radiusSq = dSq;
+    }
+    const radius = Math.sqrt(radiusSq);
+
+    const dir = new THREE.Vector3(
+      cam.position[0] - cam.target[0],
+      cam.position[1] - cam.target[1],
+      cam.position[2] - cam.target[2],
+    );
+    if (dir.lengthSq() < 1e-4) {
+      dir.set(0, 0.25, 1);
+    }
+    dir.normalize();
+
+    const aspect = Math.max(0.5, sizeRef.current.width / Math.max(1, sizeRef.current.height));
+    const vFov = THREE.MathUtils.degToRad(Math.max(25, Math.min(90, cam.fov)));
+    const hFov = 2 * Math.atan(Math.tan(vFov * 0.5) * aspect);
+    const limitingHalfFov = Math.min(vFov, hFov) * 0.5;
+    const fitDist = Math.max(42, (radius / Math.tan(limitingHalfFov)) * 1.18 + 18);
+
+    const targetPos: Vec3 = [cx + dir.x * fitDist, cy + dir.y * fitDist, cz + dir.z * fitDist];
+    const targetLookAt: Vec3 = [cx, cy, cz];
+    startCameraAnimation(
+      targetPos,
+      targetLookAt,
+      cam.fov,
+      CAMERA_TRANSITION_DURATION_SEC,
+      "inOut",
+      true,
+    );
+  }, [centerViewSignal, startCameraAnimation]);
+
+  // Smoothly focus camera on requested memory node(s) (consumed once per nonce; never re-triggers on layout change)
+  const lastHandledFocusNonceRef = useRef(0);
   useEffect(() => {
     if (!focusRequest || focusRequest.nodeIds.length === 0) return;
+    if (focusRequest.nonce === lastHandledFocusNonceRef.current) return;
+    lastHandledFocusNonceRef.current = focusRequest.nonce;
 
+    const indexMap = nodeIndexMapRef.current;
+    const livePositions = buffersPositionsRef.current;
+    const targetLayoutPositions = layoutPositionsRef.current;
     const points: THREE.Vector3[] = [];
     for (const id of focusRequest.nodeIds) {
-      const idx = nodeIndexMap.get(id);
+      const idx = indexMap.get(id);
       if (idx !== undefined) {
         const i3 = idx * 3;
         points.push(
           new THREE.Vector3(
-            buffers.positions[i3] ?? 0,
-            buffers.positions[i3 + 1] ?? 0,
-            buffers.positions[i3 + 2] ?? 0,
+            livePositions[i3] ?? 0,
+            livePositions[i3 + 1] ?? 0,
+            livePositions[i3 + 2] ?? 0,
           ),
         );
       } else {
-        const pos = layoutResult.nodePositions[id];
+        const pos = targetLayoutPositions[id];
         if (pos) {
           points.push(new THREE.Vector3(pos[0], pos[1], pos[2]));
         }
       }
     }
 
+    useMemoryStore.getState().clearFocusRequest();
     if (points.length === 0) return;
 
     const centroid = new THREE.Vector3();
@@ -1369,14 +1605,17 @@ export function BrainScene({
         : Math.max(36, Math.min(240, (radius / Math.tan(fovRad * 0.5)) * 1.45 + 26));
 
     const endPos = centroid.clone().addScaledVector(viewDir, desiredDist);
-    cameraFocusAnimRef.current = {
-      startPos: camera.position.clone(),
-      endPos,
-      startTarget: currentTarget,
-      endTarget: centroid,
-      progress: 0,
-    };
-  }, [buffers.positions, camera, focusRequest, layoutResult.nodePositions, nodeIndexMap]);
+    const currentFov =
+      camera instanceof THREE.PerspectiveCamera ? camera.fov : manifestCameraRef.current.fov;
+    startCameraAnimation(
+      [endPos.x, endPos.y, endPos.z],
+      [centroid.x, centroid.y, centroid.z],
+      currentFov,
+      CAMERA_FOCUS_DURATION_SEC,
+      "out",
+      false,
+    );
+  }, [camera, focusRequest, startCameraAnimation]);
 
   // Keep latest callbacks/nodes in refs for zero-rebind DOM pointer listeners
   const latestNodesRef = useRef(graph.nodes);
@@ -1827,19 +2066,26 @@ export function BrainScene({
     };
   }, []);
 
-  // Reusable scratch objects for zero-allocation pulse & off-screen frame updates
+  // Reusable scratch objects for zero-allocation pulse, frustum, & off-screen frame updates
   const pulseColorScratchRef = useRef(new THREE.Color());
   const scratchWorldPosRef = useRef(new THREE.Vector3());
   const scratchViewPosRef = useRef(new THREE.Vector3());
   const scratchProjPosRef = useRef(new THREE.Vector3());
+  const frustumRef = useRef(new THREE.Frustum());
+  const projScreenMatrixRef = useRef(new THREE.Matrix4());
   const onPulseVisibilityRef = useRef(onPulseVisibilityChange);
   onPulseVisibilityRef.current = onPulseVisibilityChange;
+  const onNodesInViewRef = useRef(onNodesInViewChange);
+  onNodesInViewRef.current = onNodesInViewChange;
   const lastVisibilityReportTsRef = useRef(0);
   const lastVisibilitySigRef = useRef("");
+  const lastFrustumCheckTsRef = useRef(0);
+  const lastNodesInViewRef = useRef<boolean | null>(null);
 
   useEffect(() => {
     return () => {
       onPulseVisibilityRef.current?.(null);
+      onNodesInViewRef.current?.(true);
     };
   }, []);
 
@@ -1972,6 +2218,7 @@ export function BrainScene({
       if (finished) {
         transition.mode = "none";
         spatialDirtyRef.current = true;
+        lastFrustumCheckTsRef.current = 0;
       }
     } else if (transition.mode === "fade") {
       transition.elapsedSec += delta;
@@ -1996,6 +2243,7 @@ export function BrainScene({
         syncSemanticEdgesFromPositions(semanticEdgeBundle, positions);
         transition.fadeSwapped = true;
         spatialDirtyRef.current = true;
+        lastFrustumCheckTsRef.current = 0;
       }
 
       if (transition.elapsedSec < halfSec) {
@@ -2005,6 +2253,7 @@ export function BrainScene({
       } else {
         transition.fadeOpacity = 1;
         transition.mode = "none";
+        lastFrustumCheckTsRef.current = 0;
       }
       targetChromeOpacity = transition.fadeOpacity;
     }
@@ -2034,18 +2283,79 @@ export function BrainScene({
       appliedSemanticFadeRef.current = semanticFade;
     }
 
-    // 1b. Smooth camera focus transition
-    const focusAnim = cameraFocusAnimRef.current;
-    if (focusAnim) {
-      focusAnim.progress = Math.min(1, focusAnim.progress + delta / CAMERA_FOCUS_DURATION_SEC);
-      const tEase = 1 - Math.pow(1 - focusAnim.progress, 3);
-      camera.position.lerpVectors(focusAnim.startPos, focusAnim.endPos, tEase);
+    // 1b. Smooth camera transition (node focus, reset camera, center view, theme change)
+    const camAnim = cameraAnimRef.current;
+    if (camAnim) {
+      camAnim.progress = Math.min(1, camAnim.progress + delta / camAnim.durationSec);
+      const p = camAnim.progress;
+      const tEase =
+        camAnim.easeMode === "inOut"
+          ? p < 0.5
+            ? 4 * p * p * p
+            : 1 - Math.pow(-2 * p + 2, 3) / 2
+          : 1 - Math.pow(1 - p, 3);
+      camera.position.lerpVectors(camAnim.startPos, camAnim.endPos, tEase);
+      if (camera instanceof THREE.PerspectiveCamera) {
+        let projDirty = false;
+        if (Math.abs(camAnim.endFov - camAnim.startFov) > 0.01) {
+          camera.fov = camAnim.startFov + (camAnim.endFov - camAnim.startFov) * tEase;
+          projDirty = true;
+        }
+        if (Math.abs(camAnim.endZoom - camAnim.startZoom) > 0.001) {
+          camera.zoom = camAnim.startZoom + (camAnim.endZoom - camAnim.startZoom) * tEase;
+          projDirty = true;
+        }
+        if (projDirty) {
+          camera.updateProjectionMatrix();
+        }
+      }
       if (controlsRef.current) {
-        controlsRef.current.target.lerpVectors(focusAnim.startTarget, focusAnim.endTarget, tEase);
+        controlsRef.current.target.lerpVectors(camAnim.startTarget, camAnim.endTarget, tEase);
         controlsRef.current.update();
       }
-      if (focusAnim.progress >= 1) {
-        cameraFocusAnimRef.current = null;
+      if (camAnim.progress >= 1) {
+        cameraAnimRef.current = null;
+        lastFrustumCheckTsRef.current = 0;
+      }
+    }
+
+    // 1c. Detect whether any visible node is inside the camera view frustum (for "Center view" hint)
+    const nodesInViewCb = onNodesInViewRef.current;
+    if (
+      nodesInViewCb &&
+      transition.initialized &&
+      now - lastFrustumCheckTsRef.current >= FRUSTUM_CHECK_INTERVAL_MS
+    ) {
+      lastFrustumCheckTsRef.current = now;
+      const count = graph.nodes.length;
+      const { positions: livePos, sizes: liveSizes } = buffers;
+      let visibleTotal = 0;
+      let anyInView = false;
+
+      if (count > 0 && cameraAnimRef.current === null) {
+        camera.updateMatrixWorld();
+        const projScreen = projScreenMatrixRef.current;
+        projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        const frustum = frustumRef.current;
+        frustum.setFromProjectionMatrix(projScreen);
+        const worldPos = scratchWorldPosRef.current;
+
+        for (let i = 0; i < count; i += 1) {
+          if ((liveSizes[i] ?? 0) <= 0.0001) continue;
+          visibleTotal += 1;
+          const i3 = i * 3;
+          worldPos.set(livePos[i3] ?? 0, livePos[i3 + 1] ?? 0, livePos[i3 + 2] ?? 0);
+          if (frustum.containsPoint(worldPos)) {
+            anyInView = true;
+            break;
+          }
+        }
+      }
+
+      const nextInView = visibleTotal === 0 || anyInView;
+      if (lastNodesInViewRef.current !== nextInView) {
+        lastNodesInViewRef.current = nextInView;
+        nodesInViewCb(nextInView);
       }
     }
 
@@ -2367,9 +2677,7 @@ export function BrainScene({
         enableDamping
         dampingFactor={0.08}
         minDistance={14}
-        maxDistance={Math.max(380, islandFraming?.maxDistance ?? 380)}
-        autoRotate={manifest.camera.auto_rotate}
-        autoRotateSpeed={manifest.camera.auto_rotate_speed}
+        maxDistance={maxOrbitDistanceRef.current}
       />
     </>
   );

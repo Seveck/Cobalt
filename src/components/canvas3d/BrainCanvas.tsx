@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { Canvas } from "@react-three/fiber";
 import {
   Clock,
+  Crosshair,
   FolderKanban,
   Plug,
   Radio,
@@ -139,10 +140,20 @@ export function BrainCanvas() {
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   const [pointer, setPointer] = useState<TooltipPointer>({ x: 0, y: 0 });
   const [resetSignal, setResetSignal] = useState(0);
+  const [centerViewSignal, setCenterViewSignal] = useState(0);
+  const [anyNodeInView, setAnyNodeInView] = useState(true);
   const [activeDrawer, setActiveDrawer] = useState<ActiveDrawer>("none");
   const [timeTravelOpen, setTimeTravelOpen] = useState(false);
   const [projectContainers, setProjectContainers] = useState<readonly ProjectContainer[]>([]);
   const [pulseVisibility, setPulseVisibility] = useState<PulseVisibilitySummary | null>(null);
+
+  // Freeze initial Canvas camera config so re-renders / layout changes never touch camera props
+  const initialCanvasCameraRef = useRef({
+    position: manifest.camera.position,
+    fov: manifest.camera.fov,
+    near: 0.1,
+    far: 3000,
+  });
   const [indicatorSafeInsets, setIndicatorSafeInsets] = useState<PulseIndicatorSafeInsets>({
     top: 68,
     bottom: 72,
@@ -472,6 +483,18 @@ export function BrainCanvas() {
 
               <span className="mx-0.5 h-4 w-px bg-rule" aria-hidden />
 
+              {activeLayout === "project_islands" && graph && graph.nodes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setCenterViewSignal((n) => n + 1)}
+                  title={t("brain.centerViewIslandsHint")}
+                  className="inline-flex items-center gap-1 rounded-[1px] px-2 py-1 font-mono text-[11px] text-bone-muted transition-colors hover:bg-surface-2 hover:text-bone"
+                >
+                  <Crosshair size={12} aria-hidden />
+                  <span>{t("brain.centerView")}</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setResetSignal((n) => n + 1)}
@@ -521,12 +544,7 @@ export function BrainCanvas() {
                 resize={{ scroll: false, debounce: { scroll: 0, resize: 0 } }}
                 shadows={false}
                 dpr={dpr}
-                camera={{
-                  position: manifest.camera.position,
-                  fov: manifest.camera.fov,
-                  near: 0.1,
-                  far: 3000,
-                }}
+                camera={initialCanvasCameraRef.current}
                 gl={{
                   antialias: !isEco,
                   powerPreference: isEco ? "low-power" : "high-performance",
@@ -546,10 +564,12 @@ export function BrainCanvas() {
                   selectedNodeId={selectedNodeId}
                   highlightedNodeIds={highlightedNodeIds}
                   resetSignal={resetSignal}
+                  centerViewSignal={centerViewSignal}
                   onHoverNode={handleHoverNode}
                   onSelectNode={handleSelectNode}
                   onContainersChange={setProjectContainers}
                   onPulseVisibilityChange={setPulseVisibility}
+                  onNodesInViewChange={setAnyNodeInView}
                 />
               </Canvas>
             </CanvasErrorBoundary>
@@ -623,6 +643,29 @@ export function BrainCanvas() {
           onFocusOffScreen={handleFocusOffScreenPulses}
           onRevealFiltered={handleRevealFilteredPulses}
         />
+
+        {/* Subtle "Center view" hint when no visible node is inside the camera frustum */}
+        {!anyNodeInView && graph && graph.nodes.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setCenterViewSignal((n) => n + 1)}
+            title={
+              activeLayout === "project_islands"
+                ? t("brain.centerViewIslandsHint")
+                : t("brain.centerViewHint")
+            }
+            style={{
+              bottom: `${
+                Math.max(indicatorSafeInsets.bottom + 8, 76) +
+                (pulseVisibility?.edge === "bottom" ? 44 : 0)
+              }px`,
+            }}
+            className="pointer-events-auto absolute left-1/2 z-25 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-surface/95 px-3 py-1.5 font-mono text-xs font-medium text-bone shadow-[0_8px_24px_rgba(0,0,0,0.65)] backdrop-blur-xs transition-colors hover:border-cobalt-ink hover:bg-cobalt-wash hover:text-cobalt-ink focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
+          >
+            <Crosshair size={13} className="shrink-0 text-cobalt-ink" aria-hidden />
+            <span className="whitespace-nowrap">{t("brain.centerView")}</span>
+          </button>
+        )}
 
         {/* Pointer-tracked hover tooltip (only for hovered node — THEME_SPEC §6.1) */}
         {hoveredNode && (
