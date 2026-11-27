@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::path::MAIN_SEPARATOR_STR;
 
 use cobalt_core::enums::{MemoryStatus, WriteAction};
 use cobalt_core::error::{CobaltError, Result};
@@ -13,6 +14,7 @@ use crate::memory::{
 };
 use crate::migration::edit_transaction;
 use crate::repositories::{branch, id, load_settings, source, stamp, text, upsert_source};
+use crate::vector::Index;
 use crate::{DOCUMENT_EMBED_BATCH, SqliteStore};
 
 const INGEST_CLIENT: &str = "cobalt-ingest";
@@ -154,13 +156,7 @@ impl SqliteStore {
                             }
                             deleted.push(id);
                         }
-                        if !deleted.is_empty() {
-                            remove_vectors(tx, retrieval.map(|r| &r.index), &deleted)?;
-                            for id in &deleted {
-                                tx.execute("DELETE FROM memories WHERE id = ?1", [id.to_string()])
-                                    .map_err(sql_error)?;
-                            }
-                        }
+                        delete_chunks(tx, retrieval.map(|r| &r.index), &deleted)?;
                     }
                     let doc = upsert_source(tx, doc)?;
                     let mut created = Vec::new();
@@ -194,6 +190,81 @@ impl SqliteStore {
                         deleted,
                         created,
                     }))
+                })
+            })
+            .await
+    }
+
+    /// Lists indexed sources at or beneath the given directory.
+    pub async fn source_documents_under(&self, directory: String) -> Result<Vec<SourceDocument>> {
+        let prefix = format!(
+            "{}{MAIN_SEPARATOR_STR}",
+            directory.trim_end_matches(MAIN_SEPARATOR_STR),
+        );
+        self.db
+            .read(move |conn| {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT * FROM source_documents
+                     WHERE file_path = ?1 OR instr(file_path, ?2) = 1",
+                    )
+                    .map_err(sql_error)?;
+                stmt.query_map(params![directory, prefix], source)
+                    .map_err(sql_error)?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(sql_error)
+            })
+            .await
+    }
+
+    /// Removes ignored sources and their ingest mirrors in one store/index edit.
+    /// The source foreign key detaches any remaining memories from the removed documents.
+    pub async fn prune_ingested_sources(
+        &self,
+        sources: Vec<SourceDocument>,
+        check_cancelled: impl Fn() -> Result<()> + Send + 'static,
+    ) -> Result<(Vec<String>, Vec<Id>)> {
+        if sources.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        let gate = self.engine_write().await;
+        let retrieval = self.configured_retrieval()?;
+        self.db
+            .write(move |conn| {
+                let _gate = gate;
+                check_cancelled()?;
+                edit_transaction(conn, retrieval.as_deref(), |tx, retrieval| {
+                    check_writable(tx)?;
+                    let mut removed = Vec::new();
+                    let mut deleted = Vec::new();
+                    let mut source_ids = Vec::new();
+                    {
+                        let mut chunks = tx.prepare(
+                            "SELECT id FROM memories WHERE source_doc_id = ?1 AND source_client = ?2",
+                        ).map_err(sql_error)?;
+                        for doc in sources {
+                            if !source_at(tx, &doc.file_path)?.is_some_and(|current| current.id == doc.id) {
+                                continue;
+                            }
+                            let source_id = doc.id.to_string();
+                            for row in chunks
+                                .query_map(params![source_id, INGEST_CLIENT], |row| id(row, "id"))
+                                .map_err(sql_error)?
+                            {
+                                deleted.push(row.map_err(sql_error)?);
+                            }
+                            source_ids.push(source_id);
+                            removed.push(doc.file_path);
+                        }
+                    }
+                    delete_chunks(tx, retrieval.map(|r| &r.index), &deleted)?;
+                    let mut delete_source = tx
+                        .prepare("DELETE FROM source_documents WHERE id = ?1")
+                        .map_err(sql_error)?;
+                    for id in source_ids {
+                        delete_source.execute([id]).map_err(sql_error)?;
+                    }
+                    Ok((removed, deleted))
                 })
             })
             .await
@@ -243,6 +314,19 @@ impl SqliteStore {
             })
             .await
     }
+}
+
+fn delete_chunks(conn: &Connection, index: Option<&Index>, ids: &[Id]) -> Result<()> {
+    if !ids.is_empty() {
+        remove_vectors(conn, index, ids)?;
+        let mut delete = conn
+            .prepare("DELETE FROM memories WHERE id = ?1")
+            .map_err(sql_error)?;
+        for id in ids {
+            delete.execute([id.to_string()]).map_err(sql_error)?;
+        }
+    }
+    Ok(())
 }
 
 fn source_at(conn: &Connection, path: &str) -> Result<Option<SourceDocument>> {

@@ -17,8 +17,9 @@ use cobalt_core::model::{
 use cobalt_core::search::VectorFilter;
 use cobalt_core::telemetry::{NewTelemetryEvent, ReturnedItem, TelemetryQuery};
 use cobalt_core::traits::{
-    ConfigRepository, Embedder, HandoffRepository, IngestService as _, MemoryRepository,
-    ProjectRepository, SourceDocumentRepository, TelemetryRepository, TokenCounter, VectorStore,
+    BranchRepository, ConfigRepository, Embedder, HandoffRepository, IngestService as _,
+    MemoryRepository, ProjectRepository, SourceDocumentRepository, TelemetryRepository,
+    TokenCounter, VectorStore,
 };
 use cobalt_core::transfer::*;
 use cobalt_embeddings::{TiktokenCounter, default_model_spec};
@@ -730,6 +731,205 @@ async fn wait_for_hash(store: &SqliteStore, file: &Path, hash: Option<String>) {
     })
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn directory_ingest_prunes_ignored_mirrors_and_detaches_linked_memories() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, ingest, _) = setup(dir.path(), "test").await;
+    let root = dir.path().canonicalize().unwrap().join("project");
+    let generated = root.join("generated");
+    std::fs::create_dir_all(&generated).unwrap();
+    let first = generated.join("first.json");
+    let second = generated.join("second.json");
+    let keep = root.join("keep.md");
+    std::fs::write(&first, r#"{"name":"first schema"}"#).unwrap();
+    std::fs::write(&second, r#"{"name":"second schema"}"#).unwrap();
+    std::fs::write(&keep, "Handwritten notes to keep.").unwrap();
+    let request = IngestRequest {
+        watch: true,
+        ..req(&root)
+    };
+    let initial = ingest
+        .ingest_paths(request.clone(), quiet_progress())
+        .await
+        .unwrap();
+    assert!(initial.errors.is_empty(), "{:?}", initial.errors);
+    assert_eq!(initial.memories_created, 3);
+    let ignored_docs = [
+        source_at(&store, &first).await.unwrap().id,
+        source_at(&store, &second).await.unwrap().id,
+    ];
+    let kept_doc = source_at(&store, &keep).await.unwrap();
+    let branch = store.active_branch().await.unwrap().id;
+    let mut removed_chunks = Vec::new();
+    for doc in ignored_docs {
+        removed_chunks.extend(
+            store
+                .ingested_memories(branch, doc, "cobalt-ingest")
+                .await
+                .unwrap(),
+        );
+    }
+    let mut linked = store
+        .insert_document_chunk(NewMemory {
+            source_doc_id: Some(ignored_docs[0]),
+            source_client: Some("claude-code".into()),
+            ..memory("Keep the schema compatibility decision.")
+        })
+        .await
+        .unwrap()
+        .memory;
+    let index = SqliteVec::open(&store, 2).await.unwrap();
+    assert_eq!(index.count().await.unwrap(), 4);
+
+    std::fs::write(root.join(".gitignore"), "/generated/\n/.gitignore\n").unwrap();
+    let (progress, mut updates) = mpsc::unbounded_channel();
+    let report = ingest
+        .ingest_paths(
+            request.clone(),
+            Arc::new(move |update| progress.send(update).unwrap()),
+        )
+        .await
+        .unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert_eq!(report.skipped_ignored, 4); // The directory, its two source docs and .gitignore.
+    assert_eq!(report.memories_superseded, 2);
+    let terminal = std::iter::from_fn(|| updates.try_recv().ok())
+        .last()
+        .unwrap();
+    assert_eq!(terminal.stage, INGEST_STAGE_COMPLETED);
+    assert_eq!((terminal.processed, terminal.total), (4, 4));
+    assert!(source_at(&store, &first).await.is_none());
+    assert!(source_at(&store, &second).await.is_none());
+    assert_eq!(source_at(&store, &keep).await.unwrap(), kept_doc);
+    for chunk in removed_chunks {
+        assert!(store.get_memory(chunk.id).await.unwrap().is_none());
+    }
+    linked.source_doc_id = None;
+    assert_eq!(store.get_memory(linked.id).await.unwrap().unwrap(), linked);
+    assert_eq!(index.count().await.unwrap(), 2);
+    let hits = index
+        .search(&[1.0, 0.0], 10, &VectorFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 2);
+    assert!(hits.iter().any(|hit| hit.memory_id == linked.id));
+
+    let repeated = ingest
+        .ingest_paths(request, quiet_progress())
+        .await
+        .unwrap();
+    assert_eq!(repeated.memories_superseded, 0);
+    assert_eq!(repeated.skipped_ignored, 2);
+}
+
+#[tokio::test]
+async fn watcher_prunes_sources_on_start_and_on_git_exclude_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, ingest, _) = setup(dir.path(), "test").await;
+    let root = dir.path().canonicalize().unwrap().join("project");
+    std::fs::create_dir_all(root.join(".git/info")).unwrap();
+    let first = root.join("first.md");
+    let second = root.join("second.md");
+    let keep = root.join("keep.md");
+    for (file, content) in [
+        (&first, "Excluded before startup."),
+        (&second, "Excluded while watching."),
+        (&keep, "Still indexed."),
+    ] {
+        std::fs::write(file, content).unwrap();
+    }
+    let initial = ingest
+        .ingest_paths(
+            IngestRequest {
+                watch: true,
+                ..req(&root)
+            },
+            quiet_progress(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(initial.memories_created, 3);
+    std::fs::write(root.join(".gitignore"), "/first.md\n/.gitignore\n").unwrap();
+    let (progress, mut updates) = mpsc::unbounded_channel();
+    let (changes, mut activity) = mpsc::unbounded_channel();
+    let ingest = ingest.with_watcher_callbacks(
+        Arc::new(move |update| progress.send(update).unwrap()),
+        Arc::new(move |event| changes.send(event).unwrap()),
+    );
+    ingest.start_watcher().await.unwrap();
+    assert_eq!(
+        watcher_job(&mut updates).await.last().unwrap().stage,
+        INGEST_STAGE_COMPLETED
+    );
+    assert!(source_at(&store, &first).await.is_none());
+    assert!(source_at(&store, &second).await.is_some());
+    let deleted = activity.try_recv().unwrap();
+    assert_eq!(deleted.kind, MemoryChangeKind::Deleted);
+    assert_eq!(deleted.memory_ids.len(), 1);
+
+    std::fs::write(root.join(".git/info/exclude"), "/second.md\n").unwrap();
+    assert_eq!(
+        watcher_job(&mut updates).await.last().unwrap().stage,
+        INGEST_STAGE_COMPLETED
+    );
+    ingest.stop_watcher().await.unwrap();
+    assert!(source_at(&store, &second).await.is_none());
+    assert!(source_at(&store, &keep).await.is_some());
+    let deleted = activity.try_recv().unwrap();
+    assert_eq!(deleted.kind, MemoryChangeKind::Deleted);
+    assert_eq!(deleted.memory_ids.len(), 1);
+}
+
+#[tokio::test]
+async fn watcher_prunes_a_standalone_file_on_its_next_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, ingest, _) = setup(dir.path(), "test").await;
+    let root = dir.path().canonicalize().unwrap().join("project");
+    let subdir = root.join("subdir");
+    std::fs::create_dir_all(&subdir).unwrap();
+    let file = subdir.join("only.md");
+    std::fs::write(&file, "Standalone watched notes.").unwrap();
+    let request = IngestRequest {
+        watch: true,
+        ..req(&file)
+    };
+    assert_eq!(
+        ingest
+            .ingest_paths(request, quiet_progress())
+            .await
+            .unwrap()
+            .memories_created,
+        1
+    );
+    let (progress, mut updates) = mpsc::unbounded_channel();
+    let ingest = ingest.with_watcher_callbacks(
+        Arc::new(move |update| progress.send(update).unwrap()),
+        Arc::new(|_| {}),
+    );
+    ingest.start_watcher().await.unwrap();
+    assert_eq!(
+        watcher_job(&mut updates).await.last().unwrap().stage,
+        INGEST_STAGE_COMPLETED
+    );
+    // The rule lives outside the standalone file's watched parent.
+    std::fs::write(root.join(".gitignore"), "/subdir/only.md\n").unwrap();
+    std::fs::write(&file, "Changed standalone notes.").unwrap();
+    let job = watcher_job(&mut updates).await;
+    let terminal = job.last().unwrap();
+    assert_eq!(terminal.stage, INGEST_STAGE_COMPLETED);
+    assert_eq!((terminal.processed, terminal.total), (1, 1));
+    ingest.stop_watcher().await.unwrap();
+    assert!(source_at(&store, &file).await.is_none());
+    assert!(
+        store
+            .graph(GraphQuery::default())
+            .await
+            .unwrap()
+            .nodes
+            .is_empty()
+    );
 }
 
 #[tokio::test]

@@ -879,4 +879,74 @@ async fn watched_file_replacement_rolls_back_metadata_chunks_and_vectors_on_writ
         .unwrap();
 }
 
+#[tokio::test]
+async fn pruning_removes_archived_ingest_vectors_and_keeps_linked_vectors() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(&dir).await;
+    let file_path = dir.path().join("ignored.md").to_str().unwrap().to_owned();
+    let change = store
+        .replace_watched_file(
+            NewSourceDocument {
+                project_id: None,
+                file_path: file_path.clone(),
+                is_dir: false,
+                source_type: None,
+                file_hash: Some("original".into()),
+                total_tokens: 2,
+                is_watched: true,
+            },
+            MAIN_BRANCH_ID,
+            vec![new_memory("alpha mirror")],
+            false,
+            || Ok(()),
+            || Ok(()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let chunk = change.created[0];
+    let source = store
+        .find_source_document_by_path(&file_path)
+        .await
+        .unwrap()
+        .unwrap();
+    let linked = store
+        .insert_document_chunk(NewMemory {
+            source_doc_id: Some(source.id),
+            source_client: Some("claude-code".into()),
+            ..new_memory("beta linked decision")
+        })
+        .await
+        .unwrap()
+        .memory;
+    assert_eq!(
+        store
+            .archive_watched_file(file_path.clone(), "file deleted")
+            .await
+            .unwrap(),
+        vec![chunk]
+    );
+    let (removed, deleted) = store
+        .prune_ingested_sources(vec![source], || Ok(()))
+        .await
+        .unwrap();
+    assert_eq!(removed, vec![file_path]);
+    assert_eq!(deleted, vec![chunk]);
+    store
+        .db
+        .read(move |conn| {
+            let ids: Vec<String> = conn
+                .prepare("SELECT memory_id FROM vec_memories")
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+            assert_eq!(ids, vec![linked.id.to_string()]);
+            Ok(())
+        })
+        .await
+        .unwrap();
+}
+
 mod similarity;

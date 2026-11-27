@@ -125,6 +125,7 @@ pub(crate) fn chunks(
 pub(crate) struct IgnoreMatchers {
     roots: HashMap<PathBuf, MemoryIgnore>,
     nested: HashMap<PathBuf, Option<MemoryIgnore>>,
+    git_roots: HashMap<PathBuf, Option<PathBuf>>,
 }
 
 impl IgnoreMatchers {
@@ -137,10 +138,31 @@ impl IgnoreMatchers {
     ) -> Result<bool> {
         let mut ancestors: Vec<_> = path.ancestors().skip(1).collect();
         ancestors.reverse();
-        let default_root = ancestors.first().copied().unwrap_or(path);
         let root = project_root
             .filter(|root| path.starts_with(root))
-            .unwrap_or(default_root);
+            .or_else(|| {
+                let parent = path.parent()?;
+                self.git_roots
+                    .entry(parent.to_owned())
+                    .or_insert_with(|| {
+                        // Keep nested .gitignore files out of a detected repository's rules.
+                        parent
+                            .ancestors()
+                            .find(|dir| {
+                                let git = dir.join(".git");
+                                git.is_file() || git.join("HEAD").is_file()
+                            })
+                            .or_else(|| {
+                                parent.ancestors().find(|dir| {
+                                    dir.join(".gitignore").is_file()
+                                        || dir.join(".git/info/exclude").is_file()
+                                })
+                            })
+                            .map(Path::to_owned)
+                    })
+                    .as_deref()
+            })
+            .unwrap_or_else(|| ancestors.first().copied().unwrap_or(path));
         if !self.roots.contains_key(root) {
             self.roots
                 .insert(root.to_owned(), MemoryIgnore::for_root(root, global)?);
@@ -184,8 +206,11 @@ pub(crate) fn ignored(
 struct Paths {
     files: BTreeMap<PathBuf, bool>,
     directories: BTreeSet<PathBuf>,
+    scan_roots: BTreeSet<PathBuf>,
+    ignored_files: BTreeSet<PathBuf>,
     issues: Vec<IngestIssue>,
-    skipped: u64,
+    skipped: HashSet<PathBuf>,
+    ignores: IgnoreMatchers,
 }
 
 fn collect(
@@ -201,8 +226,6 @@ fn collect(
         .map(|path| (PathBuf::from(path), true))
         .collect();
     let mut visited_directories = HashSet::new();
-    let mut visited_skips = HashSet::new();
-    let mut ignores = IgnoreMatchers::default();
     while let Some((path, direct)) = pending.pop() {
         if run.cancellation.check().is_err() {
             break;
@@ -210,28 +233,68 @@ fn collect(
         let explicit = direct && !run.folder_limited;
         let visit = (|| {
             let absolute = std::path::absolute(&path)?;
-            let metadata = absolute.symlink_metadata()?;
+            let watch_path = direct && run.from_watcher;
+            let metadata = match absolute.symlink_metadata() {
+                Err(error)
+                    if watch_path
+                        && matches!(
+                            error.kind(),
+                            std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                        ) =>
+                {
+                    if result.ignores.ignored(&absolute, false, root, global)? {
+                        result.ignored_files.insert(absolute.clone());
+                        result.skipped.insert(absolute);
+                    }
+                    return Ok(());
+                }
+                other => other?,
+            };
             if metadata.is_symlink() || !(metadata.is_dir() || metadata.is_file()) {
-                result.skipped += u64::from(visited_skips.insert(absolute));
+                if watch_path && result.ignores.ignored(&absolute, false, root, global)? {
+                    result.ignored_files.insert(absolute.clone());
+                }
+                result.skipped.insert(absolute);
                 return Ok(());
             }
+            let prune_dir = direct && source.is_none() && metadata.is_dir();
+            let prune_file = watch_path && metadata.is_file();
             let candidate = metadata.is_file() && (explicit || eligible(&absolute, source));
             let conversations_zip = candidate && is_conversations_zip(&absolute, source);
             let known_binary = candidate && !conversations_zip && binary_extension(&absolute);
-            if !known_binary && ignores.ignored(&absolute, metadata.is_dir(), root, global)? {
-                result.skipped += u64::from(visited_skips.insert(absolute));
+            let check_ignore = !known_binary || prune_file;
+            let ignored_absolute = check_ignore
+                && result
+                    .ignores
+                    .ignored(&absolute, metadata.is_dir(), root, global)?;
+            if ignored_absolute && !(prune_dir || prune_file) {
+                result.skipped.insert(absolute);
                 return Ok(());
             }
             let path = absolute.canonicalize()?;
-            if (run.from_watcher && path != absolute)
-                || (!known_binary && ignores.ignored(&path, metadata.is_dir(), root, global)?)
+            if run.from_watcher && path != absolute {
+                result.skipped.insert(path);
+                return Ok(());
+            }
+            if prune_dir {
+                result.scan_roots.insert(path.clone());
+            }
+            if ignored_absolute
+                || (check_ignore
+                    && path != absolute
+                    && result
+                        .ignores
+                        .ignored(&path, metadata.is_dir(), root, global)?)
             {
-                result.skipped += u64::from(visited_skips.insert(path));
+                if prune_file {
+                    result.ignored_files.insert(path.clone());
+                }
+                result.skipped.insert(path);
                 return Ok(());
             }
             path_string(&path)?;
             if metadata.is_dir() {
-                if direct && source.is_none() && !run.from_watcher {
+                if prune_dir && !run.from_watcher {
                     result.directories.insert(path.clone());
                 }
                 if !visited_directories.insert(path.clone()) {
@@ -554,6 +617,12 @@ struct DocumentWork<'a> {
     run: &'a IngestRun,
 }
 
+#[derive(Default)]
+pub(crate) struct IngestOutcome {
+    pub(crate) report: IngestReport,
+    pub(crate) pruned: Vec<PathBuf>,
+}
+
 impl Context {
     pub(crate) async fn ingest(
         &self,
@@ -570,17 +639,19 @@ impl Context {
                 Some(progress),
                 report_failed,
                 async |cancellation, progress| {
-                    self.ingest_job(
-                        req,
-                        IngestRun {
-                            cancellation,
-                            source,
-                            progress,
-                            ..Default::default()
-                        },
-                        None,
-                    )
-                    .await
+                    Ok(self
+                        .ingest_job(
+                            req,
+                            IngestRun {
+                                cancellation,
+                                source,
+                                progress,
+                                ..Default::default()
+                            },
+                            None,
+                        )
+                        .await?
+                        .report)
                 },
             )
             .await
@@ -594,7 +665,7 @@ impl Context {
         callbacks: &Callbacks,
         progress: &Progress,
         reconciled_files: &mut HashMap<PathBuf, Option<Id>>,
-    ) -> Result<IngestReport> {
+    ) -> Result<IngestOutcome> {
         self.ingest_job(
             req,
             IngestRun {
@@ -615,10 +686,10 @@ impl Context {
         req: IngestRequest,
         run: IngestRun,
         mut reconciled_files: Option<&mut HashMap<PathBuf, Option<Id>>>,
-    ) -> Result<IngestReport> {
+    ) -> Result<IngestOutcome> {
         let _write = tokio::select! {
             biased;
-            _ = run.cancellation.cancelled() => return Ok(IngestReport::default()),
+            _ = run.cancellation.cancelled() => return Ok(IngestOutcome::default()),
             guard = self.writes.lock() => guard,
         };
         let root = if let Some(id) = req.project_id {
@@ -634,30 +705,44 @@ impl Context {
         let global = self.global_ignore.clone();
         let paths = req.paths.clone();
         let scan = run.clone();
-        let Paths {
-            files,
-            directories,
-            skipped,
-            issues,
-        } = blocking(move || Ok(collect(paths, root.as_deref(), global.as_deref(), &scan))).await?;
+        let scan_root = root.clone();
+        let mut paths = blocking(move || {
+            Ok(collect(
+                paths,
+                scan_root.as_deref(),
+                global.as_deref(),
+                &scan,
+            ))
+        })
+        .await?;
         let mut report = IngestReport {
-            skipped_ignored: skipped,
-            errors: issues,
+            skipped_ignored: paths.skipped.len() as u64,
+            errors: std::mem::take(&mut paths.issues),
             ..Default::default()
         };
-        let mut files: Vec<_> = files.into_iter().collect();
-        if let Some(reconciled) = &reconciled_files {
-            files.retain(|(path, _)| reconciled.get(path) != Some(&req.project_id));
-        }
-        let total = (files.len() + directories.len()) as u64;
         if run.cancellation.check().is_err() {
-            run.progress.finish(0, total);
-            return Ok(report);
+            return Ok(IngestOutcome {
+                report,
+                pruned: Vec::new(),
+            });
         }
         let settings = self.store.load_settings().await?;
         if settings.read_only {
             return Err(CobaltError::ReadOnly);
         }
+        let pruned = self
+            .prune_ignored(&mut paths, root.as_deref(), &run, &mut report)
+            .await?;
+        for path in &pruned {
+            paths.files.remove(path);
+            paths.directories.remove(path);
+        }
+        let mut files: Vec<_> = paths.files.into_iter().collect();
+        if let Some(reconciled) = &reconciled_files {
+            files.retain(|(path, _)| reconciled.get(path) != Some(&req.project_id));
+        }
+        let mut processed = pruned.len() as u64;
+        let total = (files.len() + paths.directories.len()) as u64 + processed;
         let work = DocumentWork {
             req: &req,
             settings: &settings,
@@ -665,13 +750,17 @@ impl Context {
             run: &run,
         };
         let mut pending_watches = Vec::new();
-        let mut processed = 0;
         files.sort_by_key(|(path, _)| document_priority(path));
-        for (path, file) in directories.into_iter().map(|path| (path, None)).chain(
-            files
-                .into_iter()
-                .map(|(path, explicit)| (path, Some(explicit))),
-        ) {
+        for (path, file) in paths
+            .directories
+            .into_iter()
+            .map(|path| (path, None))
+            .chain(
+                files
+                    .into_iter()
+                    .map(|(path, explicit)| (path, Some(explicit))),
+            )
+        {
             if run.cancellation.check().is_err() {
                 break;
             }
@@ -720,7 +809,66 @@ impl Context {
         self.enroll_watches(pending_watches, &run, &mut report)
             .await;
         run.progress.finish(processed, total);
-        Ok(report)
+        Ok(IngestOutcome { report, pruned })
+    }
+
+    async fn prune_ignored(
+        &self,
+        paths: &mut Paths,
+        project_root: Option<&Path>,
+        run: &IngestRun,
+        report: &mut IngestReport,
+    ) -> Result<Vec<PathBuf>> {
+        let Some(store) = &self.sqlite else {
+            return Ok(Vec::new());
+        };
+        if paths.scan_roots.is_empty() && paths.ignored_files.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut ignored = BTreeMap::new();
+        for root in &paths.scan_roots {
+            run.cancellation.check()?;
+            for doc in store.source_documents_under(path_string(root)?).await? {
+                run.cancellation.check()?;
+                let path = Path::new(&doc.file_path);
+                if paths.ignores.ignored(
+                    path,
+                    doc.is_dir,
+                    project_root,
+                    self.global_ignore.as_deref(),
+                )? {
+                    ignored.insert(doc.id, doc);
+                }
+            }
+        }
+        for path in &paths.ignored_files {
+            run.cancellation.check()?;
+            if let Some(doc) = self
+                .store
+                .find_source_document_by_path(&path_string(path)?)
+                .await?
+            {
+                ignored.insert(doc.id, doc);
+            }
+        }
+        let cancellation = run.cancellation.clone();
+        if !ignored.is_empty() {
+            run.progress.stage(INGEST_STAGE_SAVING);
+        }
+        let (removed, deleted) = store
+            .prune_ingested_sources(ignored.into_values().collect(), move || {
+                cancellation.check()
+            })
+            .await?;
+        let pruned: Vec<_> = removed.into_iter().map(PathBuf::from).collect();
+        // A skipped directory stops the walk before it can count its indexed descendants.
+        report.skipped_ignored += pruned
+            .iter()
+            .filter(|path| !paths.skipped.contains(*path))
+            .count() as u64;
+        report.memories_superseded += deleted.len() as u64;
+        run.callbacks.changed(MemoryChangeKind::Deleted, deleted);
+        Ok(pruned)
     }
 
     async fn enroll_watches(
