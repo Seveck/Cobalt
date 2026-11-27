@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  AlertTriangle,
   ArrowRightLeft,
   Check,
   Cpu,
@@ -772,11 +773,19 @@ export function SettingsView() {
               </div>
             </div>
 
-            <div className="rounded-[2px] border border-ochre-rule/60 bg-ochre-wash/40 px-3.5 py-2.5 text-xs text-bone-muted">
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-ochre">
+            <div className="rounded-[2px] border border-rule bg-void px-3.5 py-2.5 text-xs text-bone-muted">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-bone-subtle">
                 {t("settings.ocr.languagesLabel")}:{" "}
               </span>
               <span>{t("settings.ocr.languagesNote")}</span>
+            </div>
+
+            <div
+              role="note"
+              className="flex items-start gap-2.5 rounded-[2px] border border-ochre-rule bg-ochre-wash px-3.5 py-3 text-xs text-ochre"
+            >
+              <AlertTriangle size={15} className="mt-0.5 shrink-0" aria-hidden />
+              <p className="leading-relaxed">{t("settings.ocr.accuracyWarning")}</p>
             </div>
 
             <DownloadProgressBar

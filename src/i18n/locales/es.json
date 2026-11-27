@@ -70,7 +70,7 @@
   },
   "ocr": {
     "badge": "OCR",
-    "badgeTooltip": "Texto extraído de una imagen o PDF escaneado (OCR local)",
+    "badgeTooltip": "Texto extraído de una imagen o PDF escaneado (OCR local). Puede contener errores de lectura.",
     "installAction": "Instalar OCR"
   },
   "statuses": {
@@ -258,6 +258,7 @@
     "fileChangedSinceSaved": "El archivo cambió desde que se guardó",
     "fileChangedHint": "El archivo en tu equipo es más reciente que esta memoria. Revísala antes de confiar en ella o edítala para ponerla al día.",
     "contentSection": "Contenido",
+    "ocrVerifyHint": "Texto leído por OCR: verifica los datos importantes en el original.",
     "editContent": "Editar",
     "encrypt": "Cifrar",
     "decrypt": "Descifrar",
@@ -449,6 +450,7 @@
       "modelLabel": "Modelo",
       "languagesLabel": "Idiomas",
       "languagesNote": "Alfabeto latino: español, inglés…; no chino, ruso ni árabe.",
+      "accuracyWarning": "El OCR puede cometer errores, tanto con texto manuscrito como con texto hecho en computadora (letra pequeña o decorativa, imágenes borrosas o de baja calidad, fondos con ruido, tablas o columnas). Revisa los datos importantes (números, nombres, códigos) en el archivo original.",
       "installButton": "Instalar OCR",
       "installingButton": "Instalando OCR…",
       "installedReadyHint": "Listo para leer texto de imágenes y PDFs escaneados de forma 100 % local.",

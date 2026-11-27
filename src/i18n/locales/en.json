@@ -70,7 +70,7 @@
   },
   "ocr": {
     "badge": "OCR",
-    "badgeTooltip": "Text extracted from an image or scanned PDF (local OCR)",
+    "badgeTooltip": "Text extracted from an image or scanned PDF (local OCR). May contain recognition errors.",
     "installAction": "Install OCR"
   },
   "statuses": {
@@ -258,6 +258,7 @@
     "fileChangedSinceSaved": "File changed since saved",
     "fileChangedHint": "The file on your computer is newer than this memory. Double-check it before relying on it or edit this memory to update it.",
     "contentSection": "Content",
+    "ocrVerifyHint": "Text read by OCR: verify important details in the original.",
     "editContent": "Edit",
     "encrypt": "Encrypt",
     "decrypt": "Decrypt",
@@ -449,6 +450,7 @@
       "modelLabel": "Model",
       "languagesLabel": "Languages",
       "languagesNote": "Latin alphabet: Spanish, English…; not Chinese, Russian, or Arabic.",
+      "accuracyWarning": "OCR can make mistakes with both handwritten and computer-generated text (small or decorative fonts, blurry or low-quality images, noisy backgrounds, tables, or columns). Double-check important details (numbers, names, codes) in the original file.",
       "installButton": "Install OCR",
       "installingButton": "Installing OCR…",
       "installedReadyHint": "Ready to read text from images and scanned PDFs 100% locally.",

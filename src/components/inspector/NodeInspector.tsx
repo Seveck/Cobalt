@@ -809,6 +809,12 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                   {memory.content}
                 </div>
               )}
+
+              {memory.category === "ocr" && (
+                <p className="text-[11px] leading-snug text-bone-muted">
+                  {t("inspector.ocrVerifyHint")}
+                </p>
+              )}
             </section>
 
             {/* Real Source Document (`get_source_document` + `verify_source_document`) */}
