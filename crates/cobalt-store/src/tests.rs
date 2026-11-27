@@ -441,6 +441,130 @@ async fn hybrid_search_fuses_filters_counts_sources_and_records_unique_hits() {
 }
 
 #[tokio::test]
+async fn hybrid_search_requires_relevance_in_a_bilingual_dev_corpus() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(&dir).await;
+    let doc = store
+        .upsert_source_document(NewSourceDocument {
+            project_id: None,
+            file_path: dir.path().join("release.md").to_string_lossy().into_owned(),
+            is_dir: false,
+            source_type: None,
+            file_hash: None,
+            total_tokens: 43_000,
+            is_watched: false,
+        })
+        .await
+        .unwrap();
+    let release = store
+        .save_memory(NewMemory {
+            source_doc_id: Some(doc.id),
+            ..new_memory(
+                "The alpha release build failed with E0063 in the pizza fixture. Initialize the write slot field.",
+            )
+        })
+        .await
+        .unwrap()
+        .memory;
+    let database = store
+        .save_memory(new_memory(
+            "En beta, write_slot agrupa las escrituras en una transacción de SQLite.",
+        ))
+        .await
+        .unwrap()
+        .memory;
+    let ci = store
+        .save_memory(new_memory(
+            "En CI, use the x cache key for the Linux runner and rebuild the Rust toolchain on a cache miss.",
+        ))
+        .await
+        .unwrap()
+        .memory;
+    // Keep the fixture distinct from the test embedder's default query vector.
+    SqliteVec::open(&store, 3)
+        .await
+        .unwrap()
+        .upsert(&[VectorRecord {
+            memory_id: ci.id,
+            vector: vec![0.6, 0.8, 0.0],
+            project_id: ci.project_id,
+            branch_id: ci.branch_id,
+            is_reusable: ci.is_reusable,
+            status: ci.status,
+        }])
+        .await
+        .unwrap();
+
+    for query in [
+        "receta de pizza margarita",
+        "how do I cook the pizza with basil",
+        "the de la x",
+        "pizza PIZZA pizza receta margarita",
+        "transacción transaccion galaxia satélite",
+    ] {
+        let response = store
+            .search(SearchRequest {
+                record_hits: true,
+                ..search_request(query)
+            })
+            .await
+            .unwrap();
+        assert!(response.hits.is_empty(), "{query}: {:?}", response.hits);
+        assert!(response.core_rules.is_empty(), "{query}");
+        assert_eq!(response.savings, Default::default(), "{query}");
+    }
+    for id in [release.id, database.id, ci.id] {
+        let memory = store.get_memory(id).await.unwrap().unwrap();
+        assert_eq!(memory.hit_count, 0);
+        assert!(memory.last_accessed_at.is_none());
+    }
+
+    for (query, expected) in [
+        ("the alpha release build", release.id),
+        ("la transacción de beta", database.id),
+        ("alpha packet galaxy", release.id),
+    ] {
+        let result = store.search(search_request(query)).await.unwrap();
+        assert_eq!(result.hits[0].memory.id, expected, "{query}");
+        assert!(result.hits[0].vector_rank.is_some(), "{query}");
+    }
+    let fts_only = |query: &str| SearchRequest {
+        rrf_override: Some(RrfWeights {
+            vector_weight: 0.0,
+            ..RrfWeights::default()
+        }),
+        ..search_request(query)
+    };
+    for (query, expected) in [
+        ("e0063", release.id),
+        ("WRITE_SLOT", database.id),
+        ("transaccion write_slot pan", database.id),
+    ] {
+        let result = store.search(fts_only(query)).await.unwrap();
+        assert_eq!(result.hits.len(), 1, "{query}");
+        assert_eq!(result.hits[0].memory.id, expected, "{query}");
+        assert!(result.hits[0].fts_rank.is_some(), "{query}");
+        assert!(result.hits[0].vector_rank.is_none(), "{query}");
+    }
+
+    let pin = store
+        .save_memory(NewMemory {
+            is_core_pin: true,
+            ..new_memory("Always rotate deployment credentials after a release.")
+        })
+        .await
+        .unwrap()
+        .memory;
+    let result = store
+        .search(fts_only("credentials receta margarita"))
+        .await
+        .unwrap();
+    assert_eq!(result.core_rules[0].id, pin.id);
+    assert_eq!(result.hits[0].memory.id, pin.id);
+    assert_eq!(result.savings.injected_tokens, pin.chunk_tokens);
+}
+
+#[tokio::test]
 async fn fts_triggers_remove_old_encrypted_and_deleted_rows() {
     let dir = tempfile::tempdir().unwrap();
     let store = sqlite_store(&dir).await;
