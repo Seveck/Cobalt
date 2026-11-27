@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Bot,
@@ -20,10 +20,20 @@ import {
   formatHourRange,
   formatHourShort,
 } from "./statsHelpers";
+import {
+  readAnchorRect,
+  StatsTooltip,
+  type TooltipAnchorRect,
+} from "./StatsTooltip";
 
 interface FunFactsGridProps {
   stats: UsageStats;
   currentYear: number;
+}
+
+interface ActiveChartTooltip {
+  index: number;
+  anchorRect: TooltipAnchorRect;
 }
 
 const HOUR_TICKS = [0, 6, 12, 18, 23] as const;
@@ -32,8 +42,36 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? i18n.language ?? "en";
 
-  const [hoveredHour, setHoveredHour] = useState<number | null>(null);
-  const [hoveredWeekday, setHoveredWeekday] = useState<number | null>(null);
+  const [activeHour, setActiveHour] = useState<ActiveChartTooltip | null>(null);
+  const [activeWeekday, setActiveWeekday] = useState<ActiveChartTooltip | null>(null);
+  const hourTooltipId = useId();
+  const weekdayTooltipId = useId();
+
+  const hoveredHour = activeHour?.index ?? null;
+  const hoveredWeekday = activeWeekday?.index ?? null;
+
+  const showHourTooltip = useCallback((hour: number, target: Element) => {
+    setActiveWeekday(null);
+    setActiveHour({ index: hour, anchorRect: readAnchorRect(target) });
+  }, []);
+
+  const clearHourTooltip = useCallback(() => {
+    setActiveHour(null);
+  }, []);
+
+  const showWeekdayTooltip = useCallback((dayIdx: number, target: Element) => {
+    setActiveHour(null);
+    setActiveWeekday({ index: dayIdx, anchorRect: readAnchorRect(target) });
+  }, []);
+
+  const clearWeekdayTooltip = useCallback(() => {
+    setActiveWeekday(null);
+  }, []);
+
+  useEffect(() => {
+    setActiveHour(null);
+    setActiveWeekday(null);
+  }, [stats.year]);
 
   const monthNames = useMemo(
     () => [
@@ -301,8 +339,9 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
           <div className="mt-4 border-t border-rule pt-3">
             <div
               className="flex h-12 items-end gap-[2px]"
-              role="img"
+              role="group"
               aria-label={t("stats.facts.peakHourChartAria")}
+              onMouseLeave={clearHourTooltip}
             >
               {hours.map((count, hour) => {
                 const maxCount = peakHour?.requests ?? 0;
@@ -310,25 +349,32 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
                   maxCount > 0 && count > 0 ? Math.max(12, Math.round((count / maxCount) * 100)) : 6;
                 const isPeak = peakHour !== null && peakHour.hour === hour && count > 0;
                 const isHovered = hoveredHour === hour;
+                const barLabel = `${formatHourRange(hour)} · ${t("stats.facts.requestsCount", { count })}`;
                 return (
-                  <div
+                  <button
                     key={hour}
-                    title={`${formatHourShort(hour)} · ${t("stats.facts.requestsCount", { count })}`}
-                    onMouseEnter={() => setHoveredHour(hour)}
-                    onMouseLeave={() => setHoveredHour(null)}
-                    className="flex h-full flex-1 cursor-default items-end"
+                    type="button"
+                    aria-label={barLabel}
+                    aria-describedby={isHovered ? hourTooltipId : undefined}
+                    onMouseEnter={(e) => showHourTooltip(hour, e.currentTarget)}
+                    onMouseLeave={clearHourTooltip}
+                    onFocus={(e) => showHourTooltip(hour, e.currentTarget)}
+                    onBlur={clearHourTooltip}
+                    className="flex h-full flex-1 cursor-pointer items-end rounded-[1px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cobalt-ink"
                   >
                     <div
                       className={`w-full rounded-t-[1px] transition-colors ${
                         count === 0
-                          ? "bg-surface-3"
+                          ? isHovered
+                            ? "bg-bone-subtle/60"
+                            : "bg-surface-3"
                           : isPeak || isHovered
                             ? "bg-cobalt-ink"
                             : "bg-cobalt-bright/80"
                       }`}
                       style={{ height: `${heightPct}%` }}
                     />
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -374,8 +420,9 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
           <div className="mt-4 border-t border-rule pt-3">
             <div
               className="grid h-12 grid-cols-7 items-end gap-1.5"
-              role="img"
+              role="group"
               aria-label={t("stats.facts.favoriteWeekdayChartAria")}
+              onMouseLeave={clearWeekdayTooltip}
             >
               {weekdays.map((count, dayIdx) => {
                 const maxCount = peakWeekday?.requests ?? 0;
@@ -383,25 +430,32 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
                   maxCount > 0 && count > 0 ? Math.max(14, Math.round((count / maxCount) * 100)) : 8;
                 const isPeak = peakWeekday !== null && peakWeekday.dayIndex === dayIdx && count > 0;
                 const isHovered = hoveredWeekday === dayIdx;
+                const barLabel = `${weekdayNames[dayIdx]} · ${t("stats.facts.requestsCount", { count })}`;
                 return (
-                  <div
+                  <button
                     key={dayIdx}
-                    title={`${weekdayNames[dayIdx]} · ${t("stats.facts.requestsCount", { count })}`}
-                    onMouseEnter={() => setHoveredWeekday(dayIdx)}
-                    onMouseLeave={() => setHoveredWeekday(null)}
-                    className="flex h-full cursor-default items-end"
+                    type="button"
+                    aria-label={barLabel}
+                    aria-describedby={isHovered ? weekdayTooltipId : undefined}
+                    onMouseEnter={(e) => showWeekdayTooltip(dayIdx, e.currentTarget)}
+                    onMouseLeave={clearWeekdayTooltip}
+                    onFocus={(e) => showWeekdayTooltip(dayIdx, e.currentTarget)}
+                    onBlur={clearWeekdayTooltip}
+                    className="flex h-full cursor-pointer items-end rounded-[2px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cobalt-ink"
                   >
                     <div
                       className={`w-full rounded-t-[2px] transition-colors ${
                         count === 0
-                          ? "bg-surface-3"
+                          ? isHovered
+                            ? "bg-bone-subtle/60"
+                            : "bg-surface-3"
                           : isPeak || isHovered
                             ? "bg-cobalt-ink"
                             : "bg-cobalt-bright/80"
                       }`}
                       style={{ height: `${heightPct}%` }}
                     />
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -643,6 +697,32 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
           </p>
         </article>
       </div>
+
+      {/* Portal floating tooltips for the hour & weekday mini-charts */}
+      <StatsTooltip
+        id={hourTooltipId}
+        anchorRect={activeHour?.anchorRect ?? null}
+        content={
+          activeHour !== null
+            ? `${formatHourRange(activeHour.index)} · ${t("stats.facts.requestsCount", {
+                count: hours[activeHour.index] ?? 0,
+              })}`
+            : null
+        }
+        onDismiss={clearHourTooltip}
+      />
+      <StatsTooltip
+        id={weekdayTooltipId}
+        anchorRect={activeWeekday?.anchorRect ?? null}
+        content={
+          activeWeekday !== null
+            ? `${weekdayNames[activeWeekday.index]} · ${t("stats.facts.requestsCount", {
+                count: weekdays[activeWeekday.index] ?? 0,
+              })}`
+            : null
+        }
+        onDismiss={clearWeekdayTooltip}
+      />
     </section>
   );
 }

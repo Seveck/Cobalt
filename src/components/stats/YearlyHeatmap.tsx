@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { formatCompactNumber, formatTokenCount } from "@/lib/format";
@@ -10,6 +10,11 @@ import {
   type HeatmapCell,
   type HeatmapLevel,
 } from "./statsHelpers";
+import {
+  readAnchorRect,
+  StatsTooltip,
+  type TooltipAnchorRect,
+} from "./StatsTooltip";
 
 interface YearlyHeatmapProps {
   year: number;
@@ -21,11 +26,9 @@ interface YearlyHeatmapProps {
   onChangeYear: (nextYear: number) => void;
 }
 
-interface HoveredTooltip {
+interface ActiveHeatmapTooltip {
   cell: HeatmapCell;
-  x: number;
-  y: number;
-  placement: "top" | "bottom";
+  anchorRect: TooltipAnchorRect;
 }
 
 const CELL_SIZE = 12;
@@ -47,7 +50,8 @@ export function YearlyHeatmap({
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? i18n.language ?? "en";
 
-  const [hovered, setHovered] = useState<HoveredTooltip | null>(null);
+  const [activeTooltip, setActiveTooltip] = useState<ActiveHeatmapTooltip | null>(null);
+  const tooltipId = useId();
 
   const monthNames = useMemo(
     () => [
@@ -101,22 +105,19 @@ export function YearlyHeatmap({
 
   const showTooltipForElement = useCallback((cell: HeatmapCell, target: Element) => {
     if (!cell.date) return;
-    const rect = target.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const viewportW = typeof window !== "undefined" ? window.innerWidth : 1024;
-    const clampedX = Math.max(140, Math.min(viewportW - 140, centerX));
-    const placeBelow = rect.top < 56;
-    setHovered({
+    setActiveTooltip({
       cell,
-      x: clampedX,
-      y: placeBelow ? rect.bottom + 8 : rect.top - 8,
-      placement: placeBelow ? "bottom" : "top",
+      anchorRect: readAnchorRect(target),
     });
   }, []);
 
   const clearTooltip = useCallback(() => {
-    setHovered(null);
+    setActiveTooltip(null);
   }, []);
+
+  useEffect(() => {
+    setActiveTooltip(null);
+  }, [year]);
 
   const gridWidth = grid.weeks.length * CELL_STEP - CELL_GAP;
   const gridHeight = 7 * CELL_STEP - CELL_GAP;
@@ -182,9 +183,10 @@ export function YearlyHeatmap({
             width={svgWidth}
             height={svgHeight}
             viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-            role="img"
+            role="group"
             aria-label={t("stats.heatmap.ariaLabel", { year })}
             className="block select-none"
+            onMouseLeave={clearTooltip}
           >
             {/* Month labels along top */}
             {grid.monthLabels.map(({ month, weekIndex }) => (
@@ -221,7 +223,7 @@ export function YearlyHeatmap({
                 const style = HEATMAP_LEVEL_STYLES[cell.level];
                 const x = DAY_LABEL_WIDTH + weekIdx * CELL_STEP;
                 const y = MONTH_HEADER_HEIGHT + dayIdx * CELL_STEP;
-                const isFocused = hovered?.cell.date === cell.date;
+                const isFocused = activeTooltip?.cell.date === cell.date;
                 const tooltipText = buildTooltipText(cell);
 
                 return (
@@ -245,6 +247,7 @@ export function YearlyHeatmap({
                     tabIndex={0}
                     role="button"
                     aria-label={tooltipText}
+                    aria-describedby={isFocused ? tooltipId : undefined}
                     className="cursor-pointer outline-none transition-[stroke] duration-75"
                     onMouseEnter={(e) => showTooltipForElement(cell, e.currentTarget)}
                     onMouseLeave={clearTooltip}
@@ -288,23 +291,13 @@ export function YearlyHeatmap({
         </div>
       </div>
 
-      {/* Floating tooltip (fixed-positioned so horizontal scroll never clips it) */}
-      {hovered && (
-        <div
-          role="tooltip"
-          className="pointer-events-none fixed z-50 max-w-xs -translate-x-1/2 whitespace-nowrap rounded-[2px] border border-rule-strong bg-void/95 px-2.5 py-1.5 font-mono text-[11px] text-bone shadow-lg"
-          style={{
-            left: hovered.x,
-            top: hovered.y,
-            transform:
-              hovered.placement === "top"
-                ? "translate(-50%, -100%)"
-                : "translate(-50%, 0)",
-          }}
-        >
-          {buildTooltipText(hovered.cell)}
-        </div>
-      )}
+      {/* Portal floating tooltip (never clipped by scroll containers or viewport edges) */}
+      <StatsTooltip
+        id={tooltipId}
+        anchorRect={activeTooltip?.anchorRect ?? null}
+        content={activeTooltip ? buildTooltipText(activeTooltip.cell) : null}
+        onDismiss={clearTooltip}
+      />
     </section>
   );
 }
