@@ -59,7 +59,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] Inspector, Depurador RAG, Time-Travel, ramas, Limpiar Cerebro; todos los comandos Fase 2 por IPC real
 
 ### Pendiente para Fase 3 (de esta integración)
-- [ ] [GEMINI] Usar `get_source_document`/`verify_source_document` reales en el Inspector
+- [x] [GEMINI] Usar `get_source_document`/`verify_source_document` reales en el Inspector (verificado 2026-11-27: las 78 órdenes IPC son reales dentro de Tauri)
 - [ ] [CODEX] `find_import_collision` para `.cobalt-backup`; adaptadores Qdrant sidecar / LanceDB / Chroma
 - [x] [CLAUDE] `swap_engine` IPC al cambiar de modelo con memorias existentes (`update_settings` ya no lo permite sin re-vectorizar)
 
