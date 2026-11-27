@@ -49,41 +49,117 @@ pub(crate) fn core_rules(
         .map_err(sql_error)
 }
 
-fn fts_query(input: &str) -> String {
-    // Quote user input so that FTS operators, column selectors and wildcards remain literal.
+const EN_STOPWORDS: &[&str] = &[
+    "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can", "could", "did", "do",
+    "does", "for", "from", "had", "has", "have", "how", "if", "in", "is", "it", "its", "me", "my",
+    "of", "on", "or", "our", "please", "should", "so", "than", "that", "the", "their", "them",
+    "then", "there", "these", "they", "this", "those", "to", "us", "was", "we", "were", "what",
+    "when", "where", "which", "who", "why", "will", "with", "would", "you", "your",
+];
+const ES_STOPWORDS: &[&str] = &[
+    "al", "como", "con", "cual", "cuando", "de", "del", "donde", "el", "ella", "ellos", "en",
+    "era", "es", "esa", "ese", "eso", "esta", "estas", "este", "esto", "estos", "fue", "ha", "hay",
+    "la", "las", "le", "les", "lo", "los", "mas", "me", "mi", "mis", "muy", "ni", "no", "nos", "o",
+    "para", "pero", "por", "que", "se", "sea", "ser", "si", "sin", "sobre", "son", "su", "sus",
+    "te", "tu", "un", "una", "unas", "unos", "y", "ya", "yo",
+];
+
+fn fts_terms(input: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
     input
         .split(|c: char| {
             !(c.is_alphanumeric() || c == '_' || ('\u{0300}'..='\u{036f}').contains(&c))
         })
-        .filter(|term| term.chars().any(|c| c.is_alphanumeric() || c == '_'))
+        .filter(|term| {
+            term.chars().any(char::is_alphanumeric)
+                && term
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '_')
+                    .nth(1)
+                    .is_some()
+        })
+        .filter(|term| {
+            // Match unicode61's case and diacritic folding for English and Spanish words.
+            let key: String = term
+                .chars()
+                .flat_map(char::to_lowercase)
+                .filter(|c| !matches!(c, '\u{0301}' | '\u{0303}' | '\u{0308}'))
+                .map(|c| match c {
+                    'á' => 'a',
+                    'é' => 'e',
+                    'í' => 'i',
+                    'ñ' => 'n',
+                    'ó' => 'o',
+                    'ú' | 'ü' => 'u',
+                    _ => c,
+                })
+                .collect();
+            !EN_STOPWORDS.contains(&key.as_str())
+                && !ES_STOPWORDS.contains(&key.as_str())
+                && seen.insert(key)
+        })
+        // Quote user input so that FTS operators, column selectors and wildcards remain literal.
         .map(|term| format!("\"{term}\""))
-        .collect::<Vec<_>>()
-        .join(" OR ")
+        .collect()
 }
 
-fn lexical(conn: &Connection, query: &str, limit: u32, scope: Scope) -> Result<Vec<(Id, f64)>> {
-    let expression = fts_query(query);
-    if expression.is_empty() {
+fn lexical(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+    scope: Scope,
+    vector_candidates: &HashMap<Id, Candidate>,
+) -> Result<Vec<(u32, Id, f64)>> {
+    let terms = fts_terms(query);
+    if terms.is_empty() {
         return Ok(Vec::new());
     }
     let mut stmt = conn
         .prepare(&format!(
-            "SELECT m.id, bm25(memories_fts) AS bm25 FROM memories_fts
+            "SELECT m.id, m.rowid, m.is_core_pin, bm25(memories_fts) AS bm25 FROM memories_fts
          JOIN memories m ON m.rowid = memories_fts.rowid
          WHERE memories_fts MATCH ? AND {} ORDER BY bm25, m.id LIMIT ?",
             scope.clause,
         ))
         .map_err(sql_error)?;
-    let args = [Value::Text(expression)]
+    let args = [Value::Text(terms.join(" OR "))]
         .into_iter()
         .chain(scope.params)
         .chain([Value::Integer(i64::from(limit))]);
-    stmt.query_map(params_from_iter(args), |row| {
-        Ok((id(row, "id")?, row.get("bm25")?))
-    })
-    .map_err(sql_error)?
-    .collect::<rusqlite::Result<_>>()
-    .map_err(sql_error)
+    let mut rows = stmt.query(params_from_iter(args)).map_err(sql_error)?;
+    // The OR expression already guarantees one match for every row.
+    let required = terms.len().div_ceil(2);
+    let mut term_match = conn
+        .prepare_cached("SELECT 1 FROM memories_fts WHERE rowid = ?1 AND memories_fts MATCH ?2")
+        .map_err(sql_error)?;
+    let mut matches = Vec::new();
+    for rank in 1..=limit {
+        let Some(row) = rows.next().map_err(sql_error)? else {
+            break;
+        };
+        let memory_id = id(row, "id").map_err(sql_error)?;
+        if required > 1
+            && !row.get::<_, bool>("is_core_pin").map_err(sql_error)?
+            && !vector_candidates.contains_key(&memory_id)
+        {
+            // Use the same FTS tokenizer and indexed columns for BM25 and term coverage.
+            let rowid: i64 = row.get("rowid").map_err(sql_error)?;
+            let mut matched = 0;
+            for term in &terms {
+                if term_match.exists(params![rowid, term]).map_err(sql_error)? {
+                    matched += 1;
+                    if matched == required {
+                        break;
+                    }
+                }
+            }
+            if matched < required {
+                continue;
+            }
+        }
+        matches.push((rank, memory_id, row.get("bm25").map_err(sql_error)?));
+    }
+    Ok(matches)
 }
 
 #[derive(Default)]
@@ -138,8 +214,13 @@ fn collect_hits(
         }
     }
     if weights.fts_weight > 0.0 {
-        let lexical = lexical(conn, &req.query, candidates_per_channel, scope())?;
-        for (rank, (id, score)) in (1..=candidates_per_channel).zip(lexical) {
+        for (rank, id, score) in lexical(
+            conn,
+            &req.query,
+            candidates_per_channel,
+            scope(),
+            &candidates,
+        )? {
             candidates.entry(id).or_default().fts = Some((rank, score));
         }
     }
