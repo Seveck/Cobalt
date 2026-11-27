@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-#[cfg(test)]
 use std::sync::Arc;
 
 use cobalt_core::config::AppSettings;
@@ -13,13 +12,13 @@ use cobalt_core::ids::Id;
 use cobalt_core::memoryignore::MemoryIgnore;
 use cobalt_core::model::{GraphQuery, Memory, MemoryPatch, NewMemory, NewSourceDocument};
 use cobalt_core::scrubber::scrub;
-use cobalt_core::traits::{ProgressSink, TokenCounter};
+use cobalt_core::traits::{OcrEngine, ProgressSink, TokenCounter};
 use cobalt_core::transfer::*;
 use cobalt_store::DOCUMENT_EMBED_BATCH;
 use sha2::{Digest, Sha256};
 
 use crate::jobs::{Cancellation, Progress};
-use crate::{Context, blocking, past_life, watcher::Callbacks};
+use crate::{Context, blocking, ocr, past_life, watcher::Callbacks};
 
 pub(crate) const INGEST_CLIENT: &str = "cobalt-ingest";
 const PAST_LIFE_CLIENT: &str = "cobalt-past-life";
@@ -478,17 +477,14 @@ fn read_file(
     kind: SourceType,
     explicit: bool,
     conversations_zip: bool,
-    ocr: bool,
+    allow_folder_media: bool,
 ) -> Result<FileRead> {
-    if !explicit && matches!(kind, SourceType::Pdf | SourceType::Image)
+    if !explicit && !allow_folder_media && matches!(kind, SourceType::Pdf | SourceType::Image)
         || !conversations_zip && binary_extension(path)
     {
         return Ok(FileRead::unsupported(
             "binary document excluded by file extension",
         ));
-    }
-    if kind == SourceType::Image {
-        return Ok(FileRead::Skipped(ocr_error(ocr)));
     }
     let limit = if explicit {
         MAX_DOCUMENT_BYTES
@@ -499,24 +495,46 @@ fn read_file(
         return Ok(FileRead::over_limit(limit));
     }
     let file = std::fs::File::open(path)?;
-    if conversations_zip || kind == SourceType::Pdf {
-        return read_document(file).map(FileRead::Bytes);
+    if conversations_zip || matches!(kind, SourceType::Pdf | SourceType::Image) {
+        let bytes = read_document(file.take(limit + 1))?;
+        return Ok(if bytes.len() as u64 > limit {
+            FileRead::over_limit(limit)
+        } else {
+            FileRead::Bytes(bytes)
+        });
     }
     read_text_document(file, limit)
 }
 
-fn ocr_error(ocr: bool) -> CobaltError {
-    CobaltError::Unsupported(if ocr {
-        "OCR requires catalog-verified ocrs detection and recognition models, which are unavailable"
-            .into()
+fn requested_ocr(enabled: bool, engine: Option<Arc<dyn OcrEngine>>) -> Result<Arc<dyn OcrEngine>> {
+    if enabled {
+        engine.ok_or_else(|| {
+            CobaltError::Unsupported("OCR is not installed: install it in Settings → OCR".into())
+        })
     } else {
-        "this document requires OCR, which is disabled for this import".into()
-    })
+        Err(CobaltError::Unsupported(
+            "this document requires OCR, which is disabled for this import".into(),
+        ))
+    }
 }
 
-fn text_from_bytes(bytes: &[u8], kind: SourceType, ocr: bool) -> Result<String> {
-    match kind {
-        SourceType::Image => Err(ocr_error(ocr)),
+fn text_from_bytes(
+    bytes: &[u8],
+    kind: SourceType,
+    engine: Result<Arc<dyn OcrEngine>>,
+    cancellation: &Cancellation,
+    progress: &Progress,
+) -> Result<(String, MemoryCategory)> {
+    let ocr_text = match kind {
+        SourceType::Image => {
+            let engine = engine?;
+            cancellation.check()?;
+            progress.reading_units(0, 1);
+            let text = engine.recognize(bytes)?;
+            cancellation.check()?;
+            progress.reading_units(1, 1);
+            text
+        }
         SourceType::Pdf => {
             let pdf = lopdf::Document::load_mem(bytes)
                 .map_err(|err| CobaltError::InvalidInput(format!("invalid PDF: {err}")))?;
@@ -524,22 +542,27 @@ fn text_from_bytes(bytes: &[u8], kind: SourceType, ocr: bool) -> Result<String> 
             let text = pdf.extract_text(&pages).map_err(|err| {
                 CobaltError::InvalidInput(format!("cannot extract PDF text: {err}"))
             })?;
-            if text.trim().is_empty() {
-                Err(ocr_error(ocr))
-            } else {
-                Ok(text)
+            if !text.trim().is_empty() {
+                return Ok((text, category(kind)));
             }
+            ocr::recognize_pdf(&pdf, engine?.as_ref(), cancellation, progress)?
         }
         _ => {
             let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
             if bytes.contains(&0) {
                 return Err(CobaltError::Unsupported("binary document".into()));
             }
-            std::str::from_utf8(bytes)
-                .map(str::to_owned)
-                .map_err(|_| CobaltError::Unsupported("document is not UTF-8 text".into()))
+            let text = std::str::from_utf8(bytes)
+                .map_err(|_| CobaltError::Unsupported("document is not UTF-8 text".into()))?;
+            return Ok((text.to_owned(), category(kind)));
         }
+    };
+    if ocr_text.trim().is_empty() {
+        return Err(CobaltError::InvalidInput(
+            "OCR found no text in this document".into(),
+        ));
     }
+    Ok((ocr_text, MemoryCategory::Ocr))
 }
 
 fn category(kind: SourceType) -> MemoryCategory {
@@ -960,7 +983,8 @@ impl Context {
         let max = chunk_limit(work.settings);
         let overlap = work.settings.chunking.overlap_tokens as usize;
         let reusable = work.req.mark_reusable;
-        let ocr = work.req.ocr;
+        let engine = requested_ocr(work.req.ocr, self.ocr_engine());
+        let progress = work.run.progress.clone();
         let cancellation = work.run.cancellation.clone();
         let prior = self.store.find_source_document_by_path(&file_path).await?;
         let mut previous_hash = None;
@@ -982,7 +1006,13 @@ impl Context {
         }
         let prepared = blocking(move || {
             cancellation.check()?;
-            let bytes = match read_file(&read_path, kind, explicit, conversations_zip, ocr)? {
+            let bytes = match read_file(
+                &read_path,
+                kind,
+                explicit,
+                conversations_zip,
+                engine.is_ok(),
+            )? {
                 FileRead::Bytes(bytes) => bytes,
                 FileRead::Skipped(error) => return Ok(Err(error)),
             };
@@ -991,12 +1021,14 @@ impl Context {
             if previous_hash.as_deref() == Some(file_hash.as_str()) {
                 return Ok(Ok(None));
             }
-            let text = if conversations_zip {
-                let json = past_life::conversations_from_zip(&bytes)?;
-                text_from_bytes(&json, kind, ocr)?
+            let json;
+            let input = if conversations_zip {
+                json = past_life::conversations_from_zip(&bytes)?;
+                &json
             } else {
-                text_from_bytes(&bytes, kind, ocr)?
+                &bytes
             };
+            let (text, category) = text_from_bytes(input, kind, engine, &cancellation, &progress)?;
             cancellation.check()?;
             let total = tokens.count(&text);
             cancellation.check()?;
@@ -1025,13 +1057,13 @@ impl Context {
                     && total <= max
                 {
                     if !message.is_empty() {
-                        contents.push((category(kind), message));
+                        contents.push((category, message));
                     }
                 } else {
                     contents.extend(
                         chunks(tokens.as_ref(), &clean.text, max, overlap, &cancellation)?
                             .into_iter()
-                            .map(|chunk| (category(kind), chunk)),
+                            .map(|chunk| (category, chunk)),
                     );
                 }
             }
@@ -1184,7 +1216,7 @@ impl Context {
                         if metadata.is_file()
                             && snapshot_path.canonicalize()? == snapshot_path
                             && let FileRead::Bytes(bytes) =
-                                read_file(&snapshot_path, input.kind, explicit, false, false)?
+                                read_file(&snapshot_path, input.kind, explicit, false, true)?
                             && expected_hash.as_deref() == Some(&digest(&bytes))
                         {
                             return Ok(());
@@ -1399,7 +1431,8 @@ impl Context {
         let limit = chunk_limit(&settings).min(cobalt_core::mcp::REUSABLE_SUMMARY_TOKENS as usize);
         let tokens = self.tokens.clone();
         let summary = req.summary;
-        let (path, kind, hash, total_tokens, snippet) = blocking(move || {
+        let engine = requested_ocr(true, self.ocr_engine());
+        let (path, kind, category, hash, total_tokens, snippet) = blocking(move || {
             let input = std::path::absolute(path)?;
             if input.symlink_metadata()?.is_symlink()
                 || ignored(
@@ -1428,7 +1461,13 @@ impl Context {
             }
             let bytes = read_document(std::fs::File::open(&path)?)?;
             let kind = SourceType::from_path(&path);
-            let text = text_from_bytes(&bytes, kind, true)?;
+            let (text, category) = text_from_bytes(
+                &bytes,
+                kind,
+                engine,
+                &Cancellation::default(),
+                &Progress::default(),
+            )?;
             let clean = scrub(summary.as_deref().unwrap_or(&text));
             check_document_text(&clean.text)?;
             let snippet = tokens.truncate(clean.text.trim(), limit);
@@ -1442,6 +1481,7 @@ impl Context {
             Ok((
                 path_string(&path)?,
                 kind,
+                category,
                 digest(&bytes),
                 total_tokens,
                 snippet,
@@ -1467,7 +1507,7 @@ impl Context {
         };
         let new = NewMemory {
             content: snippet.clone(),
-            category: category(kind),
+            category,
             project_id: req.project_id,
             branch_id: Some(self.store.active_branch().await?.id),
             source_doc_id: Some(doc.id),

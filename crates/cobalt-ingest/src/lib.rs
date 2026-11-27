@@ -2,23 +2,25 @@
 
 mod documents;
 mod jobs;
+mod ocr;
 mod past_life;
 mod transfer;
 mod watcher;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock};
 
 use async_trait::async_trait;
 use cobalt_core::error::Result;
 use cobalt_core::model::{Memory, MemoryChanged};
-use cobalt_core::traits::{CobaltStore, ProgressSink, TokenCounter};
+use cobalt_core::traits::{CobaltStore, OcrEngine, ProgressSink, TokenCounter};
 use cobalt_core::transfer::*;
 use cobalt_store::SqliteStore;
 use tokio::sync::Mutex;
 
 pub use cobalt_core;
+pub use ocr::OcrsEngine;
 
 /// The daemon's document ingestion and knowledge transfer service.
 pub struct IngestService {
@@ -31,6 +33,7 @@ struct Context {
     store: Arc<dyn CobaltStore>,
     sqlite: Option<Arc<SqliteStore>>,
     tokens: Arc<dyn TokenCounter>,
+    ocr: RwLock<Option<Arc<dyn OcrEngine>>>,
     global_ignore: Option<PathBuf>,
     writes: Mutex<()>,
     jobs: jobs::Jobs,
@@ -45,6 +48,16 @@ impl IngestService {
     /// Enables identity-preserving imports and independent document chunks on the canonical store.
     pub fn with_sqlite_store(store: Arc<SqliteStore>, tokens: Arc<dyn TokenCounter>) -> Self {
         Self::build(store.clone(), Some(store), tokens)
+    }
+
+    /// Enables local OCR for ingest requests that opt in.
+    pub fn with_ocr(self, engine: Arc<dyn OcrEngine>) -> Self {
+        *self
+            .inner
+            .ocr
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some(engine);
+        self
     }
 
     /// Installs callbacks for background ingest progress and committed memory changes.
@@ -80,6 +93,7 @@ impl IngestService {
                 store,
                 sqlite,
                 tokens,
+                ocr: RwLock::default(),
                 global_ignore: cobalt_core::paths::cobalt_home().ok(),
                 writes: Mutex::new(()),
                 jobs: jobs::Jobs::default(),
@@ -92,6 +106,13 @@ impl IngestService {
 }
 
 impl Context {
+    fn ocr_engine(&self) -> Option<Arc<dyn OcrEngine>> {
+        self.ocr
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
     fn watch_issue(&self, issue: IngestIssue) {
         let mut issues = self
             .watcher_issues
