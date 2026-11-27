@@ -10,6 +10,7 @@ import {
   History,
   Info,
   Loader2,
+  Palette,
   PauseCircle,
   RotateCcw,
   Save,
@@ -25,7 +26,13 @@ import {
   formatRamGb,
   isEngineModelInstalled,
 } from "@/lib/format";
-import { useHardwareStore, useMemoryStore, useSettingsStore, useUiStore } from "@/stores";
+import {
+  useHardwareStore,
+  useMemoryStore,
+  useSettingsStore,
+  useThemeStore,
+  useUiStore,
+} from "@/stores";
 import { DownloadProgressBar, HardwareConfigForm } from "@/components/onboarding";
 import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
@@ -42,6 +49,7 @@ export function SettingsView() {
   const langLabelId = useId();
   const displayNameInputId = useId();
   const readOnlyLabelId = useId();
+  const disableThemeShadersLabelId = useId();
   const indexingPausedLabelId = useId();
   const autoWatchLabelId = useId();
   const sessionHandoffsLabelId = useId();
@@ -75,6 +83,11 @@ export function SettingsView() {
 
   const appInfo = useUiStore((s) => s.appInfo);
   const setShowOnboardingOverride = useUiStore((s) => s.setShowOnboardingOverride);
+
+  const disableThemeShaders = useThemeStore((s) => s.disableThemeShaders);
+  const shadersDisabledForSession = useThemeStore((s) => s.shadersDisabledForSession);
+  const setDisableThemeShaders = useThemeStore((s) => s.setDisableThemeShaders);
+  const resetSessionShaderWatchdog = useThemeStore((s) => s.resetSessionShaderWatchdog);
 
   const [displayName, setDisplayName] = useState<string>(settings.user_display_name ?? "");
   const [tier, setTier] = useState<HardwareTier>(settings.hardware_tier);
@@ -356,12 +369,62 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* 02 — Automatic capture section */}
+        {/* 02 — Appearance section */}
+        <section className="rounded-[2px] border border-rule bg-surface">
+          <div className="border-b border-rule px-5 py-3">
+            <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+              <Palette size={13} className="text-cobalt-ink" aria-hidden />
+              02 — {t("settings.appearanceTitle")}
+            </h2>
+            <p className="mt-1 text-xs text-bone-muted">{t("settings.appearanceSubtitle")}</p>
+          </div>
+
+          <div className="divide-y divide-rule px-5">
+            <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+              <div className="min-w-0 flex-1">
+                <div
+                  id={disableThemeShadersLabelId}
+                  className="text-sm font-medium text-bone"
+                >
+                  {t("settings.disableThemeShadersTitle")}
+                </div>
+                <div className="mt-0.5 text-xs text-bone-muted">
+                  {t("settings.disableThemeShadersDesc")}
+                </div>
+                {shadersDisabledForSession && !disableThemeShaders && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[2px] border border-ochre-rule bg-ochre-wash/50 px-2.5 py-1.5 text-[11px] text-ochre">
+                    <span>{t("settings.shaderWatchdogActive")}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetSessionShaderWatchdog();
+                        showSavedFlash();
+                      }}
+                      className="rounded-[2px] border border-ochre-rule bg-surface px-2 py-0.5 font-mono text-[10px] font-medium text-bone hover:bg-surface-2"
+                    >
+                      {t("settings.shaderWatchdogResume")}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <Toggle
+                checked={disableThemeShaders}
+                ariaLabelledBy={disableThemeShadersLabelId}
+                onChange={(checked) => {
+                  setDisableThemeShaders(checked);
+                  showSavedFlash();
+                }}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* 03 — Automatic capture section */}
         <section className="rounded-[2px] border border-rule bg-surface">
           <div className="border-b border-rule px-5 py-3">
             <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
               <Sparkles size={13} className="text-cobalt-ink" aria-hidden />
-              02 — {t("settings.captureTitle")}
+              03 — {t("settings.captureTitle")}
             </h2>
             <p className="mt-1 text-xs text-bone-muted">{t("settings.captureSubtitle")}</p>
           </div>
@@ -453,12 +516,12 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* 03 — Hardware & Engine section */}
+        {/* 04 — Hardware & Engine section */}
         <section className="rounded-[2px] border border-rule bg-surface">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule px-5 py-3">
             <div>
               <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
-                03 — {t("settings.engineTitle")}
+                04 — {t("settings.engineTitle")}
               </h2>
               <p className="mt-1 text-xs text-bone-muted">{t("settings.engineSubtitle")}</p>
             </div>
@@ -586,12 +649,12 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* 04 — Detected hardware & re-open onboarding */}
+        {/* 05 — Detected hardware & re-open onboarding */}
         <section className="rounded-[2px] border border-rule bg-surface">
           <div className="border-b border-rule px-5 py-3">
             <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
               <Cpu size={13} className="text-cobalt-ink" aria-hidden />
-              04 — {t("settings.hardwareTitle")}
+              05 — {t("settings.hardwareTitle")}
             </h2>
           </div>
 
@@ -617,12 +680,12 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* 05 — About section (app version + contract version) */}
+        {/* 06 — About section (app version + contract version) */}
         <section className="rounded-[2px] border border-rule bg-surface">
           <div className="border-b border-rule px-5 py-3">
             <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
               <Info size={13} className="text-cobalt-ink" aria-hidden />
-              05 — {t("settings.aboutTitle")}
+              06 — {t("settings.aboutTitle")}
             </h2>
           </div>
 

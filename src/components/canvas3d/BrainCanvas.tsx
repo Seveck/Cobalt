@@ -28,6 +28,7 @@ import {
   useMemoryStore,
   useSettingsStore,
   useThemeStore,
+  useUiStore,
 } from "@/stores";
 import { NodeInspector } from "@/components/inspector/NodeInspector";
 import { MockBadge } from "@/components/shell/MockBadge";
@@ -35,12 +36,13 @@ import { BranchSwitcher } from "@/components/tools/BranchSwitcher";
 import { CleanBrainPanel } from "@/components/tools/CleanBrainPanel";
 import { RagDebugger } from "@/components/tools/RagDebugger";
 import { TimeTravelBar } from "@/components/tools/TimeTravelBar";
-import type { GraphNode, ProjectContainer } from "@/types/contracts";
+import { BUILTIN_THEME_ID, type GraphNode, type ProjectContainer } from "@/types/contracts";
 import { BrainScene } from "./BrainScene";
 import { FilterDock } from "./FilterDock";
 import { LayoutSwitcher } from "./LayoutSwitcher";
 import { NodeTooltip, type TooltipPointer } from "./NodeTooltip";
 import { SynapticHud } from "./SynapticHud";
+import { ThemeWarningsBanner } from "./ThemeWarningsBanner";
 
 type ActiveDrawer = "none" | "inspector" | "rag" | "clean";
 
@@ -90,12 +92,29 @@ export function BrainCanvas() {
   const setSelectedNodeId = useMemoryStore((s) => s.setSelectedNodeId);
 
   const manifest = useThemeStore((s) => s.manifest);
+  const installedThemes = useThemeStore((s) => s.installedThemes);
   const activeLayout = useThemeStore((s) => s.activeLayout);
   const clusterSizeMetric = useThemeStore((s) => s.clusterSizeMetric);
   const showConnections = useThemeStore((s) => s.showConnections);
   const setActiveLayout = useThemeStore((s) => s.setActiveLayout);
   const setClusterSizeMetric = useThemeStore((s) => s.setClusterSizeMetric);
   const toggleShowConnections = useThemeStore((s) => s.toggleShowConnections);
+
+  const appInfo = useUiStore((s) => s.appInfo);
+
+  const themeBasePath = useMemo(() => {
+    if (manifest.id === BUILTIN_THEME_ID) return null;
+    const installed = installedThemes.find((item) => item.id === manifest.id);
+    if (installed?.local_path && !installed.local_path.startsWith("builtin://")) {
+      return installed.local_path;
+    }
+    if (appInfo?.data_dir && !appInfo.data_dir.includes("(mock)")) {
+      const clean = appInfo.data_dir.replace(/[\\/]+$/, "");
+      const sep = clean.includes("\\") && !clean.includes("/") ? "\\" : "/";
+      return `${clean}${sep}themes${sep}${manifest.id}`;
+    }
+    return null;
+  }, [appInfo?.data_dir, installedThemes, manifest.id]);
 
   const hardwareTier = useSettingsStore((s) => s.settings.hardware_tier);
   const readOnly = useSettingsStore((s) => s.settings.read_only);
@@ -294,6 +313,7 @@ export function BrainCanvas() {
             <LayoutSwitcher
               activeLayout={activeLayout}
               clusterSizeMetric={clusterSizeMetric}
+              hasCustomMesh={Boolean(manifest.mesh_path)}
               onSelectLayout={setActiveLayout}
               onSelectSizeMetric={setClusterSizeMetric}
             />
@@ -373,6 +393,11 @@ export function BrainCanvas() {
           </div>
         </div>
 
+        {/* Non-blocking theme shader / custom mesh warnings (THEME_SPEC §6.2) */}
+        <div className="pointer-events-auto absolute top-14 right-3 z-25 max-w-md">
+          <ThemeWarningsBanner />
+        </div>
+
         {/* Project Clusters Legend Overlay (when project_clusters layout is active) */}
         {activeLayout === "project_clusters" && projectContainers.length > 0 && (
           <div className="pointer-events-none absolute top-16 left-3 z-10 hidden max-w-xs flex-wrap gap-1.5 rounded-[2px] border border-rule bg-surface/90 p-2 font-mono text-[10px] sm:flex">
@@ -417,6 +442,7 @@ export function BrainCanvas() {
               <BrainScene
                 graph={graph}
                 manifest={manifest}
+                themeBasePath={themeBasePath}
                 activeLayout={activeLayout}
                 clusterSizeMetric={clusterSizeMetric}
                 showConnections={showConnections}

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, type ComponentRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
 import { useTranslation } from "react-i18next";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { matchesVisualFilters, useSynapticStore } from "@/stores";
+import { isTauri } from "@/lib/ipc";
+import { matchesVisualFilters, useSynapticStore, useThemeStore } from "@/stores";
 import type {
   ClusterSizeMetric,
   GraphData,
@@ -15,6 +16,7 @@ import type {
   Uuid,
   VisualFilters,
 } from "@/types/contracts";
+import { createNodeGeometry } from "./geometry";
 import {
   buildIslandRimsGeometry,
   buildIslandSlabsGeometry,
@@ -22,11 +24,38 @@ import {
   createIslandLabelSprite,
 } from "./islandVisuals";
 import { resolveLayoutFn } from "./layouts";
-import { createNodePointMaterial } from "./pointShader";
+import {
+  createNodePointMaterial,
+  NODE_POINT_FRAGMENT_SHADER,
+  NODE_POINT_VERTEX_SHADER,
+} from "./pointShader";
 import { SpatialHashGrid } from "./spatialIndex";
+import {
+  areCustomShadersAllowed,
+  disposeParsedThemeGlb,
+  hasAnyCustomShader,
+  loadThemeGlb,
+  loadThemeShaderSources,
+  type LoadedThemeShaders,
+  type ParsedThemeGlb,
+} from "./themeAssets";
+import {
+  BACKGROUND_VERTEX_SHADER,
+  createBackgroundShaderMaterial,
+  createEdgeShaderMaterial,
+  declaresColorAttribute,
+  EDGE_FRAGMENT_SHADER,
+  EDGE_VERTEX_SHADER,
+  validateShaderProgram,
+} from "./themeShaders";
 
 const LERP_DURATION_SEC = 0.72;
 const INITIAL_CAPACITY = 1024;
+const VOLUMETRIC_MAX_VISIBLE_NODES = 5_000;
+const VOLUMETRIC_SCALE_MULTIPLIER = 0.45;
+const WATCHDOG_FRAME_MS_THRESHOLD = 100;
+const WATCHDOG_SUSTAINED_MS = 3_000;
+const WATCHDOG_WINDOW_MS = 1_000;
 
 interface FrameRateControllerProps {
   maxFps: number | null;
@@ -71,6 +100,7 @@ function FrameRateController({ maxFps }: FrameRateControllerProps) {
 export interface BrainSceneProps {
   graph: GraphData;
   manifest: ThemeManifest;
+  themeBasePath: string | null;
   activeLayout: LayoutType;
   clusterSizeMetric: ClusterSizeMetric;
   showConnections: boolean;
@@ -171,9 +201,25 @@ function nextCapacity(needed: number): number {
   return cap;
 }
 
+function attachUniformEdgeColorAttribute(geometry: THREE.BufferGeometry, colorHex: string): void {
+  const posAttr = geometry.getAttribute("position");
+  if (!posAttr) return;
+  const col = new THREE.Color(colorHex);
+  const count = posAttr.count;
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i += 1) {
+    const i3 = i * 3;
+    colors[i3] = col.r;
+    colors[i3 + 1] = col.g;
+    colors[i3 + 2] = col.b;
+  }
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+}
+
 export function BrainScene({
   graph,
   manifest,
+  themeBasePath,
   activeLayout,
   clusterSizeMetric,
   showConnections,
@@ -194,8 +240,173 @@ export function BrainScene({
   const gl = useThree((state) => state.gl);
   const size = useThree((state) => state.size);
 
+  const disableThemeShaders = useThemeStore((s) => s.disableThemeShaders);
+  const shadersDisabledForSession = useThemeStore((s) => s.shadersDisabledForSession);
+  const pushThemeWarning = useThemeStore((s) => s.pushThemeWarning);
+  const dismissThemeWarning = useThemeStore((s) => s.dismissThemeWarning);
+
   const isProjectIslands = activeLayout === "project_islands";
   const maxFps = hardwareTier === "eco" ? 30 : hardwareTier === "balanced" ? 60 : null;
+
+  const shadersAllowed = useMemo(
+    () =>
+      areCustomShadersAllowed({
+        manifest,
+        hardwareTier,
+        disableThemeShaders,
+        shadersDisabledForSession,
+      }),
+    [disableThemeShaders, hardwareTier, manifest, shadersDisabledForSession],
+  );
+
+  // ---------------------------------------------------------------------------
+  // 1. Load custom GLSL shader sources from installed theme folder
+  // ---------------------------------------------------------------------------
+  const [loadedShaders, setLoadedShaders] = useState<LoadedThemeShaders | null>(null);
+
+  useEffect(() => {
+    if (!shadersAllowed || !hasAnyCustomShader(manifest.shaders)) {
+      setLoadedShaders(null);
+      return;
+    }
+
+    // Wait for installedThemes / appInfo to provide the theme directory inside Tauri
+    if (!themeBasePath && isTauri()) {
+      setLoadedShaders(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    void loadThemeShaderSources(themeBasePath, manifest.shaders, controller.signal).then(
+      ({ sources, errors }) => {
+        if (controller.signal.aborted) return;
+        for (const err of errors) {
+          pushThemeWarning({
+            id: `shader-load:${manifest.id}:${err.layer}:${err.path}`,
+            themeId: manifest.id,
+            kind: "shader_load",
+            layer: err.layer,
+            summaryKey: "themes.warnings.shaderLoadFailed",
+            summaryParams: { path: err.path },
+            detail: err.message,
+          });
+        }
+        setLoadedShaders(sources);
+      },
+    );
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    manifest.id,
+    manifest.shaders,
+    pushThemeWarning,
+    shadersAllowed,
+    themeBasePath,
+  ]);
+
+  // ---------------------------------------------------------------------------
+  // 2. Load GLB asset for `custom_mesh` layout and/or `node_geometry.shape === "mesh"`
+  // ---------------------------------------------------------------------------
+  const needCustomMeshLayout = activeLayout === "custom_mesh";
+  const needNodeMesh = manifest.node_geometry.shape === "mesh" && hardwareTier !== "eco";
+  const [loadedGlb, setLoadedGlb] = useState<ParsedThemeGlb | null>(null);
+
+  useEffect(() => {
+    if (!needCustomMeshLayout && !needNodeMesh) {
+      setLoadedGlb(null);
+      return;
+    }
+
+    if (!manifest.mesh_path) {
+      setLoadedGlb(null);
+      if (needCustomMeshLayout) {
+        pushThemeWarning({
+          id: `mesh-missing:${manifest.id}`,
+          themeId: manifest.id,
+          kind: "mesh_load",
+          layer: "mesh",
+          summaryKey: "themes.warnings.customMeshFailed",
+          detail: "Theme manifest does not specify mesh_path.",
+        });
+      }
+      if (needNodeMesh) {
+        pushThemeWarning({
+          id: `node-mesh-missing:${manifest.id}`,
+          themeId: manifest.id,
+          kind: "node_mesh_fallback",
+          layer: "mesh",
+          summaryKey: "themes.warnings.nodeMeshFallback",
+          detail: "Theme manifest does not specify mesh_path.",
+        });
+      }
+      return;
+    }
+
+    if (!themeBasePath && isTauri()) {
+      setLoadedGlb(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    void loadThemeGlb(
+      themeBasePath,
+      manifest.mesh_path,
+      { needLayout: needCustomMeshLayout, needNodeMesh },
+      controller.signal,
+    ).then((parsed) => {
+      if (controller.signal.aborted) {
+        disposeParsedThemeGlb(parsed);
+        return;
+      }
+      if (parsed.customMeshData) {
+        dismissThemeWarning(`mesh-load:${manifest.id}:${manifest.mesh_path}`);
+        dismissThemeWarning(`mesh-missing:${manifest.id}`);
+      } else if (parsed.customMeshError) {
+        pushThemeWarning({
+          id: `mesh-load:${manifest.id}:${manifest.mesh_path}`,
+          themeId: manifest.id,
+          kind: "mesh_load",
+          layer: "mesh",
+          summaryKey: "themes.warnings.customMeshFailed",
+          detail: parsed.customMeshError,
+        });
+      }
+      if (parsed.nodeMeshGeometry) {
+        dismissThemeWarning(`node-mesh:${manifest.id}:${manifest.mesh_path}`);
+        dismissThemeWarning(`node-mesh-missing:${manifest.id}`);
+      } else if (parsed.nodeMeshError) {
+        pushThemeWarning({
+          id: `node-mesh:${manifest.id}:${manifest.mesh_path}`,
+          themeId: manifest.id,
+          kind: "node_mesh_fallback",
+          layer: "mesh",
+          summaryKey: "themes.warnings.nodeMeshFallback",
+          detail: parsed.nodeMeshError,
+        });
+      }
+      setLoadedGlb(parsed);
+    });
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    dismissThemeWarning,
+    manifest.id,
+    manifest.mesh_path,
+    needCustomMeshLayout,
+    needNodeMesh,
+    pushThemeWarning,
+    themeBasePath,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      disposeParsedThemeGlb(loadedGlb);
+    };
+  }, [loadedGlb]);
 
   // Fast O(1) lookup from memory_id -> project_id for cross-island edge filtering
   const nodeProjectMap = useMemo(() => {
@@ -225,9 +436,12 @@ export function BrainScene({
     return map;
   }, [graph.nodes]);
 
-  // Compute deterministic target coordinates via pure LayoutFn
+  const activeCustomMeshData =
+    activeLayout === "custom_mesh" ? (loadedGlb?.customMeshData ?? null) : null;
+
+  // Compute deterministic target coordinates via pure LayoutFn (falls back to galaxy on failure)
   const layoutResult = useMemo(() => {
-    const layoutFn = resolveLayoutFn(activeLayout);
+    const layoutFn = resolveLayoutFn(activeLayout, activeCustomMeshData);
     return layoutFn({
       nodes: graph.nodes,
       edges: graph.edges,
@@ -236,6 +450,7 @@ export function BrainScene({
       sizeMetric: clusterSizeMetric,
     });
   }, [
+    activeCustomMeshData,
     activeLayout,
     clusterSizeMetric,
     graph.edges,
@@ -264,17 +479,328 @@ export function BrainScene({
     };
   }, []);
 
-  // Point-sprite custom shader material (THEME_SPEC §6.1) with explicit disposal
-  const pointMaterial = useMemo(
-    () => createNodePointMaterial(manifest.palette.core_pin),
-    [manifest.id, manifest.palette.core_pin],
-  );
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+
+  // ---------------------------------------------------------------------------
+  // 3. Validated shader materials (node points, edges, full-screen background)
+  // ---------------------------------------------------------------------------
+  const nodeShaderBundle = useMemo(() => {
+    const customVertex = shadersAllowed ? (loadedShaders?.nodeVertex ?? null) : null;
+    const customFragment = shadersAllowed ? (loadedShaders?.nodeFragment ?? null) : null;
+
+    if (customVertex || customFragment) {
+      const vs = customVertex ?? NODE_POINT_VERTEX_SHADER;
+      const fs = customFragment ?? NODE_POINT_FRAGMENT_SHADER;
+      const validation = validateShaderProgram(gl.getContext(), vs, fs);
+      if (validation.ok) {
+        return {
+          material: createNodePointMaterial(manifest.palette.core_pin, {
+            vertex: vs,
+            fragment: fs,
+          }),
+          isCustom: true,
+          errorLog: null as string | null,
+        };
+      }
+      return {
+        material: createNodePointMaterial(manifest.palette.core_pin),
+        isCustom: false,
+        errorLog: validation.log,
+      };
+    }
+
+    return {
+      material: createNodePointMaterial(manifest.palette.core_pin),
+      isCustom: false,
+      errorLog: null as string | null,
+    };
+  }, [
+    gl,
+    loadedShaders?.nodeFragment,
+    loadedShaders?.nodeVertex,
+    manifest.id,
+    manifest.palette.core_pin,
+    shadersAllowed,
+  ]);
+
+  const pointMaterial = nodeShaderBundle.material;
+
+  useEffect(() => {
+    if (nodeShaderBundle.errorLog) {
+      pushThemeWarning({
+        id: `shader-compile:${manifest.id}:node`,
+        themeId: manifest.id,
+        kind: "shader_compile",
+        layer: "node",
+        summaryKey: "themes.warnings.shaderCompileFailed",
+        detail: nodeShaderBundle.errorLog,
+      });
+    }
+  }, [manifest.id, nodeShaderBundle.errorLog, pushThemeWarning]);
 
   useEffect(() => {
     return () => {
       pointMaterial.dispose();
     };
   }, [pointMaterial]);
+
+  const edgeShaderConfig = useMemo(() => {
+    const customVertex = shadersAllowed ? (loadedShaders?.edgeVertex ?? null) : null;
+    const customFragment = shadersAllowed ? (loadedShaders?.edgeFragment ?? null) : null;
+    if (!customVertex && !customFragment) {
+      return {
+        isCustom: false,
+        vertex: null as string | null,
+        fragment: null as string | null,
+        errorLog: null as string | null,
+      };
+    }
+
+    const vs = customVertex ?? EDGE_VERTEX_SHADER;
+    const fs = customFragment ?? EDGE_FRAGMENT_SHADER;
+    const validation = validateShaderProgram(gl.getContext(), vs, fs, {
+      vertexColors: !declaresColorAttribute(vs),
+    });
+
+    if (validation.ok) {
+      return {
+        isCustom: true,
+        vertex: vs,
+        fragment: fs,
+        errorLog: null as string | null,
+      };
+    }
+    return {
+      isCustom: false,
+      vertex: null as string | null,
+      fragment: null as string | null,
+      errorLog: validation.log,
+    };
+  }, [gl, loadedShaders?.edgeFragment, loadedShaders?.edgeVertex, shadersAllowed]);
+
+  useEffect(() => {
+    if (edgeShaderConfig.errorLog) {
+      pushThemeWarning({
+        id: `shader-compile:${manifest.id}:edge`,
+        themeId: manifest.id,
+        kind: "shader_compile",
+        layer: "edge",
+        summaryKey: "themes.warnings.shaderCompileFailed",
+        detail: edgeShaderConfig.errorLog,
+      });
+    }
+  }, [edgeShaderConfig.errorLog, manifest.id, pushThemeWarning]);
+
+  const backgroundBundle = useMemo(() => {
+    const customFragment = shadersAllowed ? (loadedShaders?.backgroundFragment ?? null) : null;
+    if (!customFragment) {
+      return { material: null as THREE.ShaderMaterial | null, errorLog: null as string | null };
+    }
+
+    const validation = validateShaderProgram(
+      gl.getContext(),
+      BACKGROUND_VERTEX_SHADER,
+      customFragment,
+    );
+    if (!validation.ok) {
+      return { material: null as THREE.ShaderMaterial | null, errorLog: validation.log };
+    }
+
+    return {
+      material: createBackgroundShaderMaterial(
+        manifest.palette.background,
+        customFragment,
+        sizeRef.current.width,
+        sizeRef.current.height,
+        gl.getPixelRatio(),
+      ),
+      errorLog: null as string | null,
+    };
+  }, [gl, loadedShaders?.backgroundFragment, manifest.palette.background, shadersAllowed]);
+
+  useEffect(() => {
+    if (backgroundBundle.errorLog) {
+      pushThemeWarning({
+        id: `shader-compile:${manifest.id}:background`,
+        themeId: manifest.id,
+        kind: "shader_compile",
+        layer: "background",
+        summaryKey: "themes.warnings.shaderCompileFailed",
+        detail: backgroundBundle.errorLog,
+      });
+    }
+  }, [backgroundBundle.errorLog, manifest.id, pushThemeWarning]);
+
+  const backgroundQuadGeometry = useMemo(() => new THREE.PlaneGeometry(2, 2), []);
+
+  useEffect(() => {
+    return () => {
+      backgroundQuadGeometry.dispose();
+    };
+  }, [backgroundQuadGeometry]);
+
+  useEffect(() => {
+    return () => {
+      backgroundBundle.material?.dispose();
+    };
+  }, [backgroundBundle.material]);
+
+  // ---------------------------------------------------------------------------
+  // 4. Visible node set & Volumetric InstancedMesh (balanced/ultra, ≤ 5,000 visible)
+  // ---------------------------------------------------------------------------
+  const visibleNodeIds = useMemo(() => {
+    const visible = new Set<Uuid>();
+    for (const node of graph.nodes) {
+      if (matchesVisualFilters(node, filters, searchQuery)) {
+        visible.add(node.id);
+      }
+    }
+    return visible;
+  }, [filters, graph.nodes, searchQuery]);
+
+  const requestedShape = manifest.node_geometry.shape;
+  const volumetricEligible =
+    requestedShape !== "point" &&
+    hardwareTier !== "eco" &&
+    visibleNodeIds.size <= VOLUMETRIC_MAX_VISIBLE_NODES;
+
+  const volumetricGeoSpec = useMemo(() => {
+    if (!volumetricEligible) {
+      return { geometry: null as THREE.BufferGeometry | null, owned: false };
+    }
+    if (requestedShape === "mesh") {
+      return {
+        geometry: loadedGlb?.nodeMeshGeometry ?? null,
+        owned: false,
+      };
+    }
+    return {
+      geometry: createNodeGeometry(manifest.node_geometry),
+      owned: true,
+    };
+  }, [
+    loadedGlb?.nodeMeshGeometry,
+    manifest.node_geometry,
+    requestedShape,
+    volumetricEligible,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (volumetricGeoSpec.owned) {
+        volumetricGeoSpec.geometry?.dispose();
+      }
+    };
+  }, [volumetricGeoSpec]);
+
+  const volumetricMaterial = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        toneMapped: false,
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      volumetricMaterial.dispose();
+    };
+  }, [volumetricMaterial]);
+
+  const instancedMesh = useMemo(() => {
+    const geo = volumetricGeoSpec.geometry;
+    if (!geo) return null;
+    const mesh = new THREE.InstancedMesh(geo, volumetricMaterial, requiredCapacity);
+    mesh.frustumCulled = false;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    const colorAttr = new THREE.InstancedBufferAttribute(
+      new Float32Array(requiredCapacity * 3),
+      3,
+    );
+    colorAttr.setUsage(THREE.DynamicDrawUsage);
+    mesh.instanceColor = colorAttr;
+    mesh.count = graph.nodes.length;
+    return mesh;
+  }, [graph.nodes.length, requiredCapacity, volumetricGeoSpec.geometry, volumetricMaterial]);
+
+  useEffect(() => {
+    return () => {
+      instancedMesh?.dispose();
+    };
+  }, [instancedMesh]);
+
+  const useVolumetricMesh = instancedMesh !== null;
+
+  // Scratch math objects for zero-allocation InstancedMesh updates
+  const scratchMatrixRef = useRef(new THREE.Matrix4());
+  const scratchPosRef = useRef(new THREE.Vector3());
+  const scratchQuatRef = useRef(new THREE.Quaternion());
+  const scratchScaleRef = useRef(new THREE.Vector3());
+  const scratchColorRef = useRef(new THREE.Color());
+  const scratchPulseColorRef = useRef(new THREE.Color());
+  const scratchRagColorRef = useRef(new THREE.Color("#78A8FF"));
+  const bgColorRef = useRef(new THREE.Color(manifest.palette.background));
+  bgColorRef.current.set(manifest.palette.background);
+
+  const writeVolumetricInstance = useCallback(
+    (mesh: THREE.InstancedMesh, idx: number, updateColor: boolean) => {
+      const i3 = idx * 3;
+      const i4 = idx * 4;
+      const sizeVal = buffers.sizes[idx] ?? 0;
+      const pulseIntensity = buffers.pulse[i4 + 3] ?? 0;
+
+      const mat = scratchMatrixRef.current;
+      const pos = scratchPosRef.current;
+      const quat = scratchQuatRef.current;
+      const scl = scratchScaleRef.current;
+
+      pos.set(
+        buffers.positions[i3] ?? 0,
+        buffers.positions[i3 + 1] ?? 0,
+        buffers.positions[i3 + 2] ?? 0,
+      );
+
+      if (sizeVal <= 0.0001) {
+        scl.set(0, 0, 0);
+      } else {
+        const s = sizeVal * VOLUMETRIC_SCALE_MULTIPLIER * (1 + pulseIntensity * 0.72);
+        scl.set(s, s, s);
+      }
+
+      mat.compose(pos, quat, scl);
+      mesh.setMatrixAt(idx, mat);
+
+      if (updateColor) {
+        const col = scratchColorRef.current;
+        col.setRGB(
+          buffers.colors[i3] ?? 1,
+          buffers.colors[i3 + 1] ?? 1,
+          buffers.colors[i3 + 2] ?? 1,
+        );
+        const opacityScale = buffers.meta[i4 + 3] ?? 1;
+        if (opacityScale < 0.9) {
+          col.lerp(bgColorRef.current, 1 - opacityScale);
+        }
+        const focus = buffers.meta[i4 + 2] ?? 0;
+        if (focus > 2.5) {
+          col.lerp(scratchRagColorRef.current, 0.45);
+        }
+        if (pulseIntensity > 0.01) {
+          const pCol = scratchPulseColorRef.current;
+          pCol.setRGB(
+            buffers.pulse[i4] ?? 1,
+            buffers.pulse[i4 + 1] ?? 1,
+            buffers.pulse[i4 + 2] ?? 1,
+          );
+          col.lerp(pCol, Math.min(1, pulseIntensity * 0.85));
+        }
+        mesh.setColorAt(idx, col);
+      }
+    },
+    [buffers],
+  );
 
   // Spatial index for fast picking at 50k+ nodes
   const spatialGridRef = useRef<SpatialHashGrid>(new SpatialHashGrid(14));
@@ -389,8 +915,32 @@ export function BrainScene({
     selectedNodeId,
   ]);
 
-  const sizeRef = useRef(size);
-  sizeRef.current = size;
+  // Synchronize volumetric InstancedMesh buffers whenever nodes/filters/focus/layout/shape change
+  useEffect(() => {
+    if (!instancedMesh) return;
+    const count = graph.nodes.length;
+    instancedMesh.count = count;
+    for (let i = 0; i < count; i += 1) {
+      writeVolumetricInstance(instancedMesh, i, true);
+    }
+    instancedMesh.instanceMatrix.needsUpdate = true;
+    if (instancedMesh.instanceColor) {
+      instancedMesh.instanceColor.needsUpdate = true;
+    }
+  }, [
+    activeLayout,
+    buffers,
+    filters,
+    graph.nodes,
+    highlightedNodeIds,
+    hoveredNodeId,
+    instancedMesh,
+    layoutResult,
+    manifest,
+    searchQuery,
+    selectedNodeId,
+    writeVolumetricInstance,
+  ]);
 
   const islandFraming = useMemo(() => {
     if (!isProjectIslands) return null;
@@ -438,7 +988,7 @@ export function BrainScene({
   onSelectRef.current = onSelectNode;
   const lastHoveredIdxRef = useRef(-1);
 
-  // Spatial-index DOM picking (no O(N) Three.js raycast on 50k points)
+  // Spatial-index DOM picking (works identically for points and volumetric InstancedMesh)
   useEffect(() => {
     const dom = gl.domElement;
     const raycaster = new THREE.Raycaster();
@@ -480,10 +1030,9 @@ export function BrainScene({
     };
 
     const handlePointerMove = (e: PointerEvent) => {
-      // Skip picking while dragging camera orbit
       if (e.buttons !== 0) return;
       const now = performance.now();
-      if (now - lastMoveTs < 28) return; // ~35Hz hover picking cap
+      if (now - lastMoveTs < 28) return;
       lastMoveTs = now;
 
       const node = pickAtEvent(e);
@@ -504,7 +1053,7 @@ export function BrainScene({
       if (e.button !== 0 || !pointerDownPos) return;
       const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
       pointerDownPos = null;
-      if (dist > 5) return; // Dragged orbit, not a click
+      if (dist > 5) return;
 
       const node = pickAtEvent(e);
       onSelectRef.current(node);
@@ -530,106 +1079,9 @@ export function BrainScene({
     };
   }, [buffers, camera, gl.domElement, nodeIndexMap]);
 
-  // Reusable scratch Color + set for zero-allocation pulse frame updates
-  const pulseColorScratchRef = useRef(new THREE.Color());
-  const activePulsedIndicesRef = useRef<Set<number>>(new Set());
-
-  // Per-frame loop: update shader uniforms, layout lerp, and synaptic pulses in place
-  useFrame((_, rawDelta) => {
-    const delta = Math.min(rawDelta, 0.1);
-    const now = performance.now();
-
-    // Sync shader uniforms
-    const uniforms = pointMaterial.uniforms;
-    const pixelRatioUniform = uniforms.uPixelRatio;
-    const scaleFactorUniform = uniforms.uScaleFactor;
-    const timeUniform = uniforms.uTime;
-    if (pixelRatioUniform) pixelRatioUniform.value = gl.getPixelRatio();
-    if (scaleFactorUniform) {
-      const fovRad =
-        camera instanceof THREE.PerspectiveCamera
-          ? THREE.MathUtils.degToRad(camera.fov)
-          : THREE.MathUtils.degToRad(55);
-      scaleFactorUniform.value = size.height / (2 * Math.tan(fovRad * 0.5));
-    }
-    if (timeUniform) timeUniform.value = now * 0.001;
-
-    // 1. Layout position lerp
-    const lerpState = lerpStateRef.current;
-    if (lerpState.progress < 1) {
-      lerpState.progress = Math.min(1, lerpState.progress + delta / LERP_DURATION_SEC);
-      const t = 1 - Math.pow(1 - lerpState.progress, 3); // cubic ease-out
-      const len3 = graph.nodes.length * 3;
-      const { positions, prevPositions, targetPositions, posAttr } = buffers;
-      for (let i = 0; i < len3; i += 1) {
-        const p = prevPositions[i] ?? 0;
-        const tgt = targetPositions[i] ?? 0;
-        positions[i] = p + (tgt - p) * t;
-      }
-      posAttr.needsUpdate = true;
-      if (lerpState.progress >= 1) {
-        spatialDirtyRef.current = true;
-      }
-    }
-
-    // 2. Synaptic live pulses (O(activePulses) in-place update)
-    const pulses = useSynapticStore.getState().pulses;
-    const activeSet = activePulsedIndicesRef.current;
-    const { pulse, pulseAttr } = buffers;
-    let pulseDirty = false;
-
-    if (pulses.size > 0 || activeSet.size > 0) {
-      const scratch = pulseColorScratchRef.current;
-      const nextActive = new Set<number>();
-
-      for (const [memoryId, entry] of pulses.entries()) {
-        const elapsed = now - entry.startedAt;
-        if (elapsed >= entry.durationMs) {
-          pulses.delete(memoryId);
-          continue;
-        }
-        const idx = nodeIndexMap.get(memoryId);
-        if (idx === undefined) continue;
-
-        const norm = 1 - elapsed / entry.durationMs;
-        const currentIntensity = entry.intensity * Math.pow(norm, 1.5);
-        scratch.set(entry.colorHex);
-
-        const i4 = idx * 4;
-        pulse[i4] = scratch.r;
-        pulse[i4 + 1] = scratch.g;
-        pulse[i4 + 2] = scratch.b;
-        pulse[i4 + 3] = currentIntensity;
-        nextActive.add(idx);
-        pulseDirty = true;
-      }
-
-      // Clear any previously pulsed indices that have now expired
-      for (const prevIdx of activeSet) {
-        if (!nextActive.has(prevIdx)) {
-          pulse[prevIdx * 4 + 3] = 0;
-          pulseDirty = true;
-        }
-      }
-
-      activePulsedIndicesRef.current = nextActive;
-      if (pulseDirty) {
-        pulseAttr.needsUpdate = true;
-      }
-    }
-  });
-
-  const visibleNodeIds = useMemo(() => {
-    const visible = new Set<Uuid>();
-    for (const node of graph.nodes) {
-      if (matchesVisualFilters(node, filters, searchQuery)) {
-        visible.add(node.id);
-      }
-    }
-    return visible;
-  }, [filters, graph.nodes, searchQuery]);
-
-  // Real memory edges geometry (all real edges when `showConnections` is enabled; hover/selection always preserved)
+  // ---------------------------------------------------------------------------
+  // 5. Real memory edges & structural layout edges (LineBasicMaterial -> ShaderMaterial only on custom edge shader)
+  // ---------------------------------------------------------------------------
   const semanticEdgeGeometry = useMemo(() => {
     const focusId = hoveredNodeId ?? selectedNodeId;
     if (!showConnections && !focusId) return null;
@@ -647,7 +1099,6 @@ export function BrainScene({
         continue;
       }
 
-      // In `project_islands`, cross-island edges stay on hover/selection unless user explicitly toggled all connections on
       if (isProjectIslands && !showConnections) {
         const srcProj = nodeProjectMap.get(edge.source_id) ?? null;
         const dstProj = nodeProjectMap.get(edge.target_id) ?? null;
@@ -665,27 +1116,43 @@ export function BrainScene({
     if (coords.length === 0) return null;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(coords, 3));
+    if (edgeShaderConfig.isCustom) {
+      attachUniformEdgeColorAttribute(geometry, manifest.palette.edge);
+    }
     return geometry;
   }, [
+    edgeShaderConfig.isCustom,
     graph.edges,
     hoveredNodeId,
     isProjectIslands,
     layoutResult.nodePositions,
+    manifest.palette.edge,
     nodeProjectMap,
     selectedNodeId,
     showConnections,
     visibleNodeIds,
   ]);
 
-  const semanticEdgeMaterial = useMemo(
-    () =>
-      new THREE.LineBasicMaterial({
-        color: manifest.palette.edge,
-        transparent: true,
-        opacity: showConnections ? 0.45 : 0.72,
-      }),
-    [manifest.palette.edge, showConnections],
-  );
+  const semanticEdgeMaterial = useMemo<THREE.Material>(() => {
+    const opacity = showConnections ? 0.45 : 0.72;
+    if (edgeShaderConfig.isCustom) {
+      return createEdgeShaderMaterial(opacity, {
+        vertex: edgeShaderConfig.vertex,
+        fragment: edgeShaderConfig.fragment,
+      });
+    }
+    return new THREE.LineBasicMaterial({
+      color: manifest.palette.edge,
+      transparent: true,
+      opacity,
+    });
+  }, [
+    edgeShaderConfig.fragment,
+    edgeShaderConfig.isCustom,
+    edgeShaderConfig.vertex,
+    manifest.palette.edge,
+    showConnections,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -720,18 +1187,25 @@ export function BrainScene({
     if (coords.length === 0) return null;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(coords, 3));
+    if (edgeShaderConfig.isCustom) {
+      attachUniformEdgeColorAttribute(geometry, "#2b3a55");
+    }
     return geometry;
-  }, [layoutResult]);
+  }, [edgeShaderConfig.isCustom, layoutResult]);
 
-  const structuralEdgeMaterial = useMemo(
-    () =>
-      new THREE.LineBasicMaterial({
-        color: "#2b3a55",
-        transparent: true,
-        opacity: 0.36,
-      }),
-    [],
-  );
+  const structuralEdgeMaterial = useMemo<THREE.Material>(() => {
+    if (edgeShaderConfig.isCustom) {
+      return createEdgeShaderMaterial(0.36, {
+        vertex: edgeShaderConfig.vertex,
+        fragment: edgeShaderConfig.fragment,
+      });
+    }
+    return new THREE.LineBasicMaterial({
+      color: "#2b3a55",
+      transparent: true,
+      opacity: 0.36,
+    });
+  }, [edgeShaderConfig.fragment, edgeShaderConfig.isCustom, edgeShaderConfig.vertex]);
 
   useEffect(() => {
     return () => {
@@ -744,6 +1218,25 @@ export function BrainScene({
       structuralEdgeMaterial.dispose();
     };
   }, [structuralEdgeMaterial]);
+
+  // Faint backdrop material for `custom_mesh` layout (`palette.edge` at 15% opacity)
+  const customMeshBackdropMaterial = useMemo(() => {
+    if (!activeCustomMeshData) return null;
+    return new THREE.MeshBasicMaterial({
+      color: manifest.palette.edge,
+      transparent: true,
+      opacity: 0.15,
+      wireframe: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+  }, [activeCustomMeshData, manifest.palette.edge]);
+
+  useEffect(() => {
+    return () => {
+      customMeshBackdropMaterial?.dispose();
+    };
+  }, [customMeshBackdropMaterial]);
 
   // Flat island slabs, rims, and big floating project labels (`project_islands` layout)
   const islandSlabsGeometry = useMemo(
@@ -828,10 +1321,242 @@ export function BrainScene({
     };
   }, [islandLabels]);
 
+  // ---------------------------------------------------------------------------
+  // 6. Frame-time watchdog (avg > 100 ms sustained for 3 s while custom shaders active)
+  // ---------------------------------------------------------------------------
+  const hasActiveCustomShaders =
+    shadersAllowed &&
+    ((!useVolumetricMesh && nodeShaderBundle.isCustom) ||
+      (edgeShaderConfig.isCustom &&
+        (Boolean(semanticEdgeGeometry) || Boolean(structuralEdgeGeometry))) ||
+      Boolean(backgroundBundle.material));
+
+  const watchdogRef = useRef<{
+    lastTs: number | null;
+    samples: Array<{ ts: number; dtMs: number }>;
+    slowSince: number | null;
+    tripped: boolean;
+  }>({
+    lastTs: null,
+    samples: [],
+    slowSince: null,
+    tripped: false,
+  });
+
+  useEffect(() => {
+    watchdogRef.current.lastTs = null;
+    watchdogRef.current.samples = [];
+    watchdogRef.current.slowSince = null;
+    watchdogRef.current.tripped = shadersDisabledForSession;
+  }, [hasActiveCustomShaders, manifest.id, shadersDisabledForSession]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleVisibility = () => {
+      watchdogRef.current.lastTs = null;
+      watchdogRef.current.samples = [];
+      watchdogRef.current.slowSince = null;
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
+
+  // Reusable scratch Color + set for zero-allocation pulse frame updates
+  const pulseColorScratchRef = useRef(new THREE.Color());
+  const activePulsedIndicesRef = useRef<Set<number>>(new Set());
+
+  // Per-frame loop: watchdog, shader uniforms, layout lerp, and synaptic pulses in place
+  useFrame((_, rawDelta) => {
+    const delta = Math.min(rawDelta, 0.1);
+    const now = performance.now();
+    const timeSec = now * 0.001;
+    const dpr = gl.getPixelRatio();
+
+    // 0. Frame-time watchdog while custom shaders are active
+    const watchdog = watchdogRef.current;
+    if (
+      hasActiveCustomShaders &&
+      !watchdog.tripped &&
+      (typeof document === "undefined" || !document.hidden)
+    ) {
+      if (watchdog.lastTs !== null) {
+        const dtMs = now - watchdog.lastTs;
+        if (dtMs > 0 && dtMs < 5_000) {
+          watchdog.samples.push({ ts: now, dtMs });
+          const cutoff = now - WATCHDOG_WINDOW_MS;
+          while (watchdog.samples.length > 0 && (watchdog.samples[0]?.ts ?? 0) < cutoff) {
+            watchdog.samples.shift();
+          }
+          let sum = 0;
+          for (const sample of watchdog.samples) {
+            sum += sample.dtMs;
+          }
+          const avgMs = watchdog.samples.length > 0 ? sum / watchdog.samples.length : 0;
+          if (avgMs > WATCHDOG_FRAME_MS_THRESHOLD) {
+            if (watchdog.slowSince === null) {
+              watchdog.slowSince = now;
+            } else if (now - watchdog.slowSince >= WATCHDOG_SUSTAINED_MS) {
+              watchdog.tripped = true;
+              useThemeStore.getState().tripShaderWatchdog(manifest.id, Math.round(avgMs));
+            }
+          } else {
+            watchdog.slowSince = null;
+          }
+        } else if (dtMs >= 5_000) {
+          watchdog.samples = [];
+          watchdog.slowSince = null;
+        }
+      }
+      watchdog.lastTs = now;
+    }
+
+    // Sync point shader uniforms
+    const uniforms = pointMaterial.uniforms;
+    const pixelRatioUniform = uniforms.uPixelRatio;
+    const scaleFactorUniform = uniforms.uScaleFactor;
+    const timeUniform = uniforms.uTime;
+    if (pixelRatioUniform) pixelRatioUniform.value = dpr;
+    if (scaleFactorUniform) {
+      const fovRad =
+        camera instanceof THREE.PerspectiveCamera
+          ? THREE.MathUtils.degToRad(camera.fov)
+          : THREE.MathUtils.degToRad(55);
+      scaleFactorUniform.value = size.height / (2 * Math.tan(fovRad * 0.5));
+    }
+    if (timeUniform) timeUniform.value = timeSec;
+
+    // Sync custom edge shader uTime uniforms
+    if (semanticEdgeMaterial instanceof THREE.ShaderMaterial && semanticEdgeMaterial.uniforms.uTime) {
+      semanticEdgeMaterial.uniforms.uTime.value = timeSec;
+    }
+    if (
+      structuralEdgeMaterial instanceof THREE.ShaderMaterial &&
+      structuralEdgeMaterial.uniforms.uTime
+    ) {
+      structuralEdgeMaterial.uniforms.uTime.value = timeSec;
+    }
+
+    // Sync full-screen background quad uniforms
+    const bgMat = backgroundBundle.material;
+    if (bgMat) {
+      if (bgMat.uniforms.uTime) bgMat.uniforms.uTime.value = timeSec;
+      const resUniform = bgMat.uniforms.uResolution;
+      if (resUniform && resUniform.value instanceof THREE.Vector2) {
+        resUniform.value.set(Math.max(1, size.width * dpr), Math.max(1, size.height * dpr));
+      }
+    }
+
+    // 1. Layout position lerp
+    const lerpState = lerpStateRef.current;
+    if (lerpState.progress < 1) {
+      lerpState.progress = Math.min(1, lerpState.progress + delta / LERP_DURATION_SEC);
+      const tEase = 1 - Math.pow(1 - lerpState.progress, 3);
+      const count = graph.nodes.length;
+      const len3 = count * 3;
+      const { positions, prevPositions, targetPositions, posAttr } = buffers;
+      for (let i = 0; i < len3; i += 1) {
+        const p = prevPositions[i] ?? 0;
+        const tgt = targetPositions[i] ?? 0;
+        positions[i] = p + (tgt - p) * tEase;
+      }
+      posAttr.needsUpdate = true;
+
+      if (instancedMesh) {
+        for (let i = 0; i < count; i += 1) {
+          writeVolumetricInstance(instancedMesh, i, false);
+        }
+        instancedMesh.instanceMatrix.needsUpdate = true;
+      }
+
+      if (lerpState.progress >= 1) {
+        spatialDirtyRef.current = true;
+      }
+    }
+
+    // 2. Synaptic live pulses (O(activePulses) in-place update)
+    const pulses = useSynapticStore.getState().pulses;
+    const activeSet = activePulsedIndicesRef.current;
+    const { pulse, pulseAttr } = buffers;
+    let pulseDirty = false;
+    const touchedVolumetric: number[] = [];
+
+    if (pulses.size > 0 || activeSet.size > 0) {
+      const scratch = pulseColorScratchRef.current;
+      const nextActive = new Set<number>();
+
+      for (const [memoryId, entry] of pulses.entries()) {
+        const elapsed = now - entry.startedAt;
+        if (elapsed >= entry.durationMs) {
+          pulses.delete(memoryId);
+          continue;
+        }
+        const idx = nodeIndexMap.get(memoryId);
+        if (idx === undefined) continue;
+
+        const norm = 1 - elapsed / entry.durationMs;
+        const currentIntensity = entry.intensity * Math.pow(norm, 1.5);
+        scratch.set(entry.colorHex);
+
+        const i4 = idx * 4;
+        pulse[i4] = scratch.r;
+        pulse[i4 + 1] = scratch.g;
+        pulse[i4 + 2] = scratch.b;
+        pulse[i4 + 3] = currentIntensity;
+        nextActive.add(idx);
+        if (instancedMesh) touchedVolumetric.push(idx);
+        pulseDirty = true;
+      }
+
+      // Clear any previously pulsed indices that have now expired
+      for (const prevIdx of activeSet) {
+        if (!nextActive.has(prevIdx)) {
+          pulse[prevIdx * 4 + 3] = 0;
+          if (instancedMesh) touchedVolumetric.push(prevIdx);
+          pulseDirty = true;
+        }
+      }
+
+      activePulsedIndicesRef.current = nextActive;
+      if (pulseDirty) {
+        pulseAttr.needsUpdate = true;
+        if (instancedMesh && touchedVolumetric.length > 0) {
+          for (const idx of touchedVolumetric) {
+            writeVolumetricInstance(instancedMesh, idx, true);
+          }
+          instancedMesh.instanceMatrix.needsUpdate = true;
+          if (instancedMesh.instanceColor) {
+            instancedMesh.instanceColor.needsUpdate = true;
+          }
+        }
+      }
+    }
+  });
+
   return (
     <>
       <FrameRateController maxFps={maxFps} />
       <color attach="background" args={[manifest.palette.background]} />
+
+      {/* Full-screen custom theme background quad (THEME_SPEC §6.2) */}
+      {backgroundBundle.material && (
+        <mesh
+          geometry={backgroundQuadGeometry}
+          material={backgroundBundle.material}
+          frustumCulled={false}
+          renderOrder={-1000}
+        />
+      )}
+
+      {/* Faint wireframe backdrop for `custom_mesh` layout (`palette.edge` at 15% opacity) */}
+      {activeCustomMeshData && customMeshBackdropMaterial && (
+        <mesh
+          geometry={activeCustomMeshData.backdropGeometry}
+          material={customMeshBackdropMaterial}
+          frustumCulled={false}
+        />
+      )}
 
       {islandSlabsGeometry && (
         <mesh geometry={islandSlabsGeometry} material={islandSlabsMaterial} />
@@ -841,12 +1566,12 @@ export function BrainScene({
         <lineSegments geometry={islandRimsGeometry} material={islandRimsMaterial} />
       )}
 
-      {/* Camera-facing point-sprite nodes (single draw call, zero scene lighting) */}
-      <points
-        geometry={buffers.geometry}
-        material={pointMaterial}
-        frustumCulled={false}
-      />
+      {/* Nodes: unlit volumetric InstancedMesh (balanced/ultra, ≤ 5k visible) or point-sprites */}
+      {instancedMesh ? (
+        <primitive object={instancedMesh} />
+      ) : (
+        <points geometry={buffers.geometry} material={pointMaterial} frustumCulled={false} />
+      )}
 
       {structuralEdgeGeometry && (
         <lineSegments geometry={structuralEdgeGeometry} material={structuralEdgeMaterial} />

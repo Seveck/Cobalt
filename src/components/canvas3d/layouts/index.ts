@@ -1,5 +1,10 @@
 import type { LayoutFn, LayoutType } from "@/types/contracts";
 import { brainLayout } from "./brain";
+import {
+  createCustomMeshLayout,
+  customMeshFallbackLayout,
+  type CustomMeshData,
+} from "./customMesh";
 import { galaxyLayout } from "./galaxy";
 import { knowledgeTreeLayout } from "./knowledgeTree";
 import { neuralNetLayout } from "./neuralNet";
@@ -25,10 +30,16 @@ export const LAYOUT_REGISTRY: Record<LayoutType, LayoutFn> = {
   knowledge_tree: knowledgeTreeLayout,
   project_clusters: projectClustersLayout,
   project_islands: projectIslandsLayout,
-  custom_mesh: galaxyLayout,
+  custom_mesh: customMeshFallbackLayout,
 };
 
-export function resolveLayoutFn(layoutType: LayoutType): LayoutFn {
+export function resolveLayoutFn(
+  layoutType: LayoutType,
+  customMeshData: CustomMeshData | null = null,
+): LayoutFn {
+  if (layoutType === "custom_mesh") {
+    return createCustomMeshLayout(customMeshData);
+  }
   return LAYOUT_REGISTRY[layoutType] ?? galaxyLayout;
 }
 
@@ -39,4 +50,6 @@ export {
   knowledgeTreeLayout,
   projectClustersLayout,
   projectIslandsLayout,
+  createCustomMeshLayout,
+  type CustomMeshData,
 };

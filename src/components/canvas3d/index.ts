@@ -4,3 +4,4 @@ export { FilterDock } from "./FilterDock";
 export { LayoutSwitcher } from "./LayoutSwitcher";
 export { SynapticHud } from "./SynapticHud";
 export { NodeTooltip } from "./NodeTooltip";
+export { ThemeWarningsBanner } from "./ThemeWarningsBanner";
