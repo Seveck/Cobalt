@@ -678,3 +678,93 @@ async fn stdio_bridge_survives_daemon_restart() {
         .unwrap()
         .unwrap();
 }
+
+/// v1.13.0: a Claude/Gemini SessionStart hook gets the project's rules and the latest handoff
+/// back from the daemon (once: the handoff is consumed), ready to print as additionalContext.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_start_hook_receives_rules_and_handoff() {
+    let home = tempfile::tempdir().unwrap();
+    let project_dir = tempfile::tempdir().unwrap();
+    let base = SqliteStore::open_at(home.path().join("cobalt.db"))
+        .await
+        .unwrap();
+    let config = Arc::new(ConfigManager::load(Arc::new(base.clone())).await.unwrap());
+    let spec = Catalog::builtin()
+        .unwrap()
+        .model("multilingual-e5-small")
+        .unwrap()
+        .spec
+        .clone();
+    let tokens = Arc::new(TiktokenCounter::new(TokenEncoding::Cl100kBase));
+    let store = base
+        .with_sqlite_vec(Arc::new(BagOfWords(spec)), tokens.clone())
+        .await
+        .unwrap();
+    let daemon = Daemon::new(
+        Arc::new(store),
+        config,
+        tokens,
+        home.path().to_path_buf(),
+        Arc::new(Recorder::default()),
+    );
+    let _socket = SocketServer::start(daemon.clone()).await.unwrap();
+    let cwd = project_dir.path().to_string_lossy().into_owned();
+
+    // An AI working in that folder leaves a handoff; the user pins a Nuclear Law there.
+    let mut c = Client {
+        stream: connect_existing(home.path()).await.unwrap(),
+        next: 0,
+    };
+    c.request("initialize", json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "codex", "version": "1" } }))
+        .await;
+    let made = c
+        .call(
+            "create_handoff",
+            json!({ "summary": "Next: finish the OCR settings card.", "project": cwd }),
+        )
+        .await;
+    assert_eq!(made["isError"], false, "{made}");
+    let saved = c
+        .call(
+            "save_memory",
+            json!({ "content": "Always answer the user in Spanish.", "category": "preference", "project": cwd }),
+        )
+        .await;
+    assert_eq!(saved["isError"], false, "{saved}");
+
+    let env = cobalt_mcp::capture::HookEnvelope {
+        source: "claude".into(),
+        cwd: Some(cwd.clone()),
+        payload: json!({ "hook_event_name": "SessionStart", "source": "startup", "session_id": "s1" }),
+    };
+    let first = cobalt_mcp::socket::request_context(home.path(), &env)
+        .await
+        .unwrap();
+    assert!(first.contains("Cobalt"), "{first}");
+    assert!(first.contains("Spanish"), "rules injected: {first}");
+    assert!(
+        first.contains("OCR settings card"),
+        "handoff injected: {first}"
+    );
+
+    let second = cobalt_mcp::socket::request_context(home.path(), &env)
+        .await
+        .unwrap();
+    assert!(
+        !second.contains("OCR settings card"),
+        "handoff consumed once: {second}"
+    );
+
+    // Codex has no SessionStart hook: nothing is returned for other sources/events.
+    let codex = cobalt_mcp::capture::HookEnvelope {
+        source: "codex".into(),
+        cwd: Some(cwd),
+        payload: json!({ "type": "agent-turn-complete" }),
+    };
+    assert_eq!(
+        cobalt_mcp::socket::request_context(home.path(), &codex)
+            .await
+            .unwrap(),
+        ""
+    );
+}

@@ -241,6 +241,7 @@ export function createDefaultSettings(): AppSettings {
       git_commits: true,
       indexing_paused: false,
       ocr_model_id: "paddleocr-latin",
+      session_context: true,
     },
   };
 }

@@ -96,21 +96,90 @@ fn last_assistant_message(transcript: &Path) -> Option<String> {
     last
 }
 
+/// Who sent a hook event and from where.
+fn hook_client(env: &HookEnvelope) -> ClientContext {
+    let mut ctx = ClientContext::new(McpTransport::Stdio);
+    ctx.cwd = env
+        .cwd
+        .clone()
+        .or_else(|| str_at(&env.payload, "/cwd").map(str::to_owned));
+    ctx.client_name = match env.source.as_str() {
+        "claude" => "claude-code".into(),
+        "codex" => "codex".into(),
+        "gemini" => "gemini-cli".into(),
+        "git" => "git".into(),
+        other => client_label(other),
+    };
+    ctx
+}
+
+/// `true` for a SessionStart event of a client that accepts injected context.
+pub fn wants_session_context(env: &HookEnvelope) -> bool {
+    matches!(env.source.as_str(), "claude" | "gemini")
+        && str_at(&env.payload, "/hook_event_name") == Some("SessionStart")
+}
+
+/// Hard cap for injected session context (clients allow ~10k characters).
+const SESSION_CONTEXT_MAX_CHARS: usize = 6_000;
+
 impl Daemon {
+    /// Text injected at session start (v1.13.0): the project's rules and the latest handoff,
+    /// exactly as `list_project_rules` / `resume_handoff` would return them. Empty when disabled,
+    /// outside a project with nothing to say, or on error (never blocks the client).
+    pub async fn session_context(&self, env: &HookEnvelope) -> String {
+        if !self.config.get().capture.session_context || !wants_session_context(env) {
+            return String::new();
+        }
+        let ctx = hook_client(env);
+        if ctx.client_name.is_empty() || ctx.cwd.is_none() {
+            return String::new();
+        }
+        let mut parts = Vec::new();
+        if let Ok(out) = self
+            .call_tool(
+                cobalt_core::mcp::TOOL_LIST_PROJECT_RULES,
+                serde_json::json!({}),
+                &ctx,
+            )
+            .await
+            && !out.text.contains("No rules yet")
+        {
+            parts.push(out.text);
+        }
+        if let Ok(out) = self
+            .call_tool(
+                cobalt_core::mcp::TOOL_RESUME_HANDOFF,
+                serde_json::json!({}),
+                &ctx,
+            )
+            .await
+            && out.structured.get("handoff").is_some_and(|h| !h.is_null())
+        {
+            parts.push(out.text);
+        }
+        if parts.is_empty() {
+            return String::new();
+        }
+        parts.insert(
+            0,
+            "Cobalt (the user's shared AI memory) loaded this automatically. Obey these rules; \
+             use search_memory before re-reading files and save_memory for decisions."
+                .to_owned(),
+        );
+        let mut text = parts.join("\n\n");
+        if text.chars().count() > SESSION_CONTEXT_MAX_CHARS {
+            text = text
+                .chars()
+                .take(SESSION_CONTEXT_MAX_CHARS)
+                .collect::<String>()
+                + "\n…";
+        }
+        text
+    }
+
     /// Handles one hook event. Never fails loudly: hooks must not disturb the user's CLI.
     pub async fn handle_hook(&self, env: HookEnvelope) -> Result<()> {
-        let mut ctx = ClientContext::new(McpTransport::Stdio);
-        ctx.cwd = env
-            .cwd
-            .clone()
-            .or_else(|| str_at(&env.payload, "/cwd").map(str::to_owned));
-        ctx.client_name = match env.source.as_str() {
-            "claude" => "claude-code".into(),
-            "codex" => "codex".into(),
-            "gemini" => "gemini-cli".into(),
-            "git" => "git".into(),
-            other => client_label(other),
-        };
+        let ctx = hook_client(&env);
         if ctx.client_name.is_empty() {
             return Ok(());
         }
@@ -504,6 +573,33 @@ pub async fn run_hook(home: &Path, source: &str, last_arg: Option<String>) -> Re
         cwd: cwd.map(|c| c.to_string_lossy().into_owned()),
         payload,
     };
+    if wants_session_context(&env) {
+        // SessionStart: ask the daemon for the rules + latest handoff and hand them to the
+        // client on stdout (its documented JSON shape). Nothing is printed if Cobalt is closed.
+        let got = tokio::time::timeout(
+            Duration::from_secs(4),
+            crate::socket::request_context(home, &env),
+        )
+        .await;
+        match got {
+            Ok(Ok(context)) => {
+                if !context.is_empty() {
+                    let out = serde_json::json!({
+                        "hookSpecificOutput": {
+                            "hookEventName": "SessionStart",
+                            "additionalContext": context,
+                        }
+                    });
+                    println!("{out}");
+                }
+                return Ok(());
+            }
+            _ => {
+                queue_hook(home, &env)?;
+                return Ok(());
+            }
+        }
+    }
     let sent =
         tokio::time::timeout(Duration::from_secs(2), crate::socket::send_hook(home, &env)).await;
     if !matches!(sent, Ok(Ok(()))) {

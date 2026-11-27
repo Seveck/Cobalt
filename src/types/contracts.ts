@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.12.0";
+export const CONTRACT_VERSION = "1.13.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -842,6 +842,8 @@ export interface CaptureSettings {
   indexing_paused: boolean;
   /** OCR model used once installed: `ocrs-latin` | `paddleocr-latin` (v1.8.0). */
   ocr_model_id: string;
+  /** Rules + latest handoff injected at Claude/Gemini session start (v1.13.0). */
+  session_context: boolean;
 }
 
 export interface AppSettings {

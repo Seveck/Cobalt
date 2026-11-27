@@ -218,6 +218,9 @@ pub struct CaptureSettings {
     /// OCR model used for images and scanned PDFs once installed (`ocrs-latin` or
     /// `paddleocr-latin`, contract v1.8.0).
     pub ocr_model_id: String,
+    /// At session start, Claude Code / Gemini CLI receive the project's rules and the latest
+    /// handoff automatically through their SessionStart hook (v1.13.0).
+    pub session_context: bool,
 }
 
 impl Default for CaptureSettings {
@@ -228,6 +231,7 @@ impl Default for CaptureSettings {
             git_commits: true,
             indexing_paused: false,
             ocr_model_id: crate::catalog::DEFAULT_OCR_MODEL.to_owned(),
+            session_context: true,
         }
     }
 }

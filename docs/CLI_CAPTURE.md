@@ -57,6 +57,17 @@ optional `X-Cobalt-Cwd` header). Unknown events are ignored.
 - `file_edit` → files re-indexed now; `turn_end`/`session_end` → automatic handoff (same rules
   as above) with `message` + the session's touched files.
 
+### 3.2 Context at session start (v1.13.0, `capture.session_context`, default on)
+On `SessionStart` (startup, resume, clear and compact), the Claude Code and Gemini CLI hooks
+ask the daemon for context. The hook (`cobalt --hook claude|gemini`) sends `{"cobalt_context": …}`,
+and the daemon returns what `list_project_rules` + `resume_handoff` would return for that cwd's
+project: rules, preferences and the latest unconsumed handoff, which is then marked consumed by
+that client. The result is capped at 6,000 characters. The hook prints
+`{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"…"}}`, the documented
+shape for both clients. It prints nothing when Cobalt is closed, when there is nothing to say,
+or when the option is off, and it never blocks the session (waits ≤ 4 s). Codex has no
+SessionStart hook; it relies on the global instructions.
+
 ## 4. Git (`git_hooks`, per project, `capture.git_commits`)
 `.git/hooks/post-commit` (existing hook preserved and chained) runs `cobalt --hook git`, which
 records `"Commit <short-sha> on <branch>: <subject>\n<body>"` (+ changed files) as a `doc` memory of

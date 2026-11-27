@@ -20,7 +20,7 @@ A **memory** is a short atomic fact (1–4 lines), e.g. *"Auth uses JWT + refres
 **global**. **Nuclear Laws** (core pins) are rules the user marked as absolute.
 
 **Rules for every AI:**
-1. **Start of session:** call `list_project_rules` and obey the Nuclear Laws for the whole session.
+1. **Start of session:** call `list_project_rules` and obey the Nuclear Laws for the whole session (Claude Code and Gemini CLI may already have received them, plus the latest handoff, through Cobalt's SessionStart hook: then just follow them).
 2. **Before** reading big files, re-asking the user, or re-deriving a past decision: call
    `search_memory`. Trust results; re-check any marked **"⚠ file changed since saved"**.
 3. **Before** writing boilerplate/utilities: call `search_reusable_assets`.

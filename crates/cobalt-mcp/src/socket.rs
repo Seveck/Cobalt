@@ -190,6 +190,22 @@ async fn serve_connection(conn: Stream, daemon: Arc<Daemon>, token: &str) -> Res
         send.write_all(b"{\"cobalt_ok\":true}\n").await?;
         return Ok(());
     }
+    // Session start: record the event, then answer with the context to inject (v1.13.0).
+    if let Ok(serde_json::Value::Object(obj)) =
+        serde_json::from_str::<serde_json::Value>(&first_msg)
+        && let Some(hook) = obj.get("cobalt_context")
+    {
+        let mut context = String::new();
+        if let Ok(env) = serde_json::from_value::<crate::capture::HookEnvelope>(hook.clone()) {
+            context = daemon.session_context(&env).await;
+            let _ = daemon.handle_hook(env).await;
+        }
+        let mut line =
+            serde_json::to_vec(&serde_json::json!({ "cobalt_ok": true, "context": context }))?;
+        line.push(b'\n');
+        send.write_all(&line).await?;
+        return Ok(());
+    }
 
     let mut ctx = ClientContext::new(McpTransport::Stdio);
     ctx.cwd = hs.cwd;
@@ -555,6 +571,27 @@ pub async fn connect_existing(home: &Path) -> Result<Stream> {
     } else {
         Err(CobaltError::Daemon("handshake rejected".into()))
     }
+}
+
+/// SessionStart hook client: delivers the event and returns the context to inject.
+pub async fn request_context(home: &Path, env: &crate::capture::HookEnvelope) -> Result<String> {
+    let stream = connect_existing(home).await?;
+    let mut line = serde_json::to_vec(&serde_json::json!({ "cobalt_context": env }))?;
+    line.push(b'\n');
+    let mut send = &stream;
+    send.write_all(&line).await?;
+    send.flush().await?;
+    let mut lines = BufReader::new(&stream).lines();
+    let reply = lines
+        .next_line()
+        .await?
+        .ok_or_else(|| CobaltError::Daemon("no context reply".into()))?;
+    let value: serde_json::Value = serde_json::from_str(&reply)?;
+    Ok(value
+        .get("context")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned())
 }
 
 /// Hook client: authenticates and delivers one event to a running daemon (never spawns one).

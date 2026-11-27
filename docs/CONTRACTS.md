@@ -1,4 +1,7 @@
-# Cobalt — Frozen Contracts (v1.12.0)
+# Cobalt — Frozen Contracts (v1.13.0)
+
+> v1.13.0 (additive): `CaptureSettings.session_context` (default on) — Claude Code / Gemini CLI
+> SessionStart hooks receive the project's rules + latest handoff (`docs/CLI_CAPTURE.md` §3.2).
 
 > v1.12.0 (additive): user/AI themes — trait `ThemeService`, MCP tool `create_theme` (9 tools),
 > IPC `save_custom_theme` / `export_theme`, event `cobalt://themes-changed` (`ThemesChanged`).
