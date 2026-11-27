@@ -84,6 +84,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] OCR local (2026-11-27, contratos v1.7.0–v1.8.0): imágenes y PDF escaneados; el usuario elige motor en Ajustes → PaddleOCR (recomendado, por defecto: tildes/ñ, 1 % de errores en español en un i3) u ocrs (solo letras básicas, 15 %); modelos fijados por SHA-256, aviso permanente de que el OCR puede equivocarse
 - [ ] Credenciales para Qdrant remoto / Chroma con autenticación (hoy solo endpoint)
 - [ ] Mover snapshots y memorias cifradas entre equipos (hoy los backups los excluyen y lo informan)
+- [x] Calidad de búsqueda (2026-11-27): palabras vacías ES/EN fuera de la búsqueda de texto, respeto a `.gitignore` (+ poda de lo ya indexado), coincidencias exactas mostradas como `text`, y orden híbrido medido con 30 búsquedas sobre un cerebro real: fuera de tema sin resultados 20 → 100 %, identificadores en #1 67 → 100 %, preguntas naturales en top 3 55 → 91 %
 - [ ] Botón "Borrar por origen" para limpiar datos de prueba
 - [x] Ingesta de carpetas grandes (2026-11-26): exclusiones por defecto ampliadas, binarios detectados sin leerlos enteros, texto > 2 MiB omitido y reportado, progreso por fragmento, `cancel_ingest` y barra de progreso global con Cancelar
 
