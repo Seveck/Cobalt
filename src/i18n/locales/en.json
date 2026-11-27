@@ -8,7 +8,8 @@
     "cancel": "Cancel",
     "apply": "Apply",
     "refresh": "Refresh",
-    "copied": "Copied"
+    "copied": "Copied",
+    "copyFailed": "Copy failed"
   },
   "languages": {
     "es": "Español (ES)",
@@ -561,6 +562,12 @@
     "disconnectedNotice": "{{client}} disconnected.",
     "manualSetupTitle": "Manual setup",
     "manualSetupDesc": "Prefer configuring it yourself? Paste this snippet into your AI client's settings file.",
+    "pasteInLabel": "Paste it in:",
+    "copyPath": "Copy path",
+    "manualPathUnavailable": "Not available",
+    "manualSnippetUnavailable": "Not available",
+    "manualHintJson": "Inside \"mcpServers\" if the file already exists; restart your AI afterwards.",
+    "manualHintToml": "At the end of the file if it already exists (TOML format); restart Codex afterwards.",
     "copySnippet": "Copy snippet",
     "httpEndpointHint": "Local Streamable HTTP endpoint also available at {{url}}"
   },

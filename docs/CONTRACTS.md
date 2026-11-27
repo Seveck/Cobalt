@@ -1,4 +1,7 @@
-# Cobalt — Frozen Contracts (v1.8.0)
+# Cobalt — Frozen Contracts (v1.9.0)
+
+> v1.9.0 (additive): `ConnectorStatus.manual_snippet` — the exact entry the 1-click toggle would
+> write (real executable path, client format), for the Connectors "Manual setup" section.
 
 > v1.8.0 (additive): choice of OCR engine — `OcrEngineKind` (`ocrs` | `paddle_ocr`), catalog model
 > `paddleocr-latin` (PP-OCRv5, full Latin script incl. accents/ñ), `CaptureSettings.ocr_model_id`,

@@ -8,7 +8,8 @@
     "cancel": "Cancelar",
     "apply": "Aplicar",
     "refresh": "Actualizar",
-    "copied": "Copiado"
+    "copied": "Copiado",
+    "copyFailed": "No se pudo copiar"
   },
   "languages": {
     "es": "Español (ES)",
@@ -561,6 +562,12 @@
     "disconnectedNotice": "{{client}} desconectado.",
     "manualSetupTitle": "Configuración manual",
     "manualSetupDesc": "¿Prefieres configurarlo por tu cuenta? Pega este bloque en el archivo de configuración de tu asistente.",
+    "pasteInLabel": "Pégalo en:",
+    "copyPath": "Copiar ruta",
+    "manualPathUnavailable": "No disponible",
+    "manualSnippetUnavailable": "No disponible",
+    "manualHintJson": "Dentro de \"mcpServers\" si el archivo ya existe; reinicia la IA después.",
+    "manualHintToml": "Al final del archivo si ya existe (formato TOML); reinicia Codex después.",
     "copySnippet": "Copiar bloque",
     "httpEndpointHint": "También disponible por HTTP local (Streamable HTTP) en {{url}}"
   },

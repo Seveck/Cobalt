@@ -18,6 +18,10 @@ pub struct ConnectorStatus {
     pub broken: bool,
     pub last_backup_path: Option<String>,
     pub error: Option<String>,
+    /// Ready-to-paste block for `config_path` with this machine's real Cobalt executable and the
+    /// client's own format (v1.9.0). Manual setup must show this, never a hand-written guess.
+    #[serde(default)]
+    pub manual_snippet: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

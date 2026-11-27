@@ -120,11 +120,11 @@ fn json_entry(client: AiClient, exe: &Path) -> Value {
     entry
 }
 
-/// Snippet shown in "Manual setup" for clients we do not edit automatically.
-pub fn manual_snippet(format: ConfigFormat, exe: &Path) -> String {
+/// Snippet shown in "Manual setup": exactly the entry the 1-click toggle would write.
+pub fn manual_snippet(client: AiClient, format: ConfigFormat, exe: &Path) -> String {
     match format {
         ConfigFormat::Json => serde_json::to_string_pretty(&json!({
-            "mcpServers": { SERVER_KEY: { "command": exe.to_string_lossy(), "args": [MCP_STDIO_FLAG] } }
+            "mcpServers": { SERVER_KEY: json_entry(client, exe) }
         }))
         .unwrap_or_default(),
         ConfigFormat::Toml => format!(
@@ -199,6 +199,7 @@ pub fn status(client: AiClient, dirs: &PlatformDirs, exe: &Path) -> ConnectorSta
         broken: false,
         last_backup_path: latest_backup(&cfg.path).map(|p| p.to_string_lossy().into_owned()),
         error: None,
+        manual_snippet: manual_snippet(client, cfg.format, exe),
     };
     match read_entry(&cfg) {
         Ok(Entry::Present { command }) => {
@@ -472,7 +473,18 @@ mod tests {
     #[test]
     fn manual_snippets() {
         let exe = Path::new("/opt/cobalt/cobalt");
-        assert!(manual_snippet(ConfigFormat::Json, exe).contains("\"mcpServers\""));
-        assert!(manual_snippet(ConfigFormat::Toml, exe).contains("[mcp_servers.cobalt]"));
+        assert!(
+            manual_snippet(AiClient::Cursor, ConfigFormat::Json, exe).contains("\"mcpServers\"")
+        );
+        assert!(
+            manual_snippet(AiClient::CodexCli, ConfigFormat::Toml, exe)
+                .contains("[mcp_servers.cobalt]")
+        );
+        let claude = manual_snippet(AiClient::ClaudeCode, ConfigFormat::Json, exe);
+        assert!(claude.contains("\"type\": \"stdio\"") && claude.contains("--mcp-stdio"));
+        assert!(
+            claude.contains(&*exe.to_string_lossy()),
+            "real executable path, not 'cobalt'"
+        );
     }
 }
