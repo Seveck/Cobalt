@@ -208,21 +208,21 @@ pub async fn reindex_files(
     if existing.is_empty() {
         return Ok(());
     }
-    {
-        let _slot = state.daemon.write_slot().await;
-        ingest
-            .ingest_paths(
-                IngestRequest {
-                    paths: existing,
-                    project_id: Some(project_id),
-                    watch: true,
-                    mark_reusable: false,
-                    ocr: false,
-                },
-                background_sink(app, Some(project_id)),
-            )
-            .await?;
-    }
+    // Background jobs do not hold the daemon write slot for their whole run (that froze every
+    // exclusive action behind a long indexing job); the store gates each write, so an engine
+    // swap simply queues the job's next file, like the file watcher.
+    ingest
+        .ingest_paths(
+            IngestRequest {
+                paths: existing,
+                project_id: Some(project_id),
+                watch: true,
+                mark_reusable: false,
+                ocr: false,
+            },
+            background_sink(app, Some(project_id)),
+        )
+        .await?;
     bulk_changed(state, "cobalt-capture");
     Ok(())
 }
@@ -255,21 +255,19 @@ pub async fn watch_project_root(
         return Ok(());
     }
     let ingest = state.ingest()?;
-    {
-        let _slot = state.daemon.write_slot().await;
-        ingest
-            .ingest_paths(
-                IngestRequest {
-                    paths: vec![root],
-                    project_id: Some(project.id),
-                    watch: true,
-                    mark_reusable: false,
-                    ocr: false,
-                },
-                background_sink(app, Some(project.id)),
-            )
-            .await?;
-    }
+    // No whole-job write slot: see `reindex_files`.
+    ingest
+        .ingest_paths(
+            IngestRequest {
+                paths: vec![root],
+                project_id: Some(project.id),
+                watch: true,
+                mark_reusable: false,
+                ocr: false,
+            },
+            background_sink(app, Some(project.id)),
+        )
+        .await?;
     bulk_changed(state, "cobalt-capture");
     Ok(())
 }
