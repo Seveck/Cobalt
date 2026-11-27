@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  BarChart3,
   ChevronLeft,
   ChevronRight,
   Cpu,
@@ -35,6 +36,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { key: "brain", icon: Network },
   { key: "library", icon: Library },
   { key: "telemetry", icon: Gauge },
+  { key: "stats", icon: BarChart3 },
   { key: "connectors", icon: Plug },
   { key: "tools", icon: Wrench },
   { key: "store", icon: Store },

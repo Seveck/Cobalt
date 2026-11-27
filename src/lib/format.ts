@@ -23,13 +23,47 @@ export const AI_CLIENT_LABELS: Record<AiClient, string> = {
   codex_cli: "Codex CLI",
 };
 
-/** Resolve an AI client identifier (e.g. `claude_code`) to its display name. */
+/** Common aliases reported by MCP clients beyond the canonical `AiClient` enum. */
+const AI_CLIENT_ALIASES: Record<string, string> = {
+  codex: "Codex",
+  gemini: "Gemini CLI",
+  claude: "Claude",
+  antigravity: "Antigravity",
+  opencode: "OpenCode",
+  vscode: "VS Code",
+  vs_code: "VS Code",
+  roo_code: "Roo Code",
+  zed: "Zed",
+  cobalt: "Cobalt",
+  cobalt_ui: "Cobalt",
+};
+
+/** Resolve an AI client identifier (e.g. `claude_code` or `claude-code`) to its display name. */
 export function formatAiClientName(client: string): string {
-  const key = client.trim().toLowerCase() as AiClient;
-  if (key in AI_CLIENT_LABELS) {
-    return AI_CLIENT_LABELS[key];
+  const normalized = client.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (normalized in AI_CLIENT_LABELS) {
+    return AI_CLIENT_LABELS[normalized as AiClient];
+  }
+  if (normalized in AI_CLIENT_ALIASES) {
+    return AI_CLIENT_ALIASES[normalized]!;
   }
   return client;
+}
+
+/**
+ * Format an integer compactly for tight labels and tooltips (e.g. `840`, `5.2k`, `1.4M`).
+ */
+export function formatCompactNumber(value: number): string {
+  const safe = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+  if (safe < 1_000) return String(safe);
+  if (safe < 1_000_000) {
+    const k = safe / 1_000;
+    const rounded = k >= 100 ? Math.round(k) : Math.round(k * 10) / 10;
+    return Number.isInteger(rounded) ? `${rounded}k` : `${rounded.toFixed(1)}k`;
+  }
+  const m = safe / 1_000_000;
+  const rounded = m >= 100 ? Math.round(m) : Math.round(m * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded}M` : `${rounded.toFixed(1)}M`;
 }
 
 /** Format a byte count into a human-readable size string (e.g. `118.4 MB`). */
