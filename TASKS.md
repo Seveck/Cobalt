@@ -37,8 +37,8 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] `src/lib/backend.ts` (IPC real Fase 1) + `src/lib/backendMock.ts`
 
 ### Correcciones pendientes detectadas en la integración (→ Fase 2)
-- [ ] [CODEX] `cobalt-embeddings`: construir specs y archivos solo desde `cobalt_core::catalog` (quitar la ruta `BuiltIn` que descarga por hf-hub; `pooling` del spec)
-- [ ] [CODEX] Unificar dependencias con el workspace (reqwest 0.13, sha2 0.11) tras subir el MSRV a 1.95
+- [x] [CODEX] `cobalt-embeddings`: specs y archivos solo desde `cobalt_core::catalog`, sin `hf-hub`, `pooling` del spec (verificado 2026-11-28)
+- [x] [CODEX] Unificar dependencias con el workspace (reqwest 0.13, sha2 0.11) — verificado 2026-11-28; los duplicados restantes son transitivos de terceros (p. ej. `lopdf` → sha2 0.10)
 - [x] [CODEX] Calibrar umbrales por modelo (2026-11-27): medido con 60 pares ES/EN; calibración separada para búsqueda (100 % paráfrasis, 75-80 % mismo tema) y para escritura (35-50 % paráfrasis fusionadas, 0 falsos duplicados; antes 0 %). Límite conocido: el coseno de E5 no separa bien "misma idea" de "otra idea del mismo tema"
 
 ## Fase 2 — Daemon, MCP, gobernanza y 3D polimórfico [PARALELO] ✅
