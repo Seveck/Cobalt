@@ -449,7 +449,7 @@
       "localOnlyBadge": "100% local",
       "modelLabel": "Model",
       "languagesLabel": "Languages",
-      "languagesNote": "Latin alphabet: Spanish, English…; not Chinese, Russian, or Arabic.",
+      "languagesNote": "Basic Latin alphabet: reads English well; in Spanish it reads the text but does not recognize accents, ñ, ü, or ¿ ¡. Does not read Chinese, Russian, or Arabic.",
       "accuracyWarning": "OCR can make mistakes with both handwritten and computer-generated text (small or decorative fonts, blurry or low-quality images, noisy backgrounds, tables, or columns). Double-check important details (numbers, names, codes) in the original file.",
       "installButton": "Install OCR",
       "installingButton": "Installing OCR…",
