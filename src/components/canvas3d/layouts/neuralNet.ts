@@ -83,15 +83,6 @@ export const neuralNetLayout: LayoutFn = ({ nodes, params }) => {
       }))
     : undefined;
 
-  const structuralEdges: Array<[string, string]> | undefined = params.show_virtual_anchors
-    ? [
-        ["anchor:nn:layer0", "anchor:nn:layer1"],
-        ["anchor:nn:layer1", "anchor:nn:layer2"],
-        ["anchor:nn:layer2", "anchor:nn:layer3"],
-        ["anchor:nn:layer3", "anchor:nn:layer4"],
-      ]
-    : undefined;
-
-  const result: LayoutResult = { nodePositions, virtualAnchors, structuralEdges };
+  const result: LayoutResult = { nodePositions, virtualAnchors };
   return result;
 };

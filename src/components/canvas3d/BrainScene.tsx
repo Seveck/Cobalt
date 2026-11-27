@@ -25,7 +25,6 @@ import type {
 } from "@/types/contracts";
 import { createNodeGeometry } from "./geometry";
 import {
-  buildIslandRimsGeometry,
   buildIslandSlabsGeometry,
   computeIslandsCameraFraming,
   createIslandLabelSprite,
@@ -76,7 +75,6 @@ const WATCHDOG_WINDOW_MS = 1_000;
 const STRUCTURAL_EDGE_BASE_OPACITY = 0.36;
 const CUSTOM_MESH_BACKDROP_BASE_OPACITY = 0.15;
 const ISLAND_SLABS_BASE_OPACITY = 0.78;
-const ISLAND_RIMS_BASE_OPACITY = 0.86;
 
 export type ViewportEdge = "top" | "bottom" | "left" | "right";
 
@@ -1840,8 +1838,9 @@ export function BrainScene({
     };
   }, [semanticEdgeMaterial]);
 
-  // Structural layout edges (knowledge_tree branches, neural_net rails)
+  // Structural layout edges (e.g. knowledge_tree hierarchy branches), rendered only when connections are shown
   const structuralEdgeGeometry = useMemo(() => {
+    if (!showConnections || visibleNodeIds.size === 0) return null;
     const pairs = layoutResult.structuralEdges;
     if (!pairs || pairs.length === 0) return null;
 
@@ -1852,8 +1851,12 @@ export function BrainScene({
 
     const coords: number[] = [];
     for (const [src, dst] of pairs) {
-      const from = anchorPos.get(src) ?? layoutResult.nodePositions[src];
-      const to = anchorPos.get(dst) ?? layoutResult.nodePositions[dst];
+      const srcAnchor = anchorPos.get(src);
+      const dstAnchor = anchorPos.get(dst);
+      if (!srcAnchor && !visibleNodeIds.has(src)) continue;
+      if (!dstAnchor && !visibleNodeIds.has(dst)) continue;
+      const from = srcAnchor ?? layoutResult.nodePositions[src];
+      const to = dstAnchor ?? layoutResult.nodePositions[dst];
       if (!from || !to) continue;
       coords.push(from[0], from[1], from[2], to[0], to[1], to[2]);
     }
@@ -1865,11 +1868,11 @@ export function BrainScene({
       attachUniformEdgeColorAttribute(geometry, "#2b3a55");
     }
     return geometry;
-  }, [edgeShaderConfig.isCustom, layoutResult]);
+  }, [edgeShaderConfig.isCustom, layoutResult, showConnections, visibleNodeIds]);
 
   const structuralEdgeMaterial = useMemo<THREE.Material>(() => {
     if (edgeShaderConfig.isCustom) {
-      return createEdgeShaderMaterial(0.36, {
+      return createEdgeShaderMaterial(STRUCTURAL_EDGE_BASE_OPACITY, {
         vertex: edgeShaderConfig.vertex,
         fragment: edgeShaderConfig.fragment,
       });
@@ -1877,7 +1880,7 @@ export function BrainScene({
     return new THREE.LineBasicMaterial({
       color: "#2b3a55",
       transparent: true,
-      opacity: 0.36,
+      opacity: STRUCTURAL_EDGE_BASE_OPACITY,
     });
   }, [edgeShaderConfig.fragment, edgeShaderConfig.isCustom, edgeShaderConfig.vertex]);
 
@@ -1912,7 +1915,7 @@ export function BrainScene({
     };
   }, [customMeshBackdropMaterial]);
 
-  // Flat island slabs, rims, and big floating project labels (`project_islands` layout)
+  // Flat island slabs and floating project labels (`project_islands` layout)
   const islandSlabsGeometry = useMemo(
     () =>
       isProjectIslands
@@ -1926,7 +1929,7 @@ export function BrainScene({
       new THREE.MeshBasicMaterial({
         vertexColors: true,
         transparent: true,
-        opacity: 0.78,
+        opacity: ISLAND_SLABS_BASE_OPACITY,
         side: THREE.DoubleSide,
         depthWrite: false,
       }),
@@ -1944,36 +1947,6 @@ export function BrainScene({
       islandSlabsMaterial.dispose();
     };
   }, [islandSlabsMaterial]);
-
-  const islandRimsGeometry = useMemo(
-    () =>
-      isProjectIslands
-        ? buildIslandRimsGeometry(layoutResult.projectContainers ?? [])
-        : null,
-    [isProjectIslands, layoutResult.projectContainers],
-  );
-
-  const islandRimsMaterial = useMemo(
-    () =>
-      new THREE.LineBasicMaterial({
-        vertexColors: true,
-        transparent: true,
-        opacity: 0.86,
-      }),
-    [],
-  );
-
-  useEffect(() => {
-    return () => {
-      islandRimsGeometry?.dispose();
-    };
-  }, [islandRimsGeometry]);
-
-  useEffect(() => {
-    return () => {
-      islandRimsMaterial.dispose();
-    };
-  }, [islandRimsMaterial]);
 
   const islandLabels = useMemo(() => {
     if (!isProjectIslands) return [];
@@ -2010,7 +1983,6 @@ export function BrainScene({
         CUSTOM_MESH_BACKDROP_BASE_OPACITY * initialChromeOpacity;
     }
     islandSlabsMaterial.opacity = ISLAND_SLABS_BASE_OPACITY * initialChromeOpacity;
-    islandRimsMaterial.opacity = ISLAND_RIMS_BASE_OPACITY * initialChromeOpacity;
     for (const lbl of islandLabels) {
       lbl.material.opacity = initialChromeOpacity;
     }
@@ -2018,7 +1990,6 @@ export function BrainScene({
   }, [
     customMeshBackdropMaterial,
     islandLabels,
-    islandRimsMaterial,
     islandSlabsMaterial,
     layoutResult,
     structuralEdgeMaterial,
@@ -2269,7 +2240,6 @@ export function BrainScene({
           CUSTOM_MESH_BACKDROP_BASE_OPACITY * targetChromeOpacity;
       }
       islandSlabsMaterial.opacity = ISLAND_SLABS_BASE_OPACITY * targetChromeOpacity;
-      islandRimsMaterial.opacity = ISLAND_RIMS_BASE_OPACITY * targetChromeOpacity;
       for (const lbl of islandLabels) {
         lbl.material.opacity = targetChromeOpacity;
       }
@@ -2641,10 +2611,6 @@ export function BrainScene({
 
       {islandSlabsGeometry && (
         <mesh geometry={islandSlabsGeometry} material={islandSlabsMaterial} />
-      )}
-
-      {islandRimsGeometry && (
-        <lineSegments geometry={islandRimsGeometry} material={islandRimsMaterial} />
       )}
 
       {/* Nodes: unlit volumetric InstancedMesh (balanced/ultra, ≤ 5k visible) or point-sprites */}
