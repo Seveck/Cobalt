@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Clock, Plug, RefreshCw } from "lucide-react";
+import { BarChart3, Clock, Info, Plug, RefreshCw } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { formatCompactNumber, formatTokenCount } from "@/lib/format";
 import { staggerStyle } from "@/lib/motion";
@@ -263,6 +263,11 @@ export function StatsView() {
                 staggerIndex={2}
               />
             </section>
+
+            <p className="flex items-center gap-1.5 text-[11px] text-bone-subtle">
+              <Info size={12} className="shrink-0 text-bone-subtle" aria-hidden />
+              <span>{t("telemetry.conservativeSavingsNote")}</span>
+            </p>
 
             {/* Helpful prompt on brand-new installs with zero recorded activity */}
             {isBrandNew && (

@@ -44,3 +44,8 @@ export {
   type IngestJobStatus,
   type IngestState,
 } from "./ingest";
+export {
+  useProposalsStore,
+  type BulkActionResult,
+  type ProposalsState,
+} from "./proposals";

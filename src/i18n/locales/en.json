@@ -471,6 +471,10 @@
     "captureIndexingPausedDesc": "Temporarily pauses automatic folder watching and background re-indexing until you resume.",
     "captureAutoWatchTitle": "Watch projects automatically",
     "captureAutoWatchDesc": "When you import a folder or an AI works inside a project, Cobalt keeps its files indexed and up to date in the background.",
+    "captureSessionContextTitle": "Context at session start",
+    "captureSessionContextDesc": "Claude Code and Gemini CLI receive your project rules and where the last session left off",
+    "captureProposalsTitle": "Propose memories",
+    "captureProposalsDesc": "Detects decisions, fixes, and preferences in your sessions; nothing is saved without your approval",
     "captureSessionHandoffsTitle": "Automatic session handoffs",
     "captureSessionHandoffsDesc": "When an AI session finishes, saves a short temporary summary of recent progress so your next AI can pick up where you left off.",
     "captureGitCommitsTitle": "Record saved project changes (Git)",
@@ -750,7 +754,10 @@
       "confidenceWeight": "Confidence weight",
       "confidenceWeightHint": "Boost higher-confidence memories.",
       "corePinBoost": "Nuclear Law boost",
-      "corePinBoostHint": "Priority boost for pinned rules."
+      "corePinBoostHint": "Priority boost for pinned rules.",
+      "responseTokenBudget": "Token budget per search",
+      "responseTokenBudgetHint": "Maximum tokens of memory content Cobalt returns per AI search.",
+      "responseTokenBudgetValue": "{{tokens}} tokens"
     },
     "docstringsTitle": "MCP Tool Docstrings",
     "docstringsDesc": "Customize the instructions your AI tools read for each Cobalt tool.",
@@ -775,6 +782,7 @@
       "30d": "30 days"
     },
     "avoidedVsInjected": "{{avoided}} avoided · {{injected}} sent",
+    "conservativeSavingsNote": "Conservative estimate: each file counts up to 2,000 tokens and at most once every 30 min per AI; saving does not count as savings.",
     "sessionHint": "Tokens saved since Cobalt started.",
     "injectedShare": "Only {{pct}}% of full file size sent",
     "readsVsReuseTitle": "Reads vs Reusable Assets",
@@ -1379,6 +1387,59 @@
       "reuse": "Reuses",
       "handoff": "Handoffs",
       "blocked_firewall": "Blocked"
+    }
+  },
+  "proposals": {
+    "title": "Proposals",
+    "subtitle": "Review and decide what to save to your memory",
+    "triggerAria": "Open proposals inbox",
+    "triggerAriaWithCount_one": "Proposals ({{count}} pending)",
+    "triggerAriaWithCount_other": "Proposals ({{count}} pending)",
+    "tabsAria": "Filter proposals by status",
+    "tabs": {
+      "pending": "Pending",
+      "accepted": "Accepted",
+      "rejected": "Discarded"
+    },
+    "kind": {
+      "decision": "Decision",
+      "fix": "Fix",
+      "preference": "Preference"
+    },
+    "status": {
+      "accepted": "Accepted",
+      "rejected": "Discarded"
+    },
+    "fromAi": "Noticed by {{client}}",
+    "editedBadge": "Edited",
+    "editAction": "Edit",
+    "editContentAria": "Edit proposal text",
+    "resetText": "Reset text",
+    "doneEditing": "Done",
+    "contextLabel": "Context",
+    "accept": "Accept",
+    "discard": "Discard",
+    "acceptAll": "Accept all",
+    "discardAll": "Discard all",
+    "pendingSummary_one": "1 pending proposal",
+    "pendingSummary_other": "{{count}} pending proposals",
+    "confirmAcceptAll_one": "Save this proposal to your memory?",
+    "confirmAcceptAll_other": "Save all {{count}} pending proposals to your memory?",
+    "confirmRejectAll_one": "Discard this proposal?",
+    "confirmRejectAll_other": "Discard all {{count}} pending proposals?",
+    "confirmAcceptAllAction": "Yes, accept all",
+    "confirmRejectAllAction": "Yes, discard all",
+    "savedToast": "Saved to your memory",
+    "savedAllToast": "{{count}} proposals saved to your memory",
+    "loading": "Loading proposals…",
+    "readOnlyNotice": "Read-only mode is active — disable it to accept or discard proposals.",
+    "comingSoonTitle": "Coming soon",
+    "comingSoonDesc": "The automatic proposals inbox is being enabled in this version of Cobalt. Nothing is saved to your memory without your approval.",
+    "retryAction": "Check again",
+    "empty": {
+      "pending": "When your AIs make decisions, fix bugs, or you mention preferences, they will appear here so you can decide whether to save them.",
+      "accepted": "You haven't accepted any proposals yet.",
+      "rejected": "No discarded proposals yet."
     }
   }
 }

@@ -10,6 +10,7 @@ import {
   useHardwareStore,
   useIngestStore,
   useMemoryStore,
+  useProposalsStore,
   useSettingsStore,
   useSynapticStore,
   useTelemetryStore,
@@ -25,7 +26,9 @@ import { CliActivityShellBar } from "@/components/shell/CliActivityShellBar";
 import { CobaltMark } from "@/components/shell/CobaltMark";
 import { DesktopOnlyNotice } from "@/components/shell/DesktopOnlyNotice";
 import { IngestShellIndicator } from "@/components/shell/IngestShellIndicator";
+import { ProposalsPanel } from "@/components/shell/ProposalsPanel";
 import { Sidebar } from "@/components/shell/Sidebar";
+import { TopShellBar } from "@/components/shell/TopShellBar";
 import { WelcomeGreeting } from "@/components/shell/WelcomeGreeting";
 import { StatsView } from "@/components/stats/StatsView";
 import { ThemeEditorPanel } from "@/components/store/ThemeEditorPanel";
@@ -78,6 +81,8 @@ function DesktopApp() {
   const ingestActivity = useSynapticStore((s) => s.ingestActivity);
   const pulseMemoryChange = useSynapticStore((s) => s.pulseMemoryChange);
   const ingestCliActivity = useCliActivityStore((s) => s.ingestCliActivity);
+  const loadInitialPendingProposals = useProposalsStore((s) => s.loadInitialPendingCount);
+  const syncProposalsPendingFromEvent = useProposalsStore((s) => s.syncPendingCountFromEvent);
 
   useEffect(() => {
     void loadAppInfo();
@@ -92,6 +97,7 @@ function DesktopApp() {
     void loadDaemonStatus();
     void loadVaultStatus();
     void loadGraph();
+    void loadInitialPendingProposals();
 
     let active = true;
     let refreshTimer: number | null = null;
@@ -162,6 +168,12 @@ function DesktopApp() {
     );
 
     register(
+      backendOn("cobalt://proposals-changed", (payload) => {
+        syncProposalsPendingFromEvent(payload.pending);
+      }),
+    );
+
+    register(
       backendOn("cobalt://themes-changed", (payload) => {
         const themeState = useThemeStore.getState();
         themeState.bumpThemesVersion();
@@ -204,6 +216,7 @@ function DesktopApp() {
     loadDaemonStatus,
     loadGraph,
     loadHardwareAll,
+    loadInitialPendingProposals,
     loadInstalledThemes,
     loadSettings,
     loadVaultStatus,
@@ -215,6 +228,7 @@ function DesktopApp() {
     subscribeDownloadProgress,
     subscribeEngineSwapProgress,
     subscribeIngestProgress,
+    syncProposalsPendingFromEvent,
     syncReadOnly,
   ]);
 
@@ -244,6 +258,7 @@ function DesktopApp() {
     <div className="flex h-full w-full overflow-hidden bg-void text-bone">
       <Sidebar />
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-void">
+        <TopShellBar />
         <IngestShellIndicator />
         <CliActivityShellBar />
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -263,6 +278,7 @@ function DesktopApp() {
             </div>
             <WelcomeGreeting />
           </main>
+          <ProposalsPanel />
           <ThemeEditorPanel />
         </div>
         <ThemeToastHost />

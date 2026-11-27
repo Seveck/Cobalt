@@ -2,12 +2,14 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowRightLeft,
+  BookOpenText,
   Check,
   Cpu,
   Download,
   FolderSync,
   GitCommitHorizontal,
   History,
+  Inbox,
   Info,
   Loader2,
   Palette,
@@ -59,6 +61,8 @@ export function SettingsView() {
   const reducedMotionLabelId = useId();
   const indexingPausedLabelId = useId();
   const autoWatchLabelId = useId();
+  const sessionContextLabelId = useId();
+  const proposalsLabelId = useId();
   const sessionHandoffsLabelId = useId();
   const gitCommitsLabelId = useId();
 
@@ -253,7 +257,11 @@ export function SettingsView() {
     }
   };
 
-  const handleToggleCaptureSetting = (key: keyof CaptureSettings, value: boolean) => {
+  type BooleanCaptureSettingKey = {
+    [K in keyof CaptureSettings]: CaptureSettings[K] extends boolean ? K : never;
+  }[keyof CaptureSettings];
+
+  const handleToggleCaptureSetting = (key: BooleanCaptureSettingKey, value: boolean) => {
     clearSettingsError();
     void patchSettings({
       capture: {
@@ -556,6 +564,48 @@ export function SettingsView() {
                 disabled={saving}
                 ariaLabelledBy={autoWatchLabelId}
                 onChange={(checked) => handleToggleCaptureSetting("auto_watch_projects", checked)}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+              <div className="min-w-0 flex-1">
+                <div
+                  id={sessionContextLabelId}
+                  className="flex items-center gap-1.5 text-sm font-medium text-bone"
+                >
+                  <BookOpenText size={14} className="text-cobalt-ink" aria-hidden />
+                  {t("settings.captureSessionContextTitle")}
+                </div>
+                <div className="mt-0.5 text-xs text-bone-muted">
+                  {t("settings.captureSessionContextDesc")}
+                </div>
+              </div>
+              <Toggle
+                checked={settings.capture.session_context}
+                disabled={saving}
+                ariaLabelledBy={sessionContextLabelId}
+                onChange={(checked) => handleToggleCaptureSetting("session_context", checked)}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+              <div className="min-w-0 flex-1">
+                <div
+                  id={proposalsLabelId}
+                  className="flex items-center gap-1.5 text-sm font-medium text-bone"
+                >
+                  <Inbox size={14} className="text-cobalt-ink" aria-hidden />
+                  {t("settings.captureProposalsTitle")}
+                </div>
+                <div className="mt-0.5 text-xs text-bone-muted">
+                  {t("settings.captureProposalsDesc")}
+                </div>
+              </div>
+              <Toggle
+                checked={settings.capture.proposals}
+                disabled={saving}
+                ariaLabelledBy={proposalsLabelId}
+                onChange={(checked) => handleToggleCaptureSetting("proposals", checked)}
               />
             </div>
 

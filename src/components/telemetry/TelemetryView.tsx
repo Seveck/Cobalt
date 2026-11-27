@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronRight,
   Compass,
+  Info,
   Loader2,
   Play,
   Plug,
@@ -475,6 +476,11 @@ export function TelemetryView() {
                     </div>
                   </div>
                 </section>
+
+                <p className="flex items-center gap-1.5 text-[11px] text-bone-subtle">
+                  <Info size={12} className="shrink-0 text-bone-subtle" aria-hidden />
+                  <span>{t("telemetry.conservativeSavingsNote")}</span>
+                </p>
 
                 {/* Charts Row 1: Timeline + Reads vs Reuse */}
                 <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
