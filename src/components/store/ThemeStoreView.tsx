@@ -18,6 +18,7 @@ import { backendCall } from "@/lib/backend";
 import { pickSinglePath, useFileDrop } from "@/lib/dialogs";
 import { formatBytes } from "@/lib/format";
 import { useSettingsStore, useThemeStore } from "@/stores";
+import { ThemeWarningsBanner } from "@/components/canvas3d";
 import { MockBadge } from "@/components/shell/MockBadge";
 import {
   BUILTIN_THEME_ID,
@@ -290,6 +291,9 @@ export function ThemeStoreView() {
             </div>
           </div>
         </section>
+
+        {/* Non-blocking runtime warnings from active theme shaders / custom meshes */}
+        <ThemeWarningsBanner />
 
         {/* Installed themes */}
         <section className="space-y-3">

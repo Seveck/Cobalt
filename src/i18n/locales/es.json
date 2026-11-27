@@ -405,6 +405,12 @@
     "proModeDesc": "Desbloquea ajustes avanzados de búsqueda, descripciones MCP, API REST y motores externos.",
     "readOnlyTitle": "Modo Solo Lectura",
     "readOnlyDesc": "Impide que las herramientas de IA escriban o modifiquen tus memorias.",
+    "appearanceTitle": "Apariencia",
+    "appearanceSubtitle": "Controla cómo se renderizan los temas 3D instalados en este equipo.",
+    "disableThemeShadersTitle": "Desactivar shaders de temas",
+    "disableThemeShadersDesc": "Usa el renderizador integrado de Cobalt en lugar de los shaders GLSL personalizados de los temas instalados. Se guarda solo en este equipo.",
+    "shaderWatchdogActive": "Los shaders personalizados se pausaron en esta sesión porque el tiempo por fotograma superó 100 ms.",
+    "shaderWatchdogResume": "Reactivar en esta sesión",
     "captureTitle": "Captura automática",
     "captureSubtitle": "Mantén tu memoria sincronizada automáticamente mientras trabajas con tus archivos y asistentes de IA.",
     "captureIndexingPausedTitle": "Pausar indexación",
@@ -703,6 +709,23 @@
       "compatible": "Compatible",
       "degraded": "FX reducidos",
       "incompatible": "Muy pesado"
+    }
+  },
+  "themes": {
+    "showCompilerLog": "Ver registro del compilador",
+    "hideCompilerLog": "Ocultar registro del compilador",
+    "layers": {
+      "node": "nodos",
+      "edge": "conexiones",
+      "background": "fondo",
+      "mesh": "malla"
+    },
+    "warnings": {
+      "shaderCompileFailed": "El shader personalizado de {{layer}} falló al compilar o enlazar; se usa la capa integrada de Cobalt.",
+      "shaderLoadFailed": "No se pudo cargar el shader personalizado de {{layer}} ({{path}}); se usa la capa integrada de Cobalt.",
+      "watchdogTripped": "Se desactivaron los shaders personalizados en esta sesión porque el tiempo medio por fotograma superó 100 ms (~{{ms}} ms).",
+      "customMeshFailed": "No se pudo cargar la malla 3D personalizada; se usa la disposición Galaxia.",
+      "nodeMeshFallback": "No se pudo usar la malla personalizada para nodos (debe ser un GLB válido con ≤ 2.000 triángulos); los nodos se muestran como puntos."
     }
   },
   "tools": {

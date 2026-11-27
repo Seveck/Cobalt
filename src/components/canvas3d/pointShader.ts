@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-const NODE_POINT_VERTEX_SHADER = /* glsl */ `
+export const NODE_POINT_VERTEX_SHADER = /* glsl */ `
   attribute vec3 aColor;
   attribute float aSize;
   attribute vec4 aMeta;  // x: isCorePin, y: isReusable, z: focus (0..3), w: opacityScale
@@ -40,7 +40,7 @@ const NODE_POINT_VERTEX_SHADER = /* glsl */ `
   }
 `;
 
-const NODE_POINT_FRAGMENT_SHADER = /* glsl */ `
+export const NODE_POINT_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uCorePinColor;
   uniform float uTime;
 
@@ -118,14 +118,23 @@ const NODE_POINT_FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
+export interface CustomNodeShaderSources {
+  vertex?: string | null;
+  fragment?: string | null;
+}
+
 /**
- * Create a lightweight camera-facing point-sprite ShaderMaterial per THEME_SPEC §6.1.
- * Caller must dispose on unmount or theme change.
+ * Create a lightweight camera-facing point-sprite ShaderMaterial per THEME_SPEC §6.1–6.2.
+ * Accepts optional custom vertex and/or fragment GLSL while preserving all attribute,
+ * varying, and uniform contracts. Caller must dispose on unmount or theme change.
  */
-export function createNodePointMaterial(corePinHex: string): THREE.ShaderMaterial {
+export function createNodePointMaterial(
+  corePinHex: string,
+  custom?: CustomNodeShaderSources,
+): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    vertexShader: NODE_POINT_VERTEX_SHADER,
-    fragmentShader: NODE_POINT_FRAGMENT_SHADER,
+    vertexShader: custom?.vertex ?? NODE_POINT_VERTEX_SHADER,
+    fragmentShader: custom?.fragment ?? NODE_POINT_FRAGMENT_SHADER,
     transparent: true,
     depthWrite: false,
     depthTest: true,

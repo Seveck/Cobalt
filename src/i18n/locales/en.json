@@ -405,6 +405,12 @@
     "proModeDesc": "Unlocks advanced search tuning, MCP tool docstrings, REST API and external engines.",
     "readOnlyTitle": "Read-Only Mode",
     "readOnlyDesc": "Prevents AI tools from writing or modifying your memories.",
+    "appearanceTitle": "Appearance",
+    "appearanceSubtitle": "Control how installed 3D themes render on this device.",
+    "disableThemeShadersTitle": "Disable theme shaders",
+    "disableThemeShadersDesc": "Use Cobalt's built-in renderer instead of custom GLSL shaders from installed themes. Saved on this device only.",
+    "shaderWatchdogActive": "Custom shaders were paused for this session because frame times stayed above 100 ms.",
+    "shaderWatchdogResume": "Re-enable for this session",
     "captureTitle": "Automatic capture",
     "captureSubtitle": "Keep your memory automatically up to date as you work with your files and AI assistants.",
     "captureIndexingPausedTitle": "Pause indexing",
@@ -703,6 +709,23 @@
       "compatible": "Compatible",
       "degraded": "Reduced FX",
       "incompatible": "Too heavy"
+    }
+  },
+  "themes": {
+    "showCompilerLog": "Show compiler log",
+    "hideCompilerLog": "Hide compiler log",
+    "layers": {
+      "node": "node",
+      "edge": "edge",
+      "background": "background",
+      "mesh": "mesh"
+    },
+    "warnings": {
+      "shaderCompileFailed": "Custom {{layer}} shader failed to compile or link; using Cobalt's built-in layer.",
+      "shaderLoadFailed": "Could not load custom {{layer}} shader ({{path}}); using Cobalt's built-in layer.",
+      "watchdogTripped": "Custom theme shaders were disabled for this session because average frame time stayed above 100 ms (~{{ms}} ms).",
+      "customMeshFailed": "Could not load the custom 3D mesh; falling back to Galaxy layout.",
+      "nodeMeshFallback": "Custom node mesh could not be used (must be a valid GLB with ≤ 2,000 triangles); rendering nodes as points."
     }
   },
   "tools": {

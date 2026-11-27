@@ -1,31 +1,39 @@
 import { useTranslation } from "react-i18next";
-import { Boxes, Brain, GitFork, LayoutGrid, Layers, Sparkles } from "lucide-react";
+import { Box, Boxes, Brain, GitFork, LayoutGrid, Layers, Sparkles } from "lucide-react";
 import type { ClusterSizeMetric, LayoutType } from "@/types/contracts";
-import { BUILTIN_LAYOUT_TYPES, type BuiltinLayoutType } from "./layouts";
+import { BUILTIN_LAYOUT_TYPES } from "./layouts";
 
 interface LayoutSwitcherProps {
   activeLayout: LayoutType;
   clusterSizeMetric: ClusterSizeMetric;
+  hasCustomMesh?: boolean;
   onSelectLayout: (layout: LayoutType) => void;
   onSelectSizeMetric: (metric: ClusterSizeMetric) => void;
 }
 
-const LAYOUT_ICONS: Record<BuiltinLayoutType, typeof Sparkles> = {
+const LAYOUT_ICONS: Record<LayoutType, typeof Sparkles> = {
   galaxy: Sparkles,
   brain: Brain,
   neural_net: Layers,
   knowledge_tree: GitFork,
   project_clusters: Boxes,
   project_islands: LayoutGrid,
+  custom_mesh: Box,
 };
 
 export function LayoutSwitcher({
   activeLayout,
   clusterSizeMetric,
+  hasCustomMesh = false,
   onSelectLayout,
   onSelectSizeMetric,
 }: LayoutSwitcherProps) {
   const { t } = useTranslation();
+
+  const visibleLayouts: readonly LayoutType[] =
+    hasCustomMesh || activeLayout === "custom_mesh"
+      ? [...BUILTIN_LAYOUT_TYPES, "custom_mesh"]
+      : BUILTIN_LAYOUT_TYPES;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -34,7 +42,7 @@ export function LayoutSwitcher({
         aria-label={t("brain.layouts.label")}
         className="inline-flex items-center rounded-[2px] border border-rule-strong bg-surface/95 p-0.5"
       >
-        {BUILTIN_LAYOUT_TYPES.map((layout) => {
+        {visibleLayouts.map((layout) => {
           const Icon = LAYOUT_ICONS[layout];
           const active = activeLayout === layout;
           return (
