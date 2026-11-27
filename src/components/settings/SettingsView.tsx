@@ -49,9 +49,12 @@ export function SettingsView() {
 
   const settings = useSettingsStore((s) => s.settings);
   const saving = useSettingsStore((s) => s.saving);
+  const settingsError = useSettingsStore((s) => s.error);
+  const loadSettings = useSettingsStore((s) => s.loadSettings);
   const patchSettings = useSettingsStore((s) => s.patchSettings);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
   const setReadOnly = useSettingsStore((s) => s.setReadOnly);
+  const clearSettingsError = useSettingsStore((s) => s.clearError);
 
   const profile = useHardwareStore((s) => s.profile);
   const models = useHardwareStore((s) => s.models);
@@ -115,18 +118,11 @@ export function SettingsView() {
 
   const handleSaveDisplayName = async () => {
     if (!displayNameDirty) return;
+    clearSettingsError();
     await patchSettings({ user_display_name: normalizedDisplayName });
-    showSavedFlash();
-  };
-
-  const handleSavePreferences = async () => {
-    await patchSettings({
-      hardware_tier: tier,
-      vector_engine: engine,
-      embedding_model_id: modelId,
-      pro_mode: proMode,
-    });
-    showSavedFlash();
+    if (!useSettingsStore.getState().error) {
+      showSavedFlash();
+    }
   };
 
   const isAlreadyInstalled = isEngineModelInstalled(engine, modelId, engineStatus, profile);
@@ -134,6 +130,28 @@ export function SettingsView() {
   const needsLiveSwap =
     Boolean(engineStatus && engineStatus.vector_count > 0) &&
     (engine !== settings.vector_engine || modelId !== settings.embedding_model_id);
+  const displayError = error ?? settingsError;
+
+  const handleSavePreferences = async () => {
+    clearError();
+    clearSettingsError();
+    if (needsLiveSwap) {
+      await patchSettings({
+        hardware_tier: tier,
+        pro_mode: proMode,
+      });
+    } else {
+      await patchSettings({
+        hardware_tier: tier,
+        vector_engine: engine,
+        embedding_model_id: modelId,
+        pro_mode: proMode,
+      });
+    }
+    if (!useSettingsStore.getState().error) {
+      showSavedFlash();
+    }
+  };
 
   const swapPercent =
     swapProgress && swapProgress.total > 0
@@ -142,20 +160,29 @@ export function SettingsView() {
 
   const handleApplyAndInstall = async () => {
     clearError();
+    clearSettingsError();
     if (needsLiveSwap) {
+      if (!isAlreadyInstalled) {
+        const installed = await installEngine({ engine, model_id: modelId });
+        if (!installed) {
+          return;
+        }
+      }
       const report = await swapEngine({
         target_engine: engine,
         target_model_id: modelId,
         external_endpoint: null,
       });
       if (report && !report.rolled_back) {
+        await loadSettings();
         await patchSettings({
           hardware_tier: tier,
-          vector_engine: engine,
-          embedding_model_id: modelId,
           pro_mode: proMode,
           onboarding_completed: true,
         });
+        if (useSettingsStore.getState().error) {
+          return;
+        }
         await loadGraph();
         showSavedFlash();
       }
@@ -169,7 +196,9 @@ export function SettingsView() {
         pro_mode: proMode,
         onboarding_completed: true,
       });
-      showSavedFlash();
+      if (!useSettingsStore.getState().error) {
+        showSavedFlash();
+      }
       return;
     }
     const status = await installEngine({ engine, model_id: modelId });
@@ -181,7 +210,9 @@ export function SettingsView() {
         pro_mode: proMode,
         onboarding_completed: true,
       });
-      showSavedFlash();
+      if (!useSettingsStore.getState().error) {
+        showSavedFlash();
+      }
     }
   };
 
@@ -197,12 +228,17 @@ export function SettingsView() {
   };
 
   const handleToggleCaptureSetting = (key: keyof CaptureSettings, value: boolean) => {
+    clearSettingsError();
     void patchSettings({
       capture: {
         ...settings.capture,
         [key]: value,
       },
-    }).then(showSavedFlash);
+    }).then(() => {
+      if (!useSettingsStore.getState().error) {
+        showSavedFlash();
+      }
+    });
   };
 
   return (
@@ -451,7 +487,7 @@ export function SettingsView() {
               models={models}
               profile={profile}
               engineStatus={engineStatus}
-              disabled={isInstalling || saving}
+              disabled={isInstalling || isSwapping || saving}
               onTierChange={setTier}
               onEngineChange={setEngine}
               onModelChange={setModelId}
@@ -462,7 +498,7 @@ export function SettingsView() {
               progress={downloadProgress}
               isInstalling={isInstalling}
               isCancelling={isCancelling}
-              error={error}
+              error={displayError}
               onCancel={() => void cancelDownload()}
             />
 

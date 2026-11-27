@@ -24,6 +24,18 @@ export function DownloadProgressBar({
     return null;
   }
 
+  if (!progress && !isInstalling && error) {
+    return (
+      <div
+        role="alert"
+        className="flex items-start gap-2.5 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash p-4 text-xs text-cinnabar"
+      >
+        <AlertCircle size={15} className="mt-0.5 shrink-0" aria-hidden />
+        <p className="leading-relaxed">{error}</p>
+      </div>
+    );
+  }
+
   const phase = progress?.phase ?? (isInstalling ? "queued" : "failed");
   const percent = progress
     ? phase === "completed" || phase === "verifying" || phase === "extracting"
@@ -33,6 +45,7 @@ export function DownloadProgressBar({
 
   const isError = phase === "failed" || phase === "cancelled" || (!isInstalling && error !== null);
   const isDone = phase === "completed" && !isError;
+  const displayPhase = isError && phase === "completed" ? "failed" : phase;
   const canCancel =
     isInstalling &&
     phase !== "completed" &&
@@ -41,6 +54,7 @@ export function DownloadProgressBar({
 
   return (
     <div
+      role={isError ? "alert" : undefined}
       className={`rounded-[2px] border p-4 ${
         isError
           ? "border-cinnabar-rule bg-cinnabar-wash"
@@ -58,7 +72,7 @@ export function DownloadProgressBar({
           ) : (
             <Loader2 size={15} className="shrink-0 animate-spin text-cobalt-ink" aria-hidden />
           )}
-          <span>{t(`onboarding.download.${phase}`)}</span>
+          <span>{t(`onboarding.download.${displayPhase}`)}</span>
           {progress && progress.attempt > 1 && (
             <span className="rounded-[2px] border border-rule-strong bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-bone-muted">
               {t("onboarding.download.attempt", { attempt: progress.attempt })}
