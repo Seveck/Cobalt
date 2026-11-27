@@ -1,0 +1,5 @@
+capture.rs
+fn count(bytes: &[u8]) -> usize {
+    let size = bytes.len();
+    size + 1
+}

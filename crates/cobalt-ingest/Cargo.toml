@@ -21,6 +21,11 @@ flate2 = "1"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"] }
 ocrs = { version = "0.14.0", default-features = false, features = ["onnx"] }
 rten = { version = "0.28.0", default-features = false, features = ["onnx_format"] }
+rten-imageproc = "0.28.0"
+rten-tensor = "0.28.0"
+# Match fastembed's ONNX Runtime version and binary distribution.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "api-24", "download-binaries", "tls-rustls"] }
+serde_yaml_ng = "0.10"
 notify = "8"
 tempfile = "3"
 zip = { version = "9", default-features = false, features = ["deflate-flate2", "zstd"] }
