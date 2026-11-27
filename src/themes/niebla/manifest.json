@@ -1,0 +1,74 @@
+{
+  "id": "niebla",
+  "name": "Niebla",
+  "author": "Cobalt",
+  "version": "1.0.0",
+  "description": "Bajo contraste y tonos lavanda suaves; minimalista y descansado.",
+  "hardware_tier": "eco",
+  "layout_type": "galaxy",
+  "layout_params": {
+    "level_spacing": 18,
+    "radial_spread": 40,
+    "show_virtual_anchors": true,
+    "semantic_edges_mode": "hover_only"
+  },
+  "palette": {
+    "background": "#0B0C15",
+    "node": "#AEA863",
+    "core_pin": "#E2B33C",
+    "reusable": "#A78BFA",
+    "edge": "#333552",
+    "text": "#E3E4EB",
+    "pulse_read": "#60A5FA",
+    "pulse_reuse": "#A78BFA",
+    "pulse_write": "#34D399",
+    "pulse_update": "#FBBF24",
+    "pulse_blocked": "#F87171",
+    "category_colors": {
+      "preference": "#BE92C8",
+      "decision": "#D79081",
+      "code": "#AEA863",
+      "doc": "#61B7A2",
+      "note": "#77AADB",
+      "ocr": "#9A8CF2"
+    }
+  },
+  "node_geometry": {
+    "shape": "point",
+    "base_size": 0.6,
+    "scale_by_hits": true,
+    "detail": 1
+  },
+  "camera": {
+    "position": [
+      0,
+      40,
+      160
+    ],
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "fov": 55,
+    "auto_rotate": false,
+    "auto_rotate_speed": 0.3
+  },
+  "shaders": {
+    "node_vertex": null,
+    "node_fragment": null,
+    "edge_vertex": null,
+    "edge_fragment": null,
+    "background_fragment": null
+  },
+  "mesh_path": null,
+  "ui": {
+    "mode": "dark",
+    "base_hue": 280,
+    "base_tint": 35,
+    "contrast": 28,
+    "accent": "#9A8CF2",
+    "radius": 12,
+    "density": "spacious"
+  }
+}

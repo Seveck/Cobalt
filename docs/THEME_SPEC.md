@@ -1,4 +1,4 @@
-# Cobalt Themes — `.cobalt-theme` Specification (v1.1.0)
+# Cobalt Themes — `.cobalt-theme` Specification (v1.2.0)
 
 Owner: **[CLAUDE]** (Theme Store Manager in `src-tauri`, Rust DTOs in `cobalt_core::theme`).
 Consumers: **[GEMINI]** (`src/components/store/`, `src/components/canvas3d/`).
@@ -100,6 +100,35 @@ the filesystem or network. Assets are served through Tauri's asset protocol scop
 | `mesh_path` | Required iff `layout_type = custom_mesh`; must be `meshes/<name>.glb`. |
 
 Unknown fields are ignored (forward compatible).
+
+## 3.1 Whole-app style: `ui` (v1.2.0)
+
+Optional. Without it a theme styles only the 3D brain. With it the whole interface (sidebar,
+panels, cards, buttons, text) follows the theme. Few inputs, generated outputs: the app derives
+every surface, text, border and focus color from these values in OKLCH, so contrast stays legible.
+
+```json
+"ui": { "mode": "dark", "base_hue": 60, "base_tint": 18, "contrast": 55,
+        "accent": "#3D6EF0", "radius": 6, "density": "comfortable" }
+```
+
+| Field | Rule |
+|---|---|
+| `mode` | `light` \| `dark` |
+| `base_hue` | 0–360, OKLCH hue of the neutrals |
+| `base_tint` | 0–100, how coloured the neutrals are (0 = grey) |
+| `contrast` | 0–100, lightness spread between background, surfaces and text |
+| `accent` | `#RRGGBB`, used only for interactive elements, selection and focus |
+| `radius` | 0–16 px corner radius |
+| `density` | `compact` \| `comfortable` \| `spacious` |
+
+Generator (reference, dark): `c = 0.004 + tint/100 × 0.045`; background `L = 0.17 − 0.04k`,
+surfaces `0.21 − 0.03k`, `0.25 − 0.02k`, `0.30 − 0.01k`; text `0.90 + 0.07k`, muted `0.68 + 0.06k`
+(`k = contrast/100`). Light: background `0.975`, surface `0.995`, raised `0.955`, text
+`0.27 − 0.12k`. The app font is Geist (Geist Mono for data), bundled locally.
+
+Built-in themes (bundled, always installed, ids reserved): `cobalt-minimal` (default, brain only),
+`grafito`, `porcelana`, `abisal`, `niebla` (whole-app). Their manifests live in `src/themes/<id>/`.
 
 ## 4. Remote registry (`registry.json`)
 

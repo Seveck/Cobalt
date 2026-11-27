@@ -275,6 +275,11 @@ pub struct AppSettings {
 /// Id of the only theme bundled with the base app.
 pub const BUILTIN_THEME_ID: &str = "cobalt-minimal";
 
+/// Themes bundled with Cobalt (THEME_SPEC v1.2): always installed, never uninstallable, ids
+/// reserved. The first one is the default.
+pub const BUILTIN_THEME_IDS: [&str; 5] =
+    [BUILTIN_THEME_ID, "grafito", "porcelana", "abisal", "niebla"];
+
 /// Default embedding model (Eco profile, multilingual ES/EN).
 pub const DEFAULT_EMBEDDING_MODEL_ID: &str = crate::engine::MODEL_MULTILINGUAL_E5_SMALL;
 
