@@ -449,7 +449,7 @@
       "localOnlyBadge": "100 % local",
       "modelLabel": "Modelo",
       "languagesLabel": "Idiomas",
-      "languagesNote": "Alfabeto latino: español, inglés…; no chino, ruso ni árabe.",
+      "languagesNote": "Alfabeto latino básico: lee bien el inglés; en español lee el texto pero no reconoce tildes, ñ, ü ni ¿ ¡. No lee chino, ruso ni árabe.",
       "accuracyWarning": "El OCR puede cometer errores, tanto con texto manuscrito como con texto hecho en computadora (letra pequeña o decorativa, imágenes borrosas o de baja calidad, fondos con ruido, tablas o columnas). Revisa los datos importantes (números, nombres, códigos) en el archivo original.",
       "installButton": "Instalar OCR",
       "installingButton": "Instalando OCR…",
