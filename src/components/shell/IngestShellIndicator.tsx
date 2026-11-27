@@ -581,7 +581,7 @@ export function IngestShellIndicator() {
 
   const handleOpenOcrSettings = () => {
     setExpanded(false);
-    openSettingsSection("ocr");
+    openSettingsSection("ocr", { autoInstall: true });
   };
 
   const projectLookup = useMemo(() => {

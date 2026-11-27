@@ -443,18 +443,66 @@
       "title": "Texto en imágenes (OCR)",
       "subtitle": "Reconocimiento óptico de texto local para imágenes y PDFs escaneados.",
       "description": "Lee texto dentro de imágenes (capturas, fotos, diagramas) y PDFs escaneados para guardarlo en tu memoria y hacerlo buscable por tus IAs. Todo se procesa 100 % local en tu equipo, sin enviar nada a la nube.",
-      "sizeLabel": "Tamaño de descarga",
-      "approxSizeNote": "~12 MB",
-      "privacyLabel": "Privacidad",
       "localOnlyBadge": "100 % local",
-      "modelLabel": "Modelo",
+      "recommendedBadge": "Recomendado",
       "languagesLabel": "Idiomas",
-      "languagesNote": "Alfabeto latino básico: lee bien el inglés; en español lee el texto pero no reconoce tildes, ñ, ü ni ¿ ¡. No lee chino, ruso ni árabe.",
+      "paddleLanguageNote": "Alfabeto latino completo: tildes, ñ, ü, ¿ (no ¡).",
+      "ocrsLanguageNote": "Solo letras básicas: sin tildes, ñ, ü, ¿ ni ¡; un poco mejor en capturas de código.",
       "accuracyWarning": "El OCR puede cometer errores, tanto con texto manuscrito como con texto hecho en computadora (letra pequeña o decorativa, imágenes borrosas o de baja calidad, fondos con ruido, tablas o columnas). Revisa los datos importantes (números, nombres, códigos) en el archivo original.",
-      "installButton": "Instalar OCR",
-      "installingButton": "Instalando OCR…",
-      "installedReadyHint": "Listo para leer texto de imágenes y PDFs escaneados de forma 100 % local.",
-      "notInstalledHint": "Descarga única de ~12 MB. No se instala nada hasta que pulsas Instalar."
+      "state": {
+        "notInstalled": "No instalado",
+        "downloadingPercent": "Descargando {{percent}} %",
+        "installed": "Instalado",
+        "inUse": "En uso"
+      },
+      "installedSizeInline": "{{size}} en disco",
+      "downloadSizeInline": "Descarga: {{size}}",
+      "installCardButton": "Instalar",
+      "useThisButton": "Usar este",
+      "useThisRequiresInstall": "Instala este motor primero para poder usarlo.",
+      "removeButton": "Eliminar",
+      "removingButton": "Eliminando…",
+      "removedFreedNotice": "{{name}} eliminado — {{size}} liberados.",
+      "activeNotInstalledTitle": "Motor seleccionado: {{name}} (no instalado)",
+      "activeNotInstalledHint": "Instálalo para leer texto en imágenes y PDFs escaneados, o elige el otro motor abajo.",
+      "installActiveButton": "Instalar {{name}}",
+      "comparison": {
+        "title": "Comparativa de motores OCR",
+        "measuredNote": "Medido en un Intel i3 (menos errores, tiempo y memoria es mejor).",
+        "metricColumn": "Aspecto",
+        "rows": {
+          "spanishErrors": {
+            "label": "Errores en español",
+            "paddle": "1 %",
+            "ocrs": "15 % (ocrs pierde tildes y ñ)"
+          },
+          "smallPrint": {
+            "label": "Letra pequeña",
+            "paddle": "0 %",
+            "ocrs": "3 %"
+          },
+          "codeScreenshots": {
+            "label": "Capturas de código",
+            "paddle": "4 %",
+            "ocrs": "3 %"
+          },
+          "timePerImage": {
+            "label": "Tiempo por imagen",
+            "paddle": "0,25–0,7 s",
+            "ocrs": "0,5–1 s"
+          },
+          "memoryUsage": {
+            "label": "Memoria al leer",
+            "paddle": "~130–170 MB",
+            "ocrs": "~175–200 MB"
+          },
+          "downloadSize": {
+            "label": "Descarga",
+            "paddle": "12,9 MB",
+            "ocrs": "12,2 MB"
+          }
+        }
+      }
     },
     "hardwareTitle": "Resumen de hardware y onboarding",
     "rerunOnboarding": "Asistente de bienvenida",
@@ -952,7 +1000,7 @@
     "recentFinishedTitle": "Importaciones recientes",
     "indexingPausedBanner": "Indexación automática en pausa",
     "ocrNotInstalledShort": "OCR no instalado",
-    "ocrNotInstalledBanner": "Para leer texto de imágenes o PDFs escaneados necesitas instalar el modelo local de OCR (~12 MB).",
+    "ocrNotInstalledBanner": "Para leer texto de imágenes o PDFs escaneados necesitas instalar un motor local de OCR (~12–13 MB).",
     "etaLessThanMin": "queda < 1 min",
     "etaMinutes": "quedan ~{{count}} min",
     "etaHours": "quedan ~{{hours}} h",

@@ -436,7 +436,7 @@ export function LibraryView() {
             {isOcrNotInstalledMessage(error ?? storeError) && (
               <button
                 type="button"
-                onClick={() => openSettingsSection("ocr")}
+                onClick={() => openSettingsSection("ocr", { autoInstall: true })}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[11px] font-semibold text-bone transition-colors hover:bg-cobalt-bright"
               >
                 <ScanText size={11} aria-hidden />
