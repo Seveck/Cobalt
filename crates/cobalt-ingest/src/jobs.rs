@@ -213,7 +213,22 @@ impl Progress {
 
     pub(crate) fn stage(&self, stage: &str) {
         if let Some(sender) = &self.sender {
-            sender.send_modify(|progress| stage.clone_into(&mut progress.stage));
+            sender.send_modify(|progress| {
+                if progress.stage == INGEST_STAGE_READING && stage != INGEST_STAGE_READING {
+                    progress.file_chunks_done = None;
+                    progress.file_chunks_total = None;
+                }
+                stage.clone_into(&mut progress.stage);
+            });
+        }
+    }
+
+    pub(crate) fn reading_units(&self, done: usize, total: usize) {
+        if let Some(sender) = &self.sender {
+            sender.send_modify(|event| {
+                event.file_chunks_done = Some(done as u64);
+                event.file_chunks_total = Some(total as u64);
+            });
         }
     }
 

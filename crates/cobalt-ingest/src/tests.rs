@@ -1677,3 +1677,5 @@ async fn backup_retains_version_links_handoff_and_scrubbed_telemetry_history() {
     assert_eq!(restored[0].id, handoff.id);
     assert_eq!(restored[0].open_files, vec!["README.md"]);
 }
+
+mod ocr;
