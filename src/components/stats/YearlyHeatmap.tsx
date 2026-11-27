@@ -194,7 +194,7 @@ export function YearlyHeatmap({
                 key={month}
                 x={DAY_LABEL_WIDTH + weekIndex * CELL_STEP}
                 y={11}
-                fill="#a4a096"
+                fill="var(--color-bone-muted, #a4a096)"
                 fontSize={10}
                 fontFamily="var(--font-mono)"
               >
@@ -208,7 +208,7 @@ export function YearlyHeatmap({
                 key={rowIdx}
                 x={0}
                 y={MONTH_HEADER_HEIGHT + rowIdx * CELL_STEP + CELL_SIZE - 2}
-                fill="#6f6c65"
+                fill="var(--color-bone-subtle, #6f6c65)"
                 fontSize={9.5}
                 fontFamily="var(--font-mono)"
               >
@@ -238,9 +238,9 @@ export function YearlyHeatmap({
                     fill={style.fill}
                     stroke={
                       isFocused
-                        ? "#ece9e1"
+                        ? "var(--color-bone, #ece9e1)"
                         : cell.isToday
-                          ? "#79a8ff"
+                          ? "var(--color-cobalt-ink, #79a8ff)"
                           : style.border
                     }
                     strokeWidth={isFocused || cell.isToday ? 1.25 : 0.75}

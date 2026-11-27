@@ -441,7 +441,7 @@ export function OnboardingScreen() {
                   <span>01 — {t("onboarding.nameStep.stepLabel")}</span>
                 </div>
 
-                <h1 className="mt-2 font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+                <h1 className="mt-2 text-2xl font-semibold tracking-tight text-bone sm:text-3xl">
                   {t("onboarding.nameStep.title")}
                 </h1>
                 <p className="mt-2.5 text-sm leading-relaxed text-bone-muted">
@@ -499,7 +499,7 @@ export function OnboardingScreen() {
           <>
             {/* Editorial title & detected hardware spec sheet */}
             <section className="border-b border-rule px-6 py-6">
-              <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+              <h1 className="text-2xl font-semibold tracking-tight text-bone sm:text-3xl">
                 {t("onboarding.title")}
               </h1>
 

@@ -253,7 +253,7 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
 
             {topAiClient ? (
               <>
-                <div className="mt-3 truncate font-display text-2xl font-medium tracking-tight text-bone">
+                <div className="mt-3 truncate text-2xl font-semibold tracking-tight text-bone">
                   {formatAiClientName(topAiClient.client_name)}
                 </div>
                 <p className="mt-0.5 font-mono text-xs tabular-nums text-bone-muted">
@@ -398,7 +398,7 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
 
             {peakWeekday ? (
               <>
-                <div className="mt-3 font-display text-2xl font-medium tracking-tight text-bone">
+                <div className="mt-3 text-2xl font-semibold tracking-tight text-bone">
                   {weekdayNames[peakWeekday.dayIndex]}
                 </div>
                 <p className="mt-0.5 font-mono text-xs tabular-nums text-bone-muted">
@@ -522,7 +522,7 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
 
             {busiestDate && stats.busiest_day ? (
               <>
-                <div className="mt-3 font-display text-2xl font-medium tracking-tight text-bone">
+                <div className="mt-3 text-2xl font-semibold tracking-tight text-bone">
                   {busiestDate}
                 </div>
                 <p className="mt-0.5 font-mono text-xs tabular-nums text-cobalt-ink">
@@ -562,7 +562,7 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
               <>
                 <div
                   title={stats.top_project.name}
-                  className="mt-3 truncate font-display text-2xl font-medium tracking-tight text-bone"
+                  className="mt-3 truncate text-2xl font-semibold tracking-tight text-bone"
                 >
                   {stats.top_project.name}
                 </div>
@@ -605,7 +605,7 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
 
             {firstActivityDate ? (
               <>
-                <div className="mt-3 font-display text-2xl font-medium tracking-tight text-bone">
+                <div className="mt-3 text-2xl font-semibold tracking-tight text-bone">
                   {firstActivityDate}
                 </div>
                 {elapsedLabel && (

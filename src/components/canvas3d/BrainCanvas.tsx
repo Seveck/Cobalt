@@ -25,6 +25,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useFileDrop } from "@/lib/dialogs";
+import { isBuiltinThemeId } from "@/lib/themeEngine";
 import {
   useFiltersStore,
   useIngestStore,
@@ -39,7 +40,7 @@ import { BranchSwitcher } from "@/components/tools/BranchSwitcher";
 import { CleanBrainPanel } from "@/components/tools/CleanBrainPanel";
 import { RagDebugger } from "@/components/tools/RagDebugger";
 import { TimeTravelBar } from "@/components/tools/TimeTravelBar";
-import { BUILTIN_THEME_ID, type GraphNode, type ProjectContainer } from "@/types/contracts";
+import type { GraphNode, ProjectContainer } from "@/types/contracts";
 import { BrainScene, type PulseVisibilitySummary } from "./BrainScene";
 import { FilterDock } from "./FilterDock";
 import { LayoutsPanel } from "./LayoutsPanel";
@@ -113,7 +114,7 @@ export function BrainCanvas() {
   const openToolsTab = useUiStore((s) => s.openToolsTab);
 
   const themeBasePath = useMemo(() => {
-    if (manifest.id === BUILTIN_THEME_ID) return null;
+    if (isBuiltinThemeId(manifest.id)) return null;
     const installed = installedThemes.find((item) => item.id === manifest.id);
     if (installed?.local_path && !installed.local_path.startsWith("builtin://")) {
       return installed.local_path;
@@ -330,7 +331,7 @@ export function BrainCanvas() {
 
   const fallbackView = (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-6 text-center">
-      <h2 className="font-display text-lg font-medium text-bone">{t("brain.webglFallbackTitle")}</h2>
+      <h2 className="text-lg font-semibold tracking-tight text-bone">{t("brain.webglFallbackTitle")}</h2>
       <p className="max-w-sm text-xs text-bone-muted">{t("brain.webglFallbackDesc")}</p>
     </div>
   );
@@ -350,7 +351,7 @@ export function BrainCanvas() {
           <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-void/75 backdrop-blur-xs">
             <div className="flex flex-col items-center gap-2.5 rounded-[2px] border-2 border-dashed border-cobalt bg-cobalt-wash/90 px-8 py-6 text-center">
               <Upload size={26} className="text-cobalt-ink" aria-hidden />
-              <div className="font-display text-base font-medium text-bone">
+              <div className="text-base font-semibold tracking-tight text-bone">
                 {t("brain.dropToIngestTitle")}
               </div>
               <p className="text-xs text-bone-muted">{t("brain.dropToIngestHint")}</p>
@@ -583,7 +584,7 @@ export function BrainCanvas() {
               <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-[2px] border border-cobalt-rule bg-cobalt-wash">
                 <CobaltMark size={22} />
               </div>
-              <h2 className="mt-4 font-display text-xl font-medium tracking-tight text-bone">
+              <h2 className="mt-4 text-xl font-semibold tracking-tight text-bone">
                 {t("brain.emptyTitle")}
               </h2>
               <p className="mt-2 text-xs leading-relaxed text-bone-muted">

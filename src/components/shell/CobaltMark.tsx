@@ -20,26 +20,26 @@ export function CobaltMark({ size = 20, className = "" }: CobaltMarkProps) {
     >
       <polygon
         points="12,1.75 20.88,6.88 20.88,17.12 12,22.25 3.12,17.12 3.12,6.88"
-        fill="#0047AB"
-        stroke="#79A8FF"
+        fill="var(--color-cobalt, #0047AB)"
+        stroke="var(--color-cobalt-ink, #79A8FF)"
         strokeWidth="1.25"
       />
       <polyline
         points="3.12,6.88 12,12 20.88,6.88"
-        stroke="#ECE9E1"
+        stroke="var(--color-on-accent, #FFFFFF)"
         strokeWidth="1.15"
-        strokeOpacity="0.85"
+        strokeOpacity="0.88"
       />
       <line
         x1="12"
         y1="12"
         x2="12"
         y2="22.25"
-        stroke="#ECE9E1"
+        stroke="var(--color-on-accent, #FFFFFF)"
         strokeWidth="1.15"
-        strokeOpacity="0.85"
+        strokeOpacity="0.88"
       />
-      <rect x="10.25" y="10.25" width="3.5" height="3.5" fill="#ECE9E1" />
+      <rect x="10.25" y="10.25" width="3.5" height="3.5" fill="var(--color-on-accent, #FFFFFF)" />
     </svg>
   );
 }

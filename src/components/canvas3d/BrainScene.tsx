@@ -63,8 +63,10 @@ import {
 
 const CAMERA_FOCUS_DURATION_SEC = 0.65;
 const CAMERA_TRANSITION_DURATION_SEC = 0.8;
+const AMBIENT_ROTATE_RESUME_DELAY_MS = 1_200;
+const DEFAULT_AMBIENT_ROTATE_RAD_PER_SEC = 0.085;
 const FRUSTUM_CHECK_INTERVAL_MS = 160;
-const PULSE_DIM_OPACITY = 0.3;
+const PULSE_DIM_OPACITY = 0.25;
 const PULSE_VISIBILITY_REPORT_MS = 100;
 const INITIAL_CAPACITY = 1024;
 const VOLUMETRIC_MAX_VISIBLE_NODES = 5_000;
@@ -1354,18 +1356,35 @@ export function BrainScene({
     [camera],
   );
 
-  // Cancel any camera transition immediately when the user grabs OrbitControls
+  // Pause ambient auto-rotation & cancel camera transitions while the user drags or zooms
+  const userInteractingRef = useRef(false);
+  const lastUserInteractTsRef = useRef(0);
+  const scratchOrbitOffsetRef = useRef(new THREE.Vector3());
+
   useEffect(() => {
     const controls = controlsRef.current;
+    const dom = gl.domElement;
     if (!controls) return;
-    const cancelAnim = () => {
+    const handleStart = () => {
+      userInteractingRef.current = true;
       cameraAnimRef.current = null;
     };
-    controls.addEventListener("start", cancelAnim);
-    return () => {
-      controls.removeEventListener("start", cancelAnim);
+    const handleEnd = () => {
+      userInteractingRef.current = false;
+      lastUserInteractTsRef.current = performance.now();
     };
-  }, []);
+    const handleWheel = () => {
+      lastUserInteractTsRef.current = performance.now();
+    };
+    controls.addEventListener("start", handleStart);
+    controls.addEventListener("end", handleEnd);
+    dom.addEventListener("wheel", handleWheel, { passive: true });
+    return () => {
+      controls.removeEventListener("start", handleStart);
+      controls.removeEventListener("end", handleEnd);
+      dom.removeEventListener("wheel", handleWheel);
+    };
+  }, [gl.domElement]);
 
   // Apply theme camera ONLY on first load (immediate) and theme switch (smooth ~0.8 s ease).
   // Switching layouts NEVER touches camera position, target, zoom, FOV, or auto-rotate state.
@@ -1387,8 +1406,7 @@ export function BrainScene({
       }
       if (controls) {
         controls.target.set(tx, ty, tz);
-        controls.autoRotate = cam.auto_rotate;
-        controls.autoRotateSpeed = cam.auto_rotate_speed;
+        controls.autoRotate = false;
         controls.update();
       }
       cameraInitializedRef.current = true;
@@ -1399,8 +1417,7 @@ export function BrainScene({
     if (lastThemeIdRef.current !== manifest.id) {
       lastThemeIdRef.current = manifest.id;
       if (controls) {
-        controls.autoRotate = cam.auto_rotate;
-        controls.autoRotateSpeed = cam.auto_rotate_speed;
+        controls.autoRotate = false;
       }
       startCameraAnimation(
         cam.position,
@@ -1421,8 +1438,7 @@ export function BrainScene({
 
     const cam = manifestCameraRef.current;
     if (controlsRef.current) {
-      controlsRef.current.autoRotate = cam.auto_rotate;
-      controlsRef.current.autoRotateSpeed = cam.auto_rotate_speed;
+      controlsRef.current.autoRotate = false;
     }
     startCameraAnimation(
       cam.position,
@@ -2287,6 +2303,31 @@ export function BrainScene({
         cameraAnimRef.current = null;
         lastFrustumCheckTsRef.current = 0;
       }
+    } else if (
+      !prefersReducedMotionRef.current &&
+      !userInteractingRef.current &&
+      now - lastUserInteractTsRef.current >= AMBIENT_ROTATE_RESUME_DELAY_MS &&
+      graph.nodes.length > 0 &&
+      controlsRef.current
+    ) {
+      // Slow ambient auto-rotation (frame-rate independent; stops while dragging/zooming or with reduced motion)
+      const configuredSpeed = manifestCameraRef.current.auto_rotate_speed;
+      const radPerSec =
+        configuredSpeed > 0
+          ? Math.min(0.25, configuredSpeed * 0.28)
+          : DEFAULT_AMBIENT_ROTATE_RAD_PER_SEC;
+      const angle = radPerSec * delta;
+      const target = controlsRef.current.target;
+      const offset = scratchOrbitOffsetRef.current.copy(camera.position).sub(target);
+      const cosA = Math.cos(angle);
+      const sinA = Math.sin(angle);
+      const nextX = offset.x * cosA - offset.z * sinA;
+      const nextZ = offset.x * sinA + offset.z * cosA;
+      offset.x = nextX;
+      offset.z = nextZ;
+      camera.position.copy(target).add(offset);
+      camera.lookAt(target);
+      controlsRef.current.update();
     }
 
     // 1c. Detect whether any visible node is inside the camera view frustum (for "Center view" hint)
@@ -2353,10 +2394,12 @@ export function BrainScene({
           continue;
         }
         const progress = Math.min(1, elapsed / entry.durationMs);
-        // Smooth ease-out fade: holds bright early, eases gently to 0 at durationMs
-        const easeOutFade = Math.pow(1 - progress * progress, 1.5);
-        const currentIntensity = entry.intensity * easeOutFade;
         const isAi = entry.kind === "ai";
+        // AI pulse decays linearly 1 -> 0 over ~6 s so (1 - pulse) drives the expanding ring cleanly;
+        // internal flickers keep a subtle ease-out fade.
+        const currentIntensity = isAi
+          ? Math.max(0.001, 1 - progress)
+          : entry.intensity * Math.pow(1 - progress * progress, 1.5);
 
         if (isAi) {
           activeAiPulseCount += 1;
@@ -2417,9 +2460,9 @@ export function BrainScene({
       }
     }
 
-    // 2b. Smoothly dim non-AI nodes to ~30% opacity ONLY while an AI pulse is active (internal flickers never dim)
+    // 2b. Smoothly dim non-AI nodes to ~25% opacity ONLY while an AI pulse is active (internal flickers never dim)
     const dimStrength =
-      maxAiPulseIntensity > 0.02 ? Math.min(1, maxAiPulseIntensity / 0.24) : 0;
+      maxAiPulseIntensity > 0.01 ? Math.min(1, maxAiPulseIntensity * 3.0) : 0;
     const targetDim = 1.0 - (1.0 - PULSE_DIM_OPACITY) * dimStrength;
     const dimSpeed = targetDim < dimFactorRef.current ? 9.0 : 3.8;
     const nextDim =

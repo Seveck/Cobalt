@@ -50,6 +50,7 @@ export function SettingsView() {
   const displayNameInputId = useId();
   const readOnlyLabelId = useId();
   const disableThemeShadersLabelId = useId();
+  const reducedMotionLabelId = useId();
   const indexingPausedLabelId = useId();
   const autoWatchLabelId = useId();
   const sessionHandoffsLabelId = useId();
@@ -85,8 +86,10 @@ export function SettingsView() {
   const setShowOnboardingOverride = useUiStore((s) => s.setShowOnboardingOverride);
 
   const disableThemeShaders = useThemeStore((s) => s.disableThemeShaders);
+  const reducedMotion = useThemeStore((s) => s.reducedMotion);
   const shadersDisabledForSession = useThemeStore((s) => s.shadersDisabledForSession);
   const setDisableThemeShaders = useThemeStore((s) => s.setDisableThemeShaders);
+  const setReducedMotion = useThemeStore((s) => s.setReducedMotion);
   const resetSessionShaderWatchdog = useThemeStore((s) => s.resetSessionShaderWatchdog);
 
   const [displayName, setDisplayName] = useState<string>(settings.user_display_name ?? "");
@@ -261,7 +264,7 @@ export function SettingsView() {
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
+              <h1 className="text-2xl font-semibold tracking-tight text-bone sm:text-3xl">
                 {t("settings.title")}
               </h1>
             </div>
@@ -411,6 +414,28 @@ export function SettingsView() {
                 ariaLabelledBy={disableThemeShadersLabelId}
                 onChange={(checked) => {
                   setDisableThemeShaders(checked);
+                  showSavedFlash();
+                }}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+              <div className="min-w-0 flex-1">
+                <div
+                  id={reducedMotionLabelId}
+                  className="text-sm font-medium text-bone"
+                >
+                  {t("settings.reducedMotionTitle")}
+                </div>
+                <div className="mt-0.5 text-xs text-bone-muted">
+                  {t("settings.reducedMotionDesc")}
+                </div>
+              </div>
+              <Toggle
+                checked={reducedMotion}
+                ariaLabelledBy={reducedMotionLabelId}
+                onChange={(checked) => {
+                  setReducedMotion(checked);
                   showSavedFlash();
                 }}
               />

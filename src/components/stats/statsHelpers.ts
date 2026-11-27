@@ -4,18 +4,18 @@ import type { ClientUsageStats, UsageDay } from "@/types/contracts";
 export type HeatmapLevel = 0 | 1 | 2 | 3 | 4;
 
 /**
- * 5-step Cobalt intensity scale tuned for the obsidian dark theme (`#111317` surface).
- * Level 0 is an empty cell; levels 1–4 progress from deep mineral cobalt to luminous cobalt ink.
+ * 5-step intensity scale backed by CSS variables so it adapts live to any
+ * whole-app theme (dark or light) while keeping the mineral Cobalt scale for `cobalt-minimal`.
  */
 export const HEATMAP_LEVEL_STYLES: Record<
   HeatmapLevel,
   { fill: string; border: string }
 > = {
-  0: { fill: "#171a21", border: "#23262f" },
-  1: { fill: "#132a54", border: "#1d3d78" },
-  2: { fill: "#0d47a1", border: "#1d5ec4" },
-  3: { fill: "#2563eb", border: "#447ef5" },
-  4: { fill: "#79a8ff", border: "#9ec0ff" },
+  0: { fill: "var(--heatmap-0-fill, #171a21)", border: "var(--heatmap-0-border, #23262f)" },
+  1: { fill: "var(--heatmap-1-fill, #132a54)", border: "var(--heatmap-1-border, #1d3d78)" },
+  2: { fill: "var(--heatmap-2-fill, #0d47a1)", border: "var(--heatmap-2-border, #1d5ec4)" },
+  3: { fill: "var(--heatmap-3-fill, #2563eb)", border: "var(--heatmap-3-border, #447ef5)" },
+  4: { fill: "var(--heatmap-4-fill, #79a8ff)", border: "var(--heatmap-4-border, #9ec0ff)" },
 };
 
 export interface HeatmapCell {

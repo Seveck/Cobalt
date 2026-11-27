@@ -71,7 +71,7 @@ export function DesktopOnlyNotice() {
               <Monitor size={18} aria-hidden />
             </div>
             <div className="space-y-1.5">
-              <h1 className="font-display text-xl font-medium tracking-tight text-bone">
+              <h1 className="text-xl font-semibold tracking-tight text-bone">
                 {t("shell.desktopOnlyTitle")}
               </h1>
               <p className="text-sm leading-relaxed text-bone-muted">

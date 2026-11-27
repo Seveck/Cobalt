@@ -4,8 +4,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Check, Loader2 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { isTauri } from "@/lib/ipc";
+import { applyThemeToRoot } from "@/lib/themeEngine";
 import { DesktopOnlyNotice } from "@/components/shell/DesktopOnlyNotice";
-import type { ProjectStats } from "@/types/contracts";
+import { BUILTIN_THEME_ID, type ProjectStats } from "@/types/contracts";
 
 /**
  * Frameless quick-note window (label `quicknote`).
@@ -39,6 +40,11 @@ function QuickNoteWindow() {
         }
         if (i18n.resolvedLanguage !== settings.language) {
           void i18n.changeLanguage(settings.language);
+        }
+        if (settings.active_theme_id && settings.active_theme_id !== BUILTIN_THEME_ID) {
+          void backendCall("get_theme_manifest", { theme_id: settings.active_theme_id })
+            .then(applyThemeToRoot)
+            .catch(() => {});
         }
       })
       .catch(() => {});

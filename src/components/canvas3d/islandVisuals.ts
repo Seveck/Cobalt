@@ -109,8 +109,8 @@ export function createIslandLabelSprite(
   const dotGap = 18;
   const sepText = "  ·  ";
 
-  const titleFont = '600 40px "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif';
-  const countFont = '500 32px "IBM Plex Mono", ui-monospace, monospace';
+  const titleFont = '600 40px "Geist Sans", ui-sans-serif, system-ui, sans-serif';
+  const countFont = '500 32px "Geist Mono", ui-monospace, monospace';
 
   let titleWidth = 180;
   let sepWidth = 40;

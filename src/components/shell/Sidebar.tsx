@@ -114,7 +114,7 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`flex shrink-0 flex-col overflow-hidden border-r border-rule bg-surface transition-[width] duration-200 ease-out motion-reduce:transition-none ${
+      className={`flex shrink-0 flex-col overflow-hidden border-r border-rule bg-sidebar transition-[width] duration-200 ease-out motion-reduce:transition-none ${
         collapsed ? "w-12" : "w-60"
       }`}
     >
@@ -192,7 +192,7 @@ export function Sidebar() {
               } ${
                 active
                   ? "border-cobalt-rule/70 border-l-2 border-l-cobalt bg-cobalt-wash text-bone"
-                  : "border-transparent bg-surface text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
+                  : "border-transparent bg-sidebar text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
               }`}
             >
               {collapsed ? (
@@ -226,7 +226,7 @@ export function Sidebar() {
 
       {/* Footer status & language */}
       {collapsed ? (
-        <div className="flex flex-col items-center gap-2 border-t border-rule bg-surface px-1.5 py-3 text-xs text-bone-muted">
+        <div className="flex flex-col items-center gap-2 border-t border-rule bg-sidebar px-1.5 py-3 text-xs text-bone-muted">
           <span
             title={t(`tiers.${settings.hardware_tier}`)}
             aria-label={t(`tiers.${settings.hardware_tier}`)}
@@ -257,7 +257,7 @@ export function Sidebar() {
           </button>
         </div>
       ) : (
-        <div className="border-t border-rule bg-surface px-4 py-3.5 text-xs text-bone-muted">
+        <div className="border-t border-rule bg-sidebar px-4 py-3.5 text-xs text-bone-muted">
           <div className="w-52 space-y-3">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-cobalt-ink">

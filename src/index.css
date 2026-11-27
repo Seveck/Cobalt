@@ -3,6 +3,7 @@
 @theme {
   /* Obsidian canvas & stepped architectural surfaces */
   --color-void: #0b0c0e;
+  --color-sidebar: #111317;
   --color-surface: #111317;
   --color-surface-2: #171a21;
   --color-surface-3: #1f232c;
@@ -22,6 +23,7 @@
   --color-cobalt-ink: #79a8ff;
   --color-cobalt-wash: #0f1c35;
   --color-cobalt-rule: #254d99;
+  --color-on-accent: #ffffff;
 
   /* Single restrained accent: warm ochre / brass */
   --color-ochre: #d4a359;
@@ -43,19 +45,34 @@
   --color-pulse-update: #fbbf24;
   --color-pulse-blocked: #f87171;
 
-  /* Typography pairing (bundled locally via @fontsource) */
-  --font-display: "IBM Plex Serif", Georgia, "Times New Roman", serif;
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  /* Typography pairing (Geist + Geist Mono, bundled locally via @fontsource) */
+  --font-display: "Geist Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Geist Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
 :root {
   color-scheme: dark;
+  --cobalt-radius: 2px;
+  --cobalt-radius-sm: 1px;
+  --cobalt-density: 1;
+  --cobalt-shadow-elevated: 0 14px 36px rgba(0, 0, 0, 0.78);
+
+  /* Default obsidian heatmap scale (overridden dynamically when a whole-app theme is active) */
+  --heatmap-0-fill: #171a21;
+  --heatmap-0-border: #23262f;
+  --heatmap-1-fill: #132a54;
+  --heatmap-1-border: #1d3d78;
+  --heatmap-2-fill: #0d47a1;
+  --heatmap-2-border: #1d5ec4;
+  --heatmap-3-fill: #2563eb;
+  --heatmap-3-border: #447ef5;
+  --heatmap-4-fill: #79a8ff;
+  --heatmap-4-border: #9ec0ff;
 }
 
 @layer base {
   html {
-    color-scheme: dark;
     background-color: var(--color-void);
     color: var(--color-bone);
   }
@@ -106,15 +123,49 @@
 
   ::selection {
     background-color: var(--color-cobalt);
-    color: var(--color-bone);
+    color: var(--color-on-accent);
   }
+}
+
+/* Whole-app theme dynamic corner radii (cobalt-minimal keeps exact 2px / 1px defaults) */
+:root[data-theme-ui="true"] .rounded-\[2px\] {
+  border-radius: var(--cobalt-radius, 2px);
+}
+
+:root[data-theme-ui="true"] .rounded-\[1px\] {
+  border-radius: var(--cobalt-radius-sm, 1px);
+}
+
+/* Ensure crisp text contrast on solid accent & destructive fills in light themes */
+:root[data-theme-mode="light"] .bg-cobalt.text-bone,
+:root[data-theme-mode="light"] .bg-cinnabar.text-bone,
+:root[data-theme-mode="light"] .hover\:bg-cobalt.hover\:text-bone:hover,
+:root[data-theme-mode="light"] .hover\:bg-cinnabar.hover\:text-bone:hover {
+  color: var(--color-on-accent, #ffffff);
+}
+
+/* Respect app-level reduced motion preference across CSS transitions & animations */
+:root[data-reduced-motion="true"] *,
+:root[data-reduced-motion="true"] *::before,
+:root[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }
 
 .cobalt-grid-bg {
   background-color: var(--color-void);
   background-image:
-    linear-gradient(to right, rgba(236, 233, 225, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(236, 233, 225, 0.03) 1px, transparent 1px);
+    linear-gradient(
+      to right,
+      color-mix(in oklch, var(--color-bone) 4%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--color-bone) 4%, transparent) 1px,
+      transparent 1px
+    );
   background-size: 32px 32px;
 }
 
@@ -134,7 +185,7 @@
     box-shadow:
       0 0 0 1px var(--synaptic-glow, #60a5fa),
       0 0 28px var(--synaptic-glow-soft, rgba(96, 165, 250, 0.55)),
-      0 14px 36px rgba(0, 0, 0, 0.78);
+      var(--cobalt-shadow-elevated);
   }
   28% {
     opacity: 1;
@@ -142,12 +193,12 @@
     box-shadow:
       0 0 0 1px var(--synaptic-glow, #60a5fa),
       0 0 26px var(--synaptic-glow-soft, rgba(96, 165, 250, 0.45)),
-      0 14px 36px rgba(0, 0, 0, 0.78);
+      var(--cobalt-shadow-elevated);
   }
   100% {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.78);
+    box-shadow: var(--cobalt-shadow-elevated);
   }
 }
 
