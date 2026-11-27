@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -32,32 +32,7 @@ import { ProModePanel } from "./ProModePanel";
 
 const CLIENT_LABELS = AI_CLIENT_LABELS;
 
-function buildManualSnippet(client: AiClient, httpPort: number, httpEnabled: boolean): string {
-  if (client === "codex_cli") {
-    return `[mcp_servers.cobalt]\ncommand = "cobalt"\nargs = ["--mcp-stdio"]`;
-  }
-  const servers: Record<string, unknown> = {
-    cobalt: {
-      command: "cobalt",
-      args: ["--mcp-stdio"],
-    },
-  };
-  if (httpEnabled && (client === "cursor" || client === "windsurf" || client === "cline")) {
-    return JSON.stringify(
-      {
-        mcpServers: {
-          ...servers,
-          "cobalt-http": {
-            url: `http://127.0.0.1:${httpPort}/mcp`,
-          },
-        },
-      },
-      null,
-      2,
-    );
-  }
-  return JSON.stringify({ mcpServers: servers }, null, 2);
-}
+type CopyFeedback = "idle" | "copied" | "failed";
 
 function checkStatusIcon(status: CheckStatus) {
   switch (status) {
@@ -80,7 +55,22 @@ export function ConnectorsView() {
   const [loading, setLoading] = useState(true);
   const [togglingClient, setTogglingClient] = useState<AiClient | null>(null);
   const [manualClient, setManualClient] = useState<AiClient>("claude_desktop");
-  const [copiedManual, setCopiedManual] = useState(false);
+  const [snippetCopyState, setSnippetCopyState] = useState<CopyFeedback>("idle");
+  const [pathCopyState, setPathCopyState] = useState<CopyFeedback>("idle");
+  const [highlightManual, setHighlightManual] = useState(false);
+
+  const manualSectionRef = useRef<HTMLElement | null>(null);
+  const snippetCopyTimerRef = useRef<number | null>(null);
+  const pathCopyTimerRef = useRef<number | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (snippetCopyTimerRef.current !== null) window.clearTimeout(snippetCopyTimerRef.current);
+      if (pathCopyTimerRef.current !== null) window.clearTimeout(pathCopyTimerRef.current);
+      if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
 
   // MCP Doctor state
   const [doctorReport, setDoctorReport] = useState<DoctorReport | null>(null);
@@ -127,6 +117,7 @@ export function ConnectorsView() {
           broken: false,
           last_backup_path: null,
           error: null,
+          manual_snippet: "",
         },
     );
   }, [connectors]);
@@ -200,18 +191,84 @@ export function ConnectorsView() {
     [],
   );
 
-  const manualSnippet = useMemo(
-    () =>
-      buildManualSnippet(manualClient, settings.mcp.http_port, settings.mcp.http_enabled),
-    [manualClient, settings.mcp.http_port, settings.mcp.http_enabled],
+  const selectedManualConnector = useMemo<ConnectorStatus | undefined>(
+    () => orderedConnectors.find((c) => c.client === manualClient),
+    [orderedConnectors, manualClient],
+  );
+
+  const manualSnippet = selectedManualConnector?.manual_snippet ?? "";
+  const hasManualSnippet = manualSnippet.trim().length > 0;
+  const manualConfigPath = selectedManualConnector?.config_path ?? null;
+  const isManualToml = selectedManualConnector?.config_format === "toml";
+
+  const resetCopyStates = useCallback(() => {
+    if (snippetCopyTimerRef.current !== null) {
+      window.clearTimeout(snippetCopyTimerRef.current);
+      snippetCopyTimerRef.current = null;
+    }
+    if (pathCopyTimerRef.current !== null) {
+      window.clearTimeout(pathCopyTimerRef.current);
+      pathCopyTimerRef.current = null;
+    }
+    setSnippetCopyState("idle");
+    setPathCopyState("idle");
+  }, []);
+
+  const handleSelectManualClient = useCallback(
+    (client: AiClient) => {
+      setManualClient(client);
+      resetCopyStates();
+    },
+    [resetCopyStates],
+  );
+
+  const handleOpenManualForClient = useCallback(
+    (client: AiClient) => {
+      setManualClient(client);
+      resetCopyStates();
+      manualSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setHighlightManual(true);
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+      highlightTimerRef.current = window.setTimeout(() => {
+        setHighlightManual(false);
+        highlightTimerRef.current = null;
+      }, 1600);
+    },
+    [resetCopyStates],
   );
 
   const handleCopyManual = async () => {
+    if (!hasManualSnippet) return;
     const ok = await copyToClipboard(manualSnippet);
-    if (ok) {
-      setCopiedManual(true);
-      window.setTimeout(() => setCopiedManual(false), 1800);
+    if (snippetCopyTimerRef.current !== null) {
+      window.clearTimeout(snippetCopyTimerRef.current);
     }
+    setSnippetCopyState(ok ? "copied" : "failed");
+    snippetCopyTimerRef.current = window.setTimeout(
+      () => {
+        setSnippetCopyState("idle");
+        snippetCopyTimerRef.current = null;
+      },
+      ok ? 2000 : 2600,
+    );
+  };
+
+  const handleCopyConfigPath = async () => {
+    if (!manualConfigPath) return;
+    const ok = await copyToClipboard(manualConfigPath);
+    if (pathCopyTimerRef.current !== null) {
+      window.clearTimeout(pathCopyTimerRef.current);
+    }
+    setPathCopyState(ok ? "copied" : "failed");
+    pathCopyTimerRef.current = window.setTimeout(
+      () => {
+        setPathCopyState("idle");
+        pathCopyTimerRef.current = null;
+      },
+      ok ? 2000 : 2600,
+    );
   };
 
   return (
@@ -331,7 +388,7 @@ export function ConnectorsView() {
 
                       <button
                         type="button"
-                        onClick={() => setManualClient(connector.client)}
+                        onClick={() => handleOpenManualForClient(connector.client)}
                         className="font-mono text-[10px] text-cobalt-ink hover:underline"
                       >
                         {t("connectors.viewManualSnippet")}
@@ -365,7 +422,14 @@ export function ConnectorsView() {
         />
 
         {/* 03 — Manual setup (NEVER "Copy Config") */}
-        <section className="rounded-[2px] border border-rule bg-surface p-5">
+        <section
+          ref={manualSectionRef}
+          className={`scroll-mt-6 rounded-[2px] border p-5 transition-all duration-300 ${
+            highlightManual
+              ? "border-cobalt-ink bg-cobalt-wash/40 ring-2 ring-cobalt-ink/45"
+              : "border-rule bg-surface"
+          }`}
+        >
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-4">
             <div>
               <h2 className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-bone">
@@ -382,29 +446,92 @@ export function ConnectorsView() {
                 size="sm"
                 align="right"
                 className="w-44"
-                onChange={setManualClient}
+                onChange={handleSelectManualClient}
               />
               <button
                 type="button"
+                disabled={!hasManualSnippet}
                 onClick={() => void handleCopyManual()}
-                className="inline-flex h-7 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-3 font-mono text-[11px] font-medium text-cobalt-ink hover:bg-cobalt hover:text-bone"
+                className={`inline-flex h-7 items-center gap-1.5 rounded-[2px] border px-3 font-mono text-[11px] font-medium transition-colors disabled:opacity-45 ${
+                  snippetCopyState === "copied"
+                    ? "border-verdigris-rule bg-verdigris-wash text-verdigris"
+                    : snippetCopyState === "failed"
+                      ? "border-cinnabar-rule bg-cinnabar-wash text-cinnabar"
+                      : "border-cobalt-rule bg-cobalt-wash text-cobalt-ink hover:bg-cobalt hover:text-bone"
+                }`}
               >
-                {copiedManual ? (
-                  <Check size={12} className="text-verdigris" aria-hidden />
+                {snippetCopyState === "copied" ? (
+                  <Check size={12} aria-hidden />
+                ) : snippetCopyState === "failed" ? (
+                  <XCircle size={12} aria-hidden />
                 ) : (
                   <Copy size={12} aria-hidden />
                 )}
-                {copiedManual ? t("common.copied") : t("connectors.copySnippet")}
+                {snippetCopyState === "copied"
+                  ? t("common.copied")
+                  : snippetCopyState === "failed"
+                    ? t("common.copyFailed")
+                    : t("connectors.copySnippet")}
               </button>
             </div>
           </div>
 
-          <pre className="mt-4 overflow-x-auto rounded-[2px] border border-rule bg-void p-4 font-mono text-xs leading-relaxed text-bone">
-            {manualSnippet}
-          </pre>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-rule bg-void/70 px-3.5 py-2.5">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 font-mono text-xs">
+              <span className="shrink-0 text-[11px] font-medium text-bone-muted">
+                {t("connectors.pasteInLabel")}
+              </span>
+              {manualConfigPath ? (
+                <code className="break-all text-bone select-all">{manualConfigPath}</code>
+              ) : (
+                <span className="text-bone-subtle">{t("connectors.manualPathUnavailable")}</span>
+              )}
+            </div>
+
+            {manualConfigPath && (
+              <button
+                type="button"
+                onClick={() => void handleCopyConfigPath()}
+                className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[2px] border px-2.5 font-mono text-[11px] font-medium transition-colors ${
+                  pathCopyState === "copied"
+                    ? "border-verdigris-rule bg-verdigris-wash text-verdigris"
+                    : pathCopyState === "failed"
+                      ? "border-cinnabar-rule bg-cinnabar-wash text-cinnabar"
+                      : "border-rule-strong bg-surface text-bone-muted hover:border-cobalt-ink/60 hover:text-bone"
+                }`}
+              >
+                {pathCopyState === "copied" ? (
+                  <Check size={12} aria-hidden />
+                ) : pathCopyState === "failed" ? (
+                  <XCircle size={12} aria-hidden />
+                ) : (
+                  <Copy size={12} aria-hidden />
+                )}
+                {pathCopyState === "copied"
+                  ? t("common.copied")
+                  : pathCopyState === "failed"
+                    ? t("common.copyFailed")
+                    : t("connectors.copyPath")}
+              </button>
+            )}
+          </div>
+
+          {hasManualSnippet ? (
+            <pre className="mt-3 overflow-x-auto rounded-[2px] border border-rule bg-void p-4 font-mono text-xs leading-relaxed text-bone select-all">
+              {manualSnippet}
+            </pre>
+          ) : (
+            <div className="mt-3 rounded-[2px] border border-rule bg-void px-4 py-3 font-mono text-xs text-bone-subtle">
+              {t("connectors.manualSnippetUnavailable")}
+            </div>
+          )}
+
+          <p className="mt-2.5 text-xs text-bone-muted">
+            {isManualToml ? t("connectors.manualHintToml") : t("connectors.manualHintJson")}
+          </p>
 
           {settings.mcp.http_enabled && (
-            <p className="mt-2.5 font-mono text-[11px] text-bone-subtle">
+            <p className="mt-2 font-mono text-[11px] text-bone-subtle">
               {t("connectors.httpEndpointHint", {
                 url: `http://127.0.0.1:${settings.mcp.http_port}/mcp`,
               })}
