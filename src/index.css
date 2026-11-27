@@ -144,13 +144,25 @@
   color: var(--color-on-accent, #ffffff);
 }
 
-/* Respect app-level reduced motion preference across CSS transitions & animations */
+/* Respect app-level & OS reduced motion preferences across CSS transitions & animations */
 :root[data-reduced-motion="true"] *,
 :root[data-reduced-motion="true"] *::before,
 :root[data-reduced-motion="true"] *::after {
   animation-duration: 0.01ms !important;
+  animation-delay: 0ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .cobalt-grid-bg {
@@ -167,6 +179,152 @@
       transparent 1px
     );
   background-size: 32px 32px;
+}
+
+/* Soft GPU-composited enter animations (transform & opacity only, zero layout thrash) */
+@keyframes cobalt-view-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes cobalt-view-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes cobalt-drawer-enter-right {
+  from {
+    opacity: 0;
+    transform: translate3d(20px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes cobalt-panel-enter-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes cobalt-panel-enter-down {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes cobalt-modal-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes cobalt-stagger-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes cobalt-skeleton-shimmer {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+.cobalt-view-enter {
+  animation: cobalt-view-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.cobalt-view-fade {
+  animation: cobalt-view-fade 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.cobalt-drawer-enter-right {
+  animation: cobalt-drawer-enter-right 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.cobalt-panel-enter-up {
+  animation: cobalt-panel-enter-up 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.cobalt-panel-enter-down {
+  animation: cobalt-panel-enter-down 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.cobalt-modal-enter {
+  animation: cobalt-modal-enter 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.cobalt-stagger-item {
+  animation: cobalt-stagger-enter 210ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--cobalt-stagger-delay, 0ms);
+}
+
+/* Skeleton shimmer using composited pseudo-element transform (no background-position repaints) */
+.cobalt-skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--color-surface-2);
+}
+
+.cobalt-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translate3d(-100%, 0, 0);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklch, var(--color-bone) 9%, transparent) 50%,
+    transparent 100%
+  );
+  animation: cobalt-skeleton-shimmer 1.45s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+
+:root[data-reduced-motion="true"] .cobalt-skeleton::after {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cobalt-skeleton::after {
+    display: none;
+  }
 }
 
 @keyframes cobalt-welcome-countdown {

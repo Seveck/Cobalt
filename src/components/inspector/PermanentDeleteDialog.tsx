@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { formatAiClientName } from "@/lib/format";
+import { Skeleton } from "@/components/ui";
 import type { DeletionImpact, Memory } from "@/types/contracts";
 
 interface PermanentDeleteDialogProps {
@@ -128,7 +129,7 @@ export function PermanentDeleteDialog({
       role="dialog"
       aria-modal="false"
       aria-labelledby="permanent-delete-dialog-title"
-      className="fixed right-5 bottom-5 z-50 flex max-h-[calc(100vh-2.5rem)] w-[min(468px,calc(100vw-2rem))] flex-col rounded-[2px] border-2 border-cinnabar-rule bg-surface text-bone shadow-[0_20px_56px_rgba(0,0,0,0.85)]"
+      className="cobalt-modal-enter fixed right-5 bottom-5 z-50 flex max-h-[calc(100vh-2.5rem)] w-[min(468px,calc(100vw-2rem))] flex-col rounded-[2px] border-2 border-cinnabar-rule bg-surface text-bone shadow-[0_20px_56px_rgba(0,0,0,0.85)]"
     >
       {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b border-cinnabar-rule/70 bg-cinnabar-wash/60 px-4 py-3">
@@ -178,9 +179,13 @@ export function PermanentDeleteDialog({
 
         {/* Impact details */}
         {loadingImpact ? (
-          <div className="flex items-center justify-center gap-2 py-6 font-mono text-xs text-bone-muted">
-            <Loader2 size={14} className="animate-spin text-cobalt-ink" aria-hidden />
-            <span>{t("delete.loadingImpact")}</span>
+          <div className="space-y-2.5" aria-busy="true" aria-label={t("delete.loadingImpact")}>
+            <Skeleton className="h-3 w-28" />
+            <div className="space-y-2 rounded-[2px] border border-rule bg-void p-3">
+              <Skeleton className="h-3.5 w-full" />
+              <Skeleton className="h-3.5 w-5/6" />
+              <Skeleton className="h-3.5 w-2/3" />
+            </div>
           </div>
         ) : impactError || !impact ? (
           <div className="space-y-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash/50 p-3 text-xs text-cinnabar">

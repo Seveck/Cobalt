@@ -12,6 +12,8 @@ import {
   Zap,
 } from "lucide-react";
 import { formatAiClientName, formatCompactNumber, formatTokenCount } from "@/lib/format";
+import { staggerStyle } from "@/lib/motion";
+import { AnimatedNumber, useCountUp } from "@/components/ui";
 import { OPERATION_COLORS, type UsageStats } from "@/types/contracts";
 import {
   daysSinceCalendarDate,
@@ -210,6 +212,9 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
       ? formatFullCalendarDate(stats.busiest_day.date, monthNames, language)
       : null;
 
+  const animatedCurrentStreak = useCountUp(stats.current_streak_days);
+  const animatedBestStreak = useCountUp(stats.best_streak_days);
+
   return (
     <section aria-label={t("stats.facts.sectionAria")} className="space-y-3">
       <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
@@ -218,7 +223,10 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {/* 1. Tokens saved (year & all-time) */}
-        <article className="flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5">
+        <article
+          className="cobalt-stagger-item flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5"
+          style={staggerStyle(0, 24, 9)}
+        >
           <div>
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
@@ -228,7 +236,10 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
             </div>
 
             <div className="mt-3 font-mono text-2xl font-semibold tabular-nums text-verdigris">
-              {formatTokenCount(stats.this_year.saved_tokens, language)}
+              <AnimatedNumber
+                value={stats.this_year.saved_tokens}
+                format={(n) => formatTokenCount(n, language)}
+              />
             </div>
             <p className="mt-0.5 text-xs text-bone-muted">{yearLabel}</p>
           </div>
@@ -236,13 +247,19 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
           <div className="mt-4 flex items-baseline justify-between gap-2 border-t border-rule pt-3 text-xs">
             <span className="text-bone-subtle">{t("stats.facts.allTimeLabel")}</span>
             <span className="font-mono font-semibold tabular-nums text-bone">
-              {formatTokenCount(stats.all_time.saved_tokens, language)}
+              <AnimatedNumber
+                value={stats.all_time.saved_tokens}
+                format={(n) => formatTokenCount(n, language)}
+              />
             </span>
           </div>
         </article>
 
         {/* 2. Top AI client (hides `git`) */}
-        <article className="flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5">
+        <article
+          className="cobalt-stagger-item flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5"
+          style={staggerStyle(1, 24, 9)}
+        >
           <div>
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
@@ -306,7 +323,10 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
         </article>
 
         {/* 3. Peak hour of day (by_hour mini bar chart) */}
-        <article className="flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5">
+        <article
+          className="cobalt-stagger-item flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5"
+          style={staggerStyle(2, 24, 9)}
+        >
           <div>
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
@@ -387,7 +407,10 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
         </article>
 
         {/* 4. Favorite day of the week (by_weekday, Monday = 0) */}
-        <article className="flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5">
+        <article
+          className="cobalt-stagger-item flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5"
+          style={staggerStyle(3, 24, 9)}
+        >
           <div>
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
@@ -475,7 +498,10 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
         </article>
 
         {/* 5. Current streak / Best streak */}
-        <article className="flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5">
+        <article
+          className="cobalt-stagger-item flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5"
+          style={staggerStyle(4, 24, 9)}
+        >
           <div>
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
@@ -493,7 +519,7 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
             </div>
 
             <div className="mt-3 font-mono text-2xl font-semibold tabular-nums text-bone">
-              {t("stats.facts.daysCount", { count: stats.current_streak_days })}
+              {t("stats.facts.daysCount", { count: animatedCurrentStreak })}
             </div>
             <p className="mt-0.5 text-xs text-bone-muted">
               {stats.current_streak_days > 0
@@ -505,13 +531,16 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
           <div className="mt-4 flex items-baseline justify-between gap-2 border-t border-rule pt-3 text-xs">
             <span className="text-bone-subtle">{t("stats.facts.bestStreakLabel")}</span>
             <span className="font-mono font-semibold tabular-nums text-ochre">
-              {t("stats.facts.daysCount", { count: stats.best_streak_days })}
+              {t("stats.facts.daysCount", { count: animatedBestStreak })}
             </span>
           </div>
         </article>
 
         {/* 6. Busiest day */}
-        <article className="flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5">
+        <article
+          className="cobalt-stagger-item flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5"
+          style={staggerStyle(5, 24, 9)}
+        >
           <div>
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
@@ -549,7 +578,10 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
         </article>
 
         {/* 7. Most used project */}
-        <article className="flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5">
+        <article
+          className="cobalt-stagger-item flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5"
+          style={staggerStyle(6, 24, 9)}
+        >
           <div>
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
@@ -594,7 +626,10 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
         </article>
 
         {/* 8. Using Cobalt since */}
-        <article className="flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5">
+        <article
+          className="cobalt-stagger-item flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5"
+          style={staggerStyle(7, 24, 9)}
+        >
           <div>
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
@@ -623,13 +658,19 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
           <div className="mt-4 flex items-baseline justify-between gap-2 border-t border-rule pt-3 text-xs">
             <span className="text-bone-subtle">{t("stats.facts.allTimeRequestsLabel")}</span>
             <span className="font-mono font-semibold tabular-nums text-bone">
-              {formatTokenCount(stats.all_time.requests, language)}
+              <AnimatedNumber
+                value={stats.all_time.requests}
+                format={(n) => formatTokenCount(n, language)}
+              />
             </span>
           </div>
         </article>
 
         {/* 9. Breakdown by operation type */}
-        <article className="flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5">
+        <article
+          className="cobalt-stagger-item flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-5"
+          style={staggerStyle(8, 24, 9)}
+        >
           <div>
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">

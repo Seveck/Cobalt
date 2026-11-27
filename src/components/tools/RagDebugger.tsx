@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Loader2, Pin, Search, SlidersHorizontal, X } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { staggerStyle } from "@/lib/motion";
 import {
   useBranchesStore,
   useMemoryStore,
   useSettingsStore,
 } from "@/stores";
-import { Select, Toggle, type SelectOption } from "@/components/ui";
+import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import type { FileAvailability, ProjectScope, SearchResponse, Uuid } from "@/types/contracts";
 
 interface RagDebuggerProps {
@@ -146,7 +147,7 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
   };
 
   return (
-    <aside className="flex h-full w-full max-w-[440px] flex-col border-l border-rule-strong bg-surface text-bone shadow-[-12px_0_32px_rgba(0,0,0,0.65)]">
+    <aside className="cobalt-drawer-enter-right flex h-full w-full max-w-[440px] flex-col border-l border-rule-strong bg-surface text-bone shadow-[-12px_0_32px_rgba(0,0,0,0.65)]">
       <div className="flex items-center justify-between gap-2 border-b border-rule px-4 py-3">
         <div>
           <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-cobalt-ink">
@@ -311,7 +312,24 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
           </div>
         )}
 
-        {!result ? (
+        {loading && !result ? (
+          <div className="space-y-3" aria-busy="true" aria-label={t("shell.loading")}>
+            <div className="grid grid-cols-2 gap-2 rounded-[2px] border border-rule bg-void p-2.5">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+            {[0, 1, 2].map((idx) => (
+              <div
+                key={idx}
+                className="space-y-2 rounded-[2px] border border-rule bg-surface-2 p-3"
+              >
+                <Skeleton className="h-3 w-36" />
+                <Skeleton className="h-3.5 w-full" />
+                <Skeleton className="h-3.5 w-4/5" />
+              </div>
+            ))}
+          </div>
+        ) : !result ? (
           <p className="py-8 text-center text-xs text-bone-subtle">{t("rag.emptyHint")}</p>
         ) : (
           <>
@@ -392,7 +410,8 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
                       key={hit.memory.id}
                       type="button"
                       onClick={() => onInspectMemory(hit.memory.id)}
-                      className="w-full space-y-2 rounded-[2px] border border-rule bg-surface-2 p-3 text-left transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3"
+                      style={staggerStyle(idx, 22, 8)}
+                      className="cobalt-stagger-item w-full space-y-2 rounded-[2px] border border-rule bg-surface-2 p-3 text-left transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3"
                     >
                       <div className="flex items-center justify-between gap-2 font-mono text-[10px] tabular-nums">
                         <span className="font-semibold text-cobalt-ink">

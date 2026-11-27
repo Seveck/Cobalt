@@ -34,6 +34,7 @@ import {
   isOcrNotInstalledMessage,
   reportHasOcrNotInstalledError,
 } from "@/lib/ingest";
+import { staggerStyle } from "@/lib/motion";
 import {
   useHardwareStore,
   useIngestStore,
@@ -42,7 +43,7 @@ import {
   useUiStore,
   type ToolsTab,
 } from "@/stores";
-import { Select, Toggle, type SelectOption } from "@/components/ui";
+import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import type {
   BackupManifest,
   CapsuleManifest,
@@ -671,7 +672,7 @@ export function ToolsView() {
 
         {/* TAB 1: PROJECTS */}
         {activeTab === "projects" && (
-          <div className="space-y-5">
+          <div className="cobalt-view-enter space-y-5">
             <form
               onSubmit={(e) => void handleCreateProject(e)}
               className="space-y-4 rounded-[2px] border border-rule bg-surface p-5"
@@ -787,9 +788,16 @@ export function ToolsView() {
               </div>
 
               {loadingProjects && projects.length === 0 ? (
-                <div className="flex items-center justify-center gap-2 py-8 font-mono text-xs text-bone-muted">
-                  <Loader2 size={14} className="animate-spin text-cobalt-ink" aria-hidden />
-                  <span>{t("shell.loading")}</span>
+                <div className="divide-y divide-rule" aria-busy="true" aria-label={t("shell.loading")}>
+                  {[0, 1, 2].map((idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-4 py-3.5">
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <Skeleton className="h-4 w-40" />
+                        <Skeleton className="h-3 w-64" />
+                      </div>
+                      <Skeleton className="h-6 w-24 shrink-0" />
+                    </div>
+                  ))}
                 </div>
               ) : projects.length === 0 ? (
                 <p className="py-6 text-center text-xs text-bone-subtle">
@@ -797,10 +805,14 @@ export function ToolsView() {
                 </p>
               ) : (
                 <div className="divide-y divide-rule">
-                  {projects.map(({ project, vector_count, total_tokens, reusable_count }) => {
+                  {projects.map(({ project, vector_count, total_tokens, reusable_count }, idx) => {
                     const isEditing = editingProjId === project.id;
                     return (
-                      <div key={project.id} className="py-3.5">
+                      <div
+                        key={project.id}
+                        style={staggerStyle(idx, 22, 10)}
+                        className="cobalt-stagger-item py-3.5"
+                      >
                         {isEditing ? (
                           <div className="space-y-3 rounded-[2px] border border-cobalt-rule bg-void p-3">
                             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -983,7 +995,7 @@ export function ToolsView() {
 
         {/* TAB 2: WEB AI BRIDGE */}
         {activeTab === "web_bridge" && (
-          <section className="space-y-4 rounded-[2px] border border-rule bg-surface p-5">
+          <section className="cobalt-view-enter space-y-4 rounded-[2px] border border-rule bg-surface p-5">
             <div>
               <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-cobalt-ink">
                 {t("tools.webBridge.title")}
@@ -1073,7 +1085,7 @@ export function ToolsView() {
 
         {/* TAB 3: IMPORTER */}
         {activeTab === "importer" && (
-          <div className="space-y-5">
+          <div className="cobalt-view-enter space-y-5">
             {/* Direct files/folders (`ingest_paths`) */}
             <section className="space-y-4 rounded-[2px] border border-rule bg-surface p-5">
               <div>
@@ -1375,9 +1387,12 @@ export function ToolsView() {
 
         {/* TAB 4: CAPSULES (.cbrain) */}
         {activeTab === "capsules" && (
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <div className="cobalt-view-enter grid grid-cols-1 gap-5 md:grid-cols-2">
             {/* Export */}
-            <section className="flex flex-col justify-between space-y-4 rounded-[2px] border border-rule bg-surface p-5">
+            <section
+              style={staggerStyle(0, 28)}
+              className="cobalt-stagger-item flex flex-col justify-between space-y-4 rounded-[2px] border border-rule bg-surface p-5"
+            >
               <div className="space-y-3">
                 <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-cobalt-ink">
                   {t("tools.capsules.exportTitle")}
@@ -1426,7 +1441,10 @@ export function ToolsView() {
             </section>
 
             {/* Import */}
-            <section className="flex flex-col justify-between space-y-4 rounded-[2px] border border-rule bg-surface p-5">
+            <section
+              style={staggerStyle(1, 28)}
+              className="cobalt-stagger-item flex flex-col justify-between space-y-4 rounded-[2px] border border-rule bg-surface p-5"
+            >
               <div className="space-y-3">
                 <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-cobalt-ink">
                   {t("tools.capsules.importTitle")}
@@ -1457,9 +1475,12 @@ export function ToolsView() {
 
         {/* TAB 5: BACKUP (.cobalt-backup) */}
         {activeTab === "backup" && (
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <div className="cobalt-view-enter grid grid-cols-1 gap-5 md:grid-cols-2">
             {/* Export backup */}
-            <section className="flex flex-col justify-between space-y-4 rounded-[2px] border border-rule bg-surface p-5">
+            <section
+              style={staggerStyle(0, 28)}
+              className="cobalt-stagger-item flex flex-col justify-between space-y-4 rounded-[2px] border border-rule bg-surface p-5"
+            >
               <div className="space-y-3">
                 <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-cobalt-ink">
                   {t("tools.backup.exportTitle")}
@@ -1521,7 +1542,10 @@ export function ToolsView() {
             </section>
 
             {/* Import backup */}
-            <section className="flex flex-col justify-between space-y-4 rounded-[2px] border border-rule bg-surface p-5">
+            <section
+              style={staggerStyle(1, 28)}
+              className="cobalt-stagger-item flex flex-col justify-between space-y-4 rounded-[2px] border border-rule bg-surface p-5"
+            >
               <div className="space-y-3">
                 <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-cobalt-ink">
                   {t("tools.backup.importTitle")}

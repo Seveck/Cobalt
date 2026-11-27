@@ -19,9 +19,11 @@ import {
 import { backendCall } from "@/lib/backend";
 import { pickSinglePath, useFileDrop } from "@/lib/dialogs";
 import { formatBytes } from "@/lib/format";
+import { staggerStyle } from "@/lib/motion";
 import { isBuiltinThemeId, resolvePreviewTokens } from "@/lib/themeEngine";
 import { useSettingsStore, useThemeStore } from "@/stores";
 import { ThemeWarningsBanner } from "@/components/canvas3d";
+import { Skeleton } from "@/components/ui";
 import { MINIMAL_THEME_MANIFEST } from "@/themes/minimal";
 import {
   BUILTIN_THEME_ID,
@@ -366,13 +368,31 @@ export function ThemeStoreView() {
           </div>
 
           {loadingBuiltins && builtinManifests.length === 0 ? (
-            <div className="flex items-center justify-center gap-2 rounded-[2px] border border-rule bg-surface py-10 font-mono text-xs text-bone-muted">
-              <Loader2 size={14} className="animate-spin text-cobalt-ink" aria-hidden />
-              <span>{t("store.loadingBuiltins")}</span>
+            <div
+              className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
+              aria-busy="true"
+              aria-label={t("store.loadingBuiltins")}
+            >
+              {[0, 1, 2].map((idx) => (
+                <div
+                  key={idx}
+                  className="overflow-hidden rounded-[2px] border border-rule bg-surface"
+                >
+                  <Skeleton className="h-36 w-full rounded-none" />
+                  <div className="space-y-3 p-4">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-full" />
+                    <div className="flex items-center justify-between border-t border-rule pt-3">
+                      <Skeleton className="h-3 w-16" />
+                      <Skeleton className="h-6 w-20" />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {builtinManifests.map((theme) => {
+              {builtinManifests.map((theme, idx) => {
                 const isActive = activeThemeId === theme.id;
                 const isBusy = busyId === theme.id;
                 const previewTokens = resolvePreviewTokens(theme);
@@ -387,7 +407,8 @@ export function ThemeStoreView() {
                 return (
                   <article
                     key={theme.id}
-                    className={`flex flex-col overflow-hidden rounded-[2px] border transition-colors ${
+                    style={staggerStyle(idx, 26, 6)}
+                    className={`cobalt-stagger-item flex flex-col overflow-hidden rounded-[2px] border transition-colors ${
                       isActive
                         ? "border-cobalt-rule bg-cobalt-wash/35 ring-1 ring-cobalt/40"
                         : "border-rule bg-surface hover:border-rule-strong"
@@ -583,9 +604,26 @@ export function ThemeStoreView() {
           </div>
 
           {searching && cards.length === 0 ? (
-            <div className="flex items-center justify-center gap-2 rounded-[2px] border border-rule bg-surface py-12 font-mono text-xs text-bone-muted">
-              <Loader2 size={14} className="animate-spin text-cobalt-ink" aria-hidden />
-              <span>{t("store.searching")}</span>
+            <div
+              className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
+              aria-busy="true"
+              aria-label={t("store.searching")}
+            >
+              {[0, 1, 2].map((idx) => (
+                <div
+                  key={idx}
+                  className="overflow-hidden rounded-[2px] border border-rule bg-surface"
+                >
+                  <Skeleton className="h-36 w-full rounded-none" />
+                  <div className="space-y-3 p-4">
+                    <Skeleton className="h-4 w-36" />
+                    <Skeleton className="h-3 w-full" />
+                    <div className="border-t border-rule pt-3">
+                      <Skeleton className="h-7 w-full" />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : registryError ? (
             <div className="rounded-[2px] border border-rule bg-surface p-8 text-center">
@@ -631,7 +669,7 @@ export function ThemeStoreView() {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {cards.map((card) => {
+              {cards.map((card, idx) => {
                 const { entry } = card;
                 const isActive = activeThemeId === entry.id;
                 const isBusy = busyId === entry.id;
@@ -642,7 +680,8 @@ export function ThemeStoreView() {
                 return (
                   <article
                     key={entry.id}
-                    className="flex flex-col overflow-hidden rounded-[2px] border border-rule bg-surface transition-colors hover:border-rule-strong"
+                    style={staggerStyle(idx, 24, 9)}
+                    className="cobalt-stagger-item flex flex-col overflow-hidden rounded-[2px] border border-rule bg-surface transition-colors hover:border-rule-strong"
                   >
                     {/* Preview */}
                     <div className="relative h-36 w-full border-b border-rule bg-void">

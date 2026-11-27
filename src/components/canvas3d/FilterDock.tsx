@@ -91,7 +91,7 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
   return (
     <div className="pointer-events-auto flex flex-col gap-1.5">
       {expanded && (
-        <div className="w-full max-w-4xl rounded-[2px] border border-rule-strong bg-surface p-3 shadow-[0_14px_36px_rgba(0,0,0,0.72)]">
+        <div className="cobalt-panel-enter-up w-full max-w-4xl rounded-[2px] border border-rule-strong bg-surface p-3 shadow-[0_14px_36px_rgba(0,0,0,0.72)]">
           <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-rule pb-2">
             <div className="flex items-center gap-2">
               <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-bone-muted">

@@ -17,7 +17,7 @@ import { backendCall } from "@/lib/backend";
 import { copyToClipboard } from "@/lib/dialogs";
 import { createDefaultSettings, formatBytes } from "@/lib/format";
 import { useHardwareStore, useMemoryStore, useSettingsStore } from "@/stores";
-import { Select, Toggle, type SelectOption } from "@/components/ui";
+import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import {
   ENGINE_KINDS,
   type EngineKind,
@@ -313,7 +313,7 @@ export function ProModePanel() {
       {!settings.pro_mode ? (
         <p className="text-xs text-bone-subtle">{t("pro.disabledHint")}</p>
       ) : (
-        <div className="space-y-6">
+        <div className="cobalt-view-enter space-y-6">
           {/* 1. REST / Swagger API */}
           <div className="space-y-3 rounded-[2px] border border-rule bg-surface-2 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -683,9 +683,16 @@ export function ProModePanel() {
             </div>
 
             {loadingDocs ? (
-              <div className="flex items-center gap-2 py-4 font-mono text-xs text-bone-muted">
-                <Loader2 size={13} className="animate-spin text-cobalt-ink" aria-hidden />
-                <span>{t("pro.loadingDocs")}</span>
+              <div className="space-y-3" aria-busy="true" aria-label={t("pro.loadingDocs")}>
+                {[0, 1, 2].map((idx) => (
+                  <div
+                    key={idx}
+                    className="space-y-2 rounded-[2px] border border-rule bg-void p-3"
+                  >
+                    <Skeleton className="h-3.5 w-36" />
+                    <Skeleton className="h-14 w-full" />
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="space-y-3">

@@ -44,7 +44,7 @@ export function ThemeWarningsBanner({ className = "" }: ThemeWarningsBannerProps
         return (
           <div
             key={warning.id}
-            className="rounded-[2px] border border-ochre-rule bg-surface/95 px-3 py-2 text-xs text-bone shadow-sm backdrop-blur-xs"
+            className="cobalt-panel-enter-down rounded-[2px] border border-ochre-rule bg-surface/95 px-3 py-2 text-xs text-bone shadow-sm backdrop-blur-xs"
           >
             <div className="flex items-start justify-between gap-2">
               <div className="flex min-w-0 items-start gap-2">

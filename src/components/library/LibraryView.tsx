@@ -22,6 +22,7 @@ import {
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickSinglePath, useFileDrop } from "@/lib/dialogs";
 import { isOcrNotInstalledMessage } from "@/lib/ingest";
+import { staggerStyle } from "@/lib/motion";
 import {
   useFiltersStore,
   useLibraryStore,
@@ -29,7 +30,7 @@ import {
   useSettingsStore,
   useUiStore,
 } from "@/stores";
-import { Select, type SelectOption } from "@/components/ui";
+import { Select, Skeleton, type SelectOption } from "@/components/ui";
 import {
   SOURCE_TYPES,
   type FileAvailability,
@@ -626,9 +627,31 @@ export function LibraryView() {
 
         {/* Results Grid */}
         {loading && displayedAssets.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 rounded-[2px] border border-rule bg-surface py-12 font-mono text-xs text-bone-muted">
-            <Loader2 size={14} className="animate-spin text-cobalt-ink" aria-hidden />
-            <span>{t("library.loading")}</span>
+          <div
+            className="grid grid-cols-1 gap-3.5 lg:grid-cols-2"
+            aria-busy="true"
+            aria-label={t("library.loading")}
+          >
+            {[0, 1, 2, 3].map((idx) => (
+              <div
+                key={idx}
+                className="flex flex-col justify-between space-y-4 rounded-[2px] border border-rule bg-surface p-4"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <Skeleton className="h-4 w-36" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-4/5" />
+                  <Skeleton className="h-14 w-full" />
+                </div>
+                <div className="flex items-center justify-between border-t border-rule pt-3">
+                  <Skeleton className="h-3.5 w-24" />
+                  <Skeleton className="h-6 w-28" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : displayedAssets.length === 0 ? (
           <div className="rounded-[2px] border border-rule bg-surface p-10 text-center">
@@ -651,7 +674,7 @@ export function LibraryView() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
-            {displayedAssets.map((asset) => {
+            {displayedAssets.map((asset, idx) => {
               const diskStatus = verifiedMap[asset.memory_id] ?? asset.availability;
               const category =
                 graphCategoryById.get(asset.memory_id) ?? fetchedCategories[asset.memory_id];
@@ -664,7 +687,8 @@ export function LibraryView() {
               return (
                 <article
                   key={asset.memory_id}
-                  className="flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-4 transition-colors hover:border-rule-strong"
+                  style={staggerStyle(idx, 24, 8)}
+                  className="cobalt-stagger-item flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-4 transition-colors hover:border-rule-strong"
                 >
                   <div className="space-y-3">
                     {/* Top meta row */}

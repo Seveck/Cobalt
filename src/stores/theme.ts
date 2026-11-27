@@ -12,6 +12,7 @@ import {
 
 const DISABLE_THEME_SHADERS_STORAGE_KEY = "cobalt.disableThemeShaders";
 const REDUCED_MOTION_STORAGE_KEY = "cobalt.reducedMotion";
+const AUTO_ROTATE_PAUSED_STORAGE_KEY = "cobalt.autoRotatePaused";
 
 function readStorageBool(key: string): boolean {
   if (typeof window === "undefined") return false;
@@ -60,6 +61,7 @@ export interface ThemeState {
   installedThemes: InstalledTheme[];
   disableThemeShaders: boolean;
   reducedMotion: boolean;
+  autoRotatePaused: boolean;
   shadersDisabledForSession: boolean;
   themeWarnings: ThemeRuntimeWarning[];
   loading: boolean;
@@ -71,6 +73,8 @@ export interface ThemeState {
   toggleShowConnections: () => void;
   setDisableThemeShaders: (disabled: boolean) => void;
   setReducedMotion: (reduced: boolean) => void;
+  setAutoRotatePaused: (paused: boolean) => void;
+  toggleAutoRotatePaused: () => void;
   tripShaderWatchdog: (themeId: string, avgFrameMs: number) => void;
   resetSessionShaderWatchdog: () => void;
   pushThemeWarning: (warning: ThemeRuntimeWarning) => void;
@@ -88,6 +92,7 @@ export const useThemeStore = create<ThemeState>((set) => ({
   installedThemes: [],
   disableThemeShaders: readStorageBool(DISABLE_THEME_SHADERS_STORAGE_KEY),
   reducedMotion: initialReducedMotion,
+  autoRotatePaused: readStorageBool(AUTO_ROTATE_PAUSED_STORAGE_KEY),
   shadersDisabledForSession: false,
   themeWarnings: [],
   loading: false,
@@ -154,6 +159,18 @@ export const useThemeStore = create<ThemeState>((set) => ({
     applyReducedMotionToRoot(reduced);
     set({ reducedMotion: reduced });
   },
+
+  setAutoRotatePaused: (paused) => {
+    writeStorageBool(AUTO_ROTATE_PAUSED_STORAGE_KEY, paused);
+    set({ autoRotatePaused: paused });
+  },
+
+  toggleAutoRotatePaused: () =>
+    set((state) => {
+      const next = !state.autoRotatePaused;
+      writeStorageBool(AUTO_ROTATE_PAUSED_STORAGE_KEY, next);
+      return { autoRotatePaused: next };
+    }),
 
   tripShaderWatchdog: (themeId, avgFrameMs) =>
     set((state) => {

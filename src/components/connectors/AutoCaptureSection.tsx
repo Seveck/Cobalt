@@ -11,7 +11,8 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { formatAiClientName, pathBasename } from "@/lib/format";
-import { Toggle } from "@/components/ui";
+import { staggerStyle } from "@/lib/motion";
+import { Skeleton, Toggle } from "@/components/ui";
 import type {
   CaptureIntegration,
   CaptureStatus,
@@ -167,9 +168,19 @@ export function AutoCaptureSection({
       </div>
 
       {loading && items.length === 0 ? (
-        <div className="flex items-center gap-2 py-8 font-mono text-xs text-bone-muted">
-          <Loader2 size={13} className="animate-spin text-cobalt-ink" aria-hidden />
-          <span>{t("capture.loading")}</span>
+        <div className="mt-4 space-y-3" aria-busy="true" aria-label={t("capture.loading")}>
+          {[0, 1, 2].map((idx) => (
+            <div
+              key={idx}
+              className="flex items-center justify-between gap-3 rounded-[2px] border border-rule bg-void p-3"
+            >
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <Skeleton className="h-3.5 w-36" />
+                <Skeleton className="h-3 w-56" />
+              </div>
+              <Skeleton className="h-5 w-9 shrink-0 rounded-full" />
+            </div>
+          ))}
         </div>
       ) : (
         <div className="mt-4 space-y-5">
@@ -191,7 +202,7 @@ export function AutoCaptureSection({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
-                  {entries.map((item) => {
+                  {entries.map((item, idx) => {
                     const key = captureItemKey(item);
                     const busy = togglingKey === key;
                     const title = resolveItemTitle(item);
@@ -200,7 +211,8 @@ export function AutoCaptureSection({
                     return (
                       <div
                         key={key}
-                        className={`flex flex-col justify-between gap-2.5 rounded-[2px] border p-3.5 transition-colors ${
+                        style={staggerStyle(idx, 22, 6)}
+                        className={`cobalt-stagger-item flex flex-col justify-between gap-2.5 rounded-[2px] border p-3.5 transition-colors ${
                           item.enabled
                             ? "border-cobalt-rule/70 bg-void/90"
                             : "border-rule bg-void/70"

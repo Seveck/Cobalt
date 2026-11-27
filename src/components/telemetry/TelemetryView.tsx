@@ -24,6 +24,7 @@ import {
   Search,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { staggerStyle } from "@/lib/motion";
 import {
   useFiltersStore,
   useMemoryStore,
@@ -31,7 +32,7 @@ import {
   useTelemetryStore,
   useUiStore,
 } from "@/stores";
-import { Select, type SelectOption } from "@/components/ui";
+import { AnimatedNumber, Select, Skeleton, type SelectOption } from "@/components/ui";
 import {
   OPERATION_COLORS,
   TELEMETRY_OPERATIONS,
@@ -370,16 +371,41 @@ export function TelemetryView() {
           </section>
         ) : (
           <>
+            {/* KPI strip & charts skeleton while initial summary loads */}
+            {loading && !summary && (
+              <div className="space-y-6" aria-busy="true" aria-label={t("shell.loading")}>
+                <section className="grid grid-cols-1 divide-y divide-rule rounded-[2px] border border-rule bg-surface sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
+                  {[0, 1, 2, 3].map((idx) => (
+                    <div key={idx} className="space-y-3 p-5">
+                      <Skeleton className="h-3 w-24" />
+                      <Skeleton className="h-7 w-28" />
+                      <Skeleton className="h-3 w-36" />
+                    </div>
+                  ))}
+                </section>
+                <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                  <div className="space-y-4 rounded-[2px] border border-rule bg-surface p-5 lg:col-span-2">
+                    <Skeleton className="h-3 w-36" />
+                    <Skeleton className="h-60 w-full" />
+                  </div>
+                  <div className="space-y-4 rounded-[2px] border border-rule bg-surface p-5">
+                    <Skeleton className="h-3 w-32" />
+                    <Skeleton className="h-60 w-full" />
+                  </div>
+                </section>
+              </div>
+            )}
+
             {/* KPI strip */}
             {summary && (
               <>
                 <section className="grid grid-cols-1 divide-y divide-rule rounded-[2px] border border-rule bg-surface sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
-                  <div className="p-5">
+                  <div className="cobalt-stagger-item p-5" style={staggerStyle(0, 26)}>
                     <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
                       {t("telemetry.totalSaved")}
                     </div>
                     <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-verdigris">
-                      {summary.total_saved_tokens.toLocaleString()}
+                      <AnimatedNumber value={summary.total_saved_tokens} />
                     </div>
                     <div className="mt-1 font-mono text-[10px] text-bone-subtle">
                       {t("telemetry.avoidedVsInjected", {
@@ -389,32 +415,38 @@ export function TelemetryView() {
                     </div>
                   </div>
 
-                  <div className="p-5">
+                  <div className="cobalt-stagger-item p-5" style={staggerStyle(1, 26)}>
                     <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
                       {t("telemetry.sessionSaved")}
                     </div>
                     <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-cobalt-ink">
-                      {summary.session_saved_tokens.toLocaleString()}
+                      <AnimatedNumber value={summary.session_saved_tokens} />
                     </div>
                     <div className="mt-1 text-[11px] text-bone-subtle">
                       {t("telemetry.sessionHint")}
                     </div>
                   </div>
 
-                  <div className="p-5">
+                  <div className="cobalt-stagger-item p-5" style={staggerStyle(2, 26)}>
                     <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
                       {t("telemetry.compressionRatio")}
                     </div>
                     <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-ochre">
-                      {hasAvoidedData ? `${compressionPct}%` : "—"}
+                      {hasAvoidedData ? (
+                        <AnimatedNumber value={compressionPct} format={(n) => `${n}%`} />
+                      ) : (
+                        "—"
+                      )}
                     </div>
                     <div className="mt-2 h-1.5 w-full overflow-hidden rounded-[1px] bg-void">
                       <div
-                        className="h-full bg-ochre"
+                        className="h-full w-full origin-left bg-ochre transition-transform duration-300 ease-out"
                         style={{
-                          width: hasAvoidedData
-                            ? `${Math.max(0, Math.min(100, compressionPct))}%`
-                            : "0%",
+                          transform: `scaleX(${
+                            hasAvoidedData
+                              ? Math.max(0, Math.min(100, compressionPct)) / 100
+                              : 0
+                          })`,
                         }}
                       />
                     </div>
@@ -425,17 +457,17 @@ export function TelemetryView() {
                     </div>
                   </div>
 
-                  <div className="p-5">
+                  <div className="cobalt-stagger-item p-5" style={staggerStyle(3, 26)}>
                     <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
                       {t("telemetry.readsVsReuseTitle")}
                     </div>
                     <div className="mt-2 flex items-baseline gap-2 font-mono text-lg font-semibold tabular-nums">
                       <span className="text-cobalt-ink">
-                        {summary.saved_from_reads.toLocaleString()}
+                        <AnimatedNumber value={summary.saved_from_reads} />
                       </span>
                       <span className="text-xs text-bone-subtle">/</span>
                       <span className="text-pulse-reuse">
-                        {summary.saved_from_reuse.toLocaleString()}
+                        <AnimatedNumber value={summary.saved_from_reuse} />
                       </span>
                     </div>
                     <div className="mt-1 font-mono text-[10px] text-bone-subtle">
@@ -643,7 +675,8 @@ export function TelemetryView() {
                     {summary.top_nodes.map((node, idx) => (
                       <div
                         key={node.memory_id}
-                        className="flex items-start justify-between gap-3 py-2.5"
+                        className="cobalt-stagger-item flex items-start justify-between gap-3 py-2.5"
+                        style={staggerStyle(idx, 20, 8)}
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
@@ -769,9 +802,21 @@ export function TelemetryView() {
 
           {/* History list */}
           {historyLoading && historyPage.items.length === 0 ? (
-            <div className="flex items-center justify-center gap-2 py-10 font-mono text-xs text-bone-muted">
-              <Loader2 size={14} className="animate-spin text-cobalt-ink" aria-hidden />
-              <span>{t("telemetry.loadingHistory")}</span>
+            <div
+              className="divide-y divide-rule rounded-[2px] border border-rule bg-void"
+              aria-busy="true"
+              aria-label={t("telemetry.loadingHistory")}
+            >
+              {[0, 1, 2, 3, 4].map((idx) => (
+                <div key={idx} className="flex items-center justify-between gap-3 p-3">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                    <Skeleton className="h-4 w-14 shrink-0" />
+                    <Skeleton className="h-4 w-24 shrink-0" />
+                    <Skeleton className="h-3.5 w-1/2" />
+                  </div>
+                  <Skeleton className="h-4 w-20 shrink-0" />
+                </div>
+              ))}
             </div>
           ) : historyPage.items.length === 0 ? (
             <p className="py-8 text-center text-xs text-bone-subtle">
@@ -781,12 +826,16 @@ export function TelemetryView() {
             </p>
           ) : (
             <div className="divide-y divide-rule rounded-[2px] border border-rule bg-void">
-              {historyPage.items.map((log) => {
+              {historyPage.items.map((log, idx) => {
                 const expanded = expandedIds.has(log.id);
                 const opColor = OPERATION_COLORS[log.operation];
                 const replaying = replayingId === log.id;
                 return (
-                  <div key={log.id} className="p-3">
+                  <div
+                    key={log.id}
+                    className="cobalt-stagger-item p-3"
+                    style={staggerStyle(idx, 20, 10)}
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <button
                         type="button"

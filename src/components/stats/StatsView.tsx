@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Clock, Loader2, Plug, RefreshCw } from "lucide-react";
+import { BarChart3, Clock, Plug, RefreshCw } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { formatCompactNumber, formatTokenCount } from "@/lib/format";
+import { staggerStyle } from "@/lib/motion";
 import { useUiStore } from "@/stores";
+import { AnimatedNumber, Skeleton } from "@/components/ui";
 import type { UsageStats, UsageTotals } from "@/types/contracts";
 import { FunFactsGrid } from "./FunFactsGrid";
 import { isUnsupportedError, parseCalendarDate } from "./statsHelpers";
@@ -14,18 +16,31 @@ interface SummaryCardProps {
   totals: UsageTotals;
   accentClassName: string;
   language: string;
+  staggerIndex: number;
 }
 
-function SummaryCard({ label, totals, accentClassName, language }: SummaryCardProps) {
+function SummaryCard({
+  label,
+  totals,
+  accentClassName,
+  language,
+  staggerIndex,
+}: SummaryCardProps) {
   const { t } = useTranslation();
 
   return (
-    <div className="rounded-[2px] border border-rule bg-surface p-5">
+    <div
+      className="cobalt-stagger-item rounded-[2px] border border-rule bg-surface p-5"
+      style={staggerStyle(staggerIndex, 28)}
+    >
       <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
         {label}
       </div>
       <div className={`mt-2 font-mono text-3xl font-semibold tabular-nums ${accentClassName}`}>
-        {formatTokenCount(totals.requests, language)}
+        <AnimatedNumber
+          value={totals.requests}
+          format={(n) => formatTokenCount(n, language)}
+        />
       </div>
       <div className="mt-1 text-xs text-bone-muted">
         {t("stats.cards.requestsCaption", { count: totals.requests })}
@@ -171,10 +186,48 @@ export function StatsView() {
             </button>
           </section>
         ) : loading && !stats ? (
-          <section className="flex flex-col items-center justify-center gap-2.5 rounded-[2px] border border-rule bg-surface px-6 py-16 text-xs text-bone-muted">
-            <Loader2 size={18} className="animate-spin text-cobalt-ink" aria-hidden />
-            <span className="font-mono">{t("stats.loading")}</span>
-          </section>
+          <div className="space-y-6" aria-busy="true" aria-label={t("stats.loading")}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {[0, 1, 2].map((idx) => (
+                <div
+                  key={idx}
+                  className="space-y-3 rounded-[2px] border border-rule bg-surface p-5"
+                >
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-8 w-24" />
+                  <Skeleton className="h-3 w-32" />
+                  <div className="border-t border-rule pt-2.5">
+                    <Skeleton className="h-3 w-40" />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-3 rounded-[2px] border border-rule bg-surface p-5">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-2">
+                  <Skeleton className="h-3 w-36" />
+                  <Skeleton className="h-3 w-52" />
+                </div>
+                <Skeleton className="h-7 w-28" />
+              </div>
+              <Skeleton className="h-28 w-full" />
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {[0, 1, 2, 3, 4, 5].map((idx) => (
+                <div
+                  key={idx}
+                  className="space-y-3 rounded-[2px] border border-rule bg-surface p-5"
+                >
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="h-7 w-32" />
+                  <Skeleton className="h-3 w-24" />
+                  <div className="border-t border-rule pt-3">
+                    <Skeleton className="h-3 w-44" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         ) : stats ? (
           <>
             {error && (
@@ -193,18 +246,21 @@ export function StatsView() {
                 totals={stats.today}
                 accentClassName="text-cobalt-ink"
                 language={language}
+                staggerIndex={0}
               />
               <SummaryCard
                 label={t("stats.cards.thisWeek")}
                 totals={stats.this_week}
                 accentClassName="text-bone"
                 language={language}
+                staggerIndex={1}
               />
               <SummaryCard
                 label={yearCardLabel}
                 totals={stats.this_year}
                 accentClassName="text-bone"
                 language={language}
+                staggerIndex={2}
               />
             </section>
 

@@ -1185,7 +1185,7 @@ export function IngestShellIndicator() {
 
       {/* Non-blocking expanded panel */}
       {expanded && (
-        <div className="pointer-events-auto absolute top-full right-3 z-40 mt-1.5 w-[min(38rem,calc(100%-1.5rem))] max-h-[min(72vh,34rem)] overflow-y-auto rounded-[2px] border border-rule-strong bg-surface/98 shadow-[0_18px_44px_rgba(0,0,0,0.72)] backdrop-blur-sm">
+        <div className="cobalt-panel-enter-down pointer-events-auto absolute top-full right-3 z-40 mt-1.5 w-[min(38rem,calc(100%-1.5rem))] max-h-[min(72vh,34rem)] overflow-y-auto rounded-[2px] border border-rule-strong bg-surface/98 shadow-[0_18px_44px_rgba(0,0,0,0.72)] backdrop-blur-sm">
           {activeReportJob ? (
             <IngestReportDetail
               job={activeReportJob}

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Camera, Clock, Loader2, RotateCcw, Trash2, X } from "lucide-react";
+import { Camera, Clock, RotateCcw, Trash2, X } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { useBranchesStore, useMemoryStore, useSettingsStore } from "@/stores";
+import { Skeleton } from "@/components/ui";
 import type { Snapshot } from "@/types/contracts";
 
 interface TimeTravelBarProps {
@@ -108,7 +109,7 @@ export function TimeTravelBar({ onClose }: TimeTravelBarProps) {
   };
 
   return (
-    <div className="pointer-events-auto w-full max-w-4xl rounded-[2px] border border-rule-strong bg-surface p-3 shadow-[0_14px_36px_rgba(0,0,0,0.72)]">
+    <div className="cobalt-panel-enter-up pointer-events-auto w-full max-w-4xl rounded-[2px] border border-rule-strong bg-surface p-3 shadow-[0_14px_36px_rgba(0,0,0,0.72)]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rule pb-2">
         <div className="flex items-center gap-2">
           <Clock size={13} className="text-cobalt-ink" aria-hidden />
@@ -160,9 +161,9 @@ export function TimeTravelBar({ onClose }: TimeTravelBarProps) {
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 py-3 font-mono text-[11px] text-bone-muted">
-          <Loader2 size={12} className="animate-spin text-cobalt-ink" aria-hidden />
-          <span>{t("timeTravel.loading")}</span>
+        <div className="mt-2.5 space-y-2" aria-busy="true" aria-label={t("timeTravel.loading")}>
+          <Skeleton className="h-2.5 w-full" />
+          <Skeleton className="h-11 w-full" />
         </div>
       ) : snapshots.length === 0 ? (
         <p className="py-3 text-xs text-bone-subtle">{t("timeTravel.empty")}</p>

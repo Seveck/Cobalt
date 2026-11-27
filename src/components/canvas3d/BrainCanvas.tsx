@@ -15,6 +15,8 @@ import {
   Clock,
   Crosshair,
   FolderKanban,
+  Pause,
+  Play,
   Plug,
   Radio,
   RotateCcw,
@@ -26,6 +28,7 @@ import {
 } from "lucide-react";
 import { useFileDrop } from "@/lib/dialogs";
 import { isBuiltinThemeId } from "@/lib/themeEngine";
+import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 import {
   useFiltersStore,
   useIngestStore,
@@ -36,6 +39,7 @@ import {
 } from "@/stores";
 import { NodeInspector } from "@/components/inspector/NodeInspector";
 import { CobaltMark } from "@/components/shell/CobaltMark";
+import { Skeleton } from "@/components/ui";
 import { BranchSwitcher } from "@/components/tools/BranchSwitcher";
 import { CleanBrainPanel } from "@/components/tools/CleanBrainPanel";
 import { RagDebugger } from "@/components/tools/RagDebugger";
@@ -105,9 +109,12 @@ export function BrainCanvas() {
   const activeLayout = useThemeStore((s) => s.activeLayout);
   const clusterSizeMetric = useThemeStore((s) => s.clusterSizeMetric);
   const showConnections = useThemeStore((s) => s.showConnections);
+  const autoRotatePaused = useThemeStore((s) => s.autoRotatePaused);
   const setActiveLayout = useThemeStore((s) => s.setActiveLayout);
   const setClusterSizeMetric = useThemeStore((s) => s.setClusterSizeMetric);
   const toggleShowConnections = useThemeStore((s) => s.toggleShowConnections);
+  const toggleAutoRotatePaused = useThemeStore((s) => s.toggleAutoRotatePaused);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const appInfo = useUiStore((s) => s.appInfo);
   const setActiveNav = useUiStore((s) => s.setActiveNav);
@@ -496,10 +503,47 @@ export function BrainCanvas() {
                 </button>
               )}
 
+              <span
+                title={
+                  prefersReducedMotion
+                    ? t("brain.rotationDisabledReducedMotion")
+                    : autoRotatePaused
+                      ? t("brain.resumeRotation")
+                      : t("brain.pauseRotation")
+                }
+                className="inline-flex"
+              >
+                <button
+                  type="button"
+                  disabled={prefersReducedMotion}
+                  onClick={toggleAutoRotatePaused}
+                  aria-pressed={prefersReducedMotion || autoRotatePaused}
+                  aria-label={
+                    prefersReducedMotion
+                      ? t("brain.rotationDisabledReducedMotion")
+                      : autoRotatePaused
+                        ? t("brain.resumeRotation")
+                        : t("brain.pauseRotation")
+                  }
+                  className={`inline-flex items-center gap-1 rounded-[1px] px-2 py-1 font-mono text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+                    !prefersReducedMotion && autoRotatePaused
+                      ? "bg-cobalt-wash font-semibold text-cobalt-ink"
+                      : "text-bone-muted hover:bg-surface-2 hover:text-bone disabled:hover:bg-transparent disabled:hover:text-bone-muted"
+                  }`}
+                >
+                  {prefersReducedMotion || autoRotatePaused ? (
+                    <Play size={12} aria-hidden />
+                  ) : (
+                    <Pause size={12} aria-hidden />
+                  )}
+                </button>
+              </span>
+
               <button
                 type="button"
                 onClick={() => setResetSignal((n) => n + 1)}
                 title={t("brain.resetCamera")}
+                aria-label={t("brain.resetCamera")}
                 className="inline-flex items-center gap-1 rounded-[1px] px-2 py-1 font-mono text-[11px] text-bone-muted transition-colors hover:bg-surface-2 hover:text-bone"
               >
                 <RotateCcw size={12} aria-hidden />
@@ -536,6 +580,18 @@ export function BrainCanvas() {
           </div>
         )}
 
+        {/* Initial loading skeleton before graph arrives */}
+        {loading && !graph && (
+          <div
+            className="cobalt-view-fade pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 p-6"
+            aria-busy="true"
+            aria-label={t("shell.loading")}
+          >
+            <CobaltMark size={24} />
+            <Skeleton className="h-1.5 w-40" />
+          </div>
+        )}
+
         {/* 3D R3F Canvas — camera-facing point sprites, zero lighting, Eco 30 FPS cap */}
         {graph && (
           <div className="absolute inset-0">
@@ -558,6 +614,11 @@ export function BrainCanvas() {
                   activeLayout={activeLayout}
                   clusterSizeMetric={clusterSizeMetric}
                   showConnections={showConnections}
+                  autoRotatePaused={autoRotatePaused}
+                  viewportInsets={{
+                    top: indicatorSafeInsets.top,
+                    bottom: indicatorSafeInsets.bottom,
+                  }}
                   hardwareTier={hardwareTier}
                   filters={filters}
                   searchQuery={searchQuery}
@@ -580,7 +641,7 @@ export function BrainCanvas() {
         {/* Helpful empty state for a brand-new install with 0 memories */}
         {!loading && graph && graph.nodes.length === 0 && (
           <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center p-6">
-            <div className="pointer-events-auto w-full max-w-md rounded-[2px] border border-rule-strong bg-surface/95 p-6 text-center shadow-[0_20px_48px_rgba(0,0,0,0.7)] backdrop-blur-sm">
+            <div className="cobalt-modal-enter pointer-events-auto w-full max-w-md rounded-[2px] border border-rule-strong bg-surface/95 p-6 text-center shadow-[0_20px_48px_rgba(0,0,0,0.7)] backdrop-blur-sm">
               <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-[2px] border border-cobalt-rule bg-cobalt-wash">
                 <CobaltMark size={22} />
               </div>
@@ -661,7 +722,7 @@ export function BrainCanvas() {
                 (pulseVisibility?.edge === "bottom" ? 44 : 0)
               }px`,
             }}
-            className="pointer-events-auto absolute left-1/2 z-25 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-surface/95 px-3 py-1.5 font-mono text-xs font-medium text-bone shadow-[0_8px_24px_rgba(0,0,0,0.65)] backdrop-blur-xs transition-colors hover:border-cobalt-ink hover:bg-cobalt-wash hover:text-cobalt-ink focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
+            className="cobalt-panel-enter-up pointer-events-auto absolute left-1/2 z-25 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-surface/95 px-3 py-1.5 font-mono text-xs font-medium text-bone shadow-[0_8px_24px_rgba(0,0,0,0.65)] backdrop-blur-xs transition-colors hover:border-cobalt-ink hover:bg-cobalt-wash hover:text-cobalt-ink focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
           >
             <Crosshair size={13} className="shrink-0 text-cobalt-ink" aria-hidden />
             <span className="whitespace-nowrap">{t("brain.centerView")}</span>
