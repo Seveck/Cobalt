@@ -122,6 +122,33 @@ pub fn cancel_download(state: State<'_, AppState>, args: CancelDownloadArgs) -> 
     }
 }
 
+/// State of the default OCR model (contract v1.7.0).
+#[tauri::command]
+pub fn get_ocr_status(state: State<'_, AppState>) -> CmdResult<cobalt_core::engine::OcrStatus> {
+    state
+        .engines
+        .ocr_status(cobalt_core::catalog::DEFAULT_OCR_MODEL)
+}
+
+/// Downloads and verifies the OCR model (streams `cobalt://download-progress`), then turns OCR
+/// on for every ingest (images and scanned PDFs).
+#[tauri::command]
+pub async fn install_ocr(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: cobalt_core::engine::OcrInstallRequest,
+) -> CmdResult<cobalt_core::engine::OcrStatus> {
+    let emitter = app.clone();
+    let sink: ProgressSink<DownloadProgress> = Arc::new(move |p: DownloadProgress| {
+        if let Err(err) = emitter.emit(EVENT_DOWNLOAD_PROGRESS, &p) {
+            tracing::warn!(%err, "failed to emit download progress");
+        }
+    });
+    let status = state.engines.install_ocr(&args.model_id, sink).await?;
+    state.refresh_ocr().await;
+    Ok(status)
+}
+
 /// Status of the engine/model currently selected in settings.
 #[tauri::command]
 pub async fn get_engine_status(state: State<'_, AppState>) -> CmdResult<EngineStatus> {

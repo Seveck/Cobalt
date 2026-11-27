@@ -187,6 +187,14 @@ impl AppState {
         *self.active_engine.lock().await = None;
     }
 
+    /// Rebuilds the retrieval store + ingest service so a newly installed OCR model is used.
+    pub async fn refresh_ocr(&self) {
+        self.invalidate_engine().await;
+        if let Err(err) = self.activate_engine().await {
+            tracing::warn!(%err, "OCR installed but ingest not rebuilt");
+        }
+    }
+
     /// Endpoint of a remote engine (Qdrant remote / Chroma), stored in `app_config`.
     pub async fn external_endpoint(&self) -> Result<String> {
         use cobalt_core::traits::ConfigRepository;

@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.6.1";
+export const CONTRACT_VERSION = "1.7.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -656,6 +656,23 @@ export interface EngineStatus {
   last_error: string | null;
 }
 
+/** OCR model state (v1.7.0). Downloads stream `cobalt://download-progress`. */
+export interface OcrStatus {
+  model_id: string;
+  display_name: string;
+  /** Scripts it reads, e.g. `latin`. */
+  languages: string[];
+  state: EngineState;
+  size_bytes: number;
+  installed_bytes: number;
+}
+
+export interface OcrInstallRequest {
+  model_id: string;
+}
+
+export const DEFAULT_OCR_MODEL = "ocrs-latin";
+
 export interface EngineSwapRequest {
   target_engine: EngineKind;
   target_model_id: string;
@@ -1198,6 +1215,8 @@ export interface IpcCommandMap {
   install_engine: { args: EngineInstallRequest; result: EngineStatus };
   cancel_download: { args: CancelDownloadArgs; result: void };
   get_engine_status: { args: void; result: EngineStatus };
+  get_ocr_status: { args: void; result: OcrStatus };
+  install_ocr: { args: OcrInstallRequest; result: OcrStatus };
   vault_status: { args: void; result: VaultStatus };
   vault_setup: { args: VaultPasswordArgs; result: VaultStatus };
   vault_unlock: { args: VaultPasswordArgs; result: VaultStatus };

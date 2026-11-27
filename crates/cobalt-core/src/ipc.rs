@@ -22,6 +22,9 @@ pub mod commands {
     pub const INSTALL_ENGINE: &str = "install_engine";
     pub const CANCEL_DOWNLOAD: &str = "cancel_download";
     pub const GET_ENGINE_STATUS: &str = "get_engine_status";
+    // OCR (v1.7.0)
+    pub const GET_OCR_STATUS: &str = "get_ocr_status";
+    pub const INSTALL_OCR: &str = "install_ocr";
     pub const VAULT_STATUS: &str = "vault_status";
     pub const VAULT_SETUP: &str = "vault_setup";
     pub const VAULT_UNLOCK: &str = "vault_unlock";

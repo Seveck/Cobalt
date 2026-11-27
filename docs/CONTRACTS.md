@@ -1,4 +1,7 @@
-# Cobalt — Frozen Contracts (v1.6.1)
+# Cobalt — Frozen Contracts (v1.7.0)
+
+> v1.7.0 (additive): local OCR — `OcrStatus`, `OcrInstallRequest`, IPC `get_ocr_status` /
+> `install_ocr`, trait `OcrEngine`, catalog `ocr.json` (§6.1).
 
 > v1.6.1 (additive): `IngestProgress.{file_chunks_done, file_chunks_total}` (chunk progress inside
 > the current file, so large files do not look frozen).
