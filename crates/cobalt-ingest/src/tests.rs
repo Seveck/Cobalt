@@ -1495,6 +1495,53 @@ async fn portable_roundtrip_preserves_identity_isolates_collisions_and_reembeds(
 }
 
 #[tokio::test]
+async fn imports_schema_one_backup() {
+    let source = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    let (origin, exporter, _) = setup(source.path(), "test").await;
+    let (dest, importer, _) = setup(target.path(), "test").await;
+    let row = origin
+        .save_memory(memory("A note from a schema-one backup."))
+        .await
+        .unwrap()
+        .memory;
+    let current = source.path().join("current.cobalt-backup");
+    let mut manifest = exporter
+        .export_backup(BackupExportRequest {
+            dest_path: path(&current),
+            password: None,
+            include_history: false,
+        })
+        .await
+        .unwrap();
+    assert_eq!(manifest.schema_version, cobalt_core::SCHEMA_VERSION);
+    manifest.schema_version = 1;
+
+    let mut current = zip::ZipArchive::new(std::fs::File::open(current).unwrap()).unwrap();
+    let legacy = source.path().join("legacy.cobalt-backup");
+    let mut archive = zip::ZipWriter::new(std::fs::File::create(&legacy).unwrap());
+    let options = zip::write::SimpleFileOptions::default();
+    archive.start_file("manifest.json", options).unwrap();
+    serde_json::to_writer(&mut archive, &manifest).unwrap();
+    archive.start_file("data.json", options).unwrap();
+    std::io::copy(&mut current.by_name("data.json").unwrap(), &mut archive).unwrap();
+    archive.finish().unwrap();
+
+    let report = importer
+        .import_backup(BackupImportRequest {
+            path: path(&legacy),
+            password: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(report.inserted, 1);
+    assert_eq!(
+        dest.get_memory(row.id).await.unwrap().unwrap().content,
+        row.content
+    );
+}
+
+#[tokio::test]
 async fn newer_same_uuid_supersedes_once_and_corrupt_archive_writes_nothing() {
     let source = tempfile::tempdir().unwrap();
     let target = tempfile::tempdir().unwrap();

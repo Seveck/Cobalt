@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
+use cobalt_core::SCHEMA_VERSION;
 use cobalt_core::catalog::Catalog;
 use cobalt_core::enums::{MemoryStatus, WriteAction};
 use cobalt_core::error::{CobaltError, Result};
@@ -360,7 +361,7 @@ fn read_archive(
             },
         )
     };
-    if version != TRANSFER_FORMAT_VERSION || schema != cobalt_core::SCHEMA_VERSION {
+    if version != TRANSFER_FORMAT_VERSION || !(1..=SCHEMA_VERSION).contains(&schema) {
         return Err(CobaltError::Unsupported(format!(
             "archive uses format {version} and schema {schema}"
         )));
@@ -538,7 +539,7 @@ impl Context {
             let (bytes, checksums) = entries(&data)?;
             let manifest = CapsuleManifest {
                 format_version: TRANSFER_FORMAT_VERSION,
-                schema_version: cobalt_core::SCHEMA_VERSION,
+                schema_version: SCHEMA_VERSION,
                 app_version: env!("CARGO_PKG_VERSION").into(),
                 created_at: now(),
                 project: data
@@ -574,7 +575,7 @@ impl Context {
             let (bytes, checksums) = entries(&data)?;
             let manifest = BackupManifest {
                 format_version: TRANSFER_FORMAT_VERSION,
-                schema_version: cobalt_core::SCHEMA_VERSION,
+                schema_version: SCHEMA_VERSION,
                 app_version: env!("CARGO_PKG_VERSION").into(),
                 created_at: now(),
                 source_os: std::env::consts::OS.into(),

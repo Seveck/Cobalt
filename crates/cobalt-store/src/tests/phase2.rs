@@ -9,7 +9,9 @@ use cobalt_core::enums::{
 use cobalt_core::ids::now;
 use cobalt_core::model::{InstalledTheme, MemoryPatch, NewBranch, NewHandoff, UpdateMemoryRequest};
 use cobalt_core::search::{LibraryFilter, ReusableAssetQuery, WebContextRequest};
-use cobalt_core::telemetry::{NewTelemetryEvent, ReturnedItem, TelemetryQuery, TelemetryRange};
+use cobalt_core::telemetry::{
+    NewTelemetryEvent, ReturnedItem, TelemetryQuery, TelemetryRange, UsageStatsRequest,
+};
 use cobalt_core::traits::{
     BranchRepository, CobaltStore, EngineMigrator, GovernanceService, HandoffRepository,
     SnapshotRepository, TelemetryRepository, ThemeRepository, TokenCounter,
@@ -795,11 +797,21 @@ async fn handoff_theme_and_telemetry_repositories_persist_real_data() {
     assert_eq!(summary.by_client[0].reads, 1);
     assert_eq!(summary.top_nodes[0].memory_id, memory.id);
 
+    let req = UsageStatsRequest {
+        year: chrono::Datelike::year(&log.timestamp),
+        utc_offset_minutes: 0,
+    };
+    let usage_before = store.usage_stats(req).await.unwrap();
+    assert_eq!(usage_before.all_time.requests, 1);
+    assert_eq!(usage_before.all_time.saved_tokens, 93);
     let mut settings = store.load_settings().await.unwrap();
     settings.retention.detailed_log_limit = 0;
     store.save_settings(&settings).await.unwrap();
     assert_eq!(store.apply_retention().await.unwrap(), 1);
     assert_eq!(store.apply_retention().await.unwrap(), 0);
+    let usage_after = store.usage_stats(req).await.unwrap();
+    assert_eq!(usage_after.all_time, usage_before.all_time);
+    assert_eq!(usage_after.days, usage_before.days);
     let purged = store.get_telemetry_log(log.id).await.unwrap().unwrap();
     assert_eq!(purged.saved_tokens, log.saved_tokens);
     assert_eq!(purged.returned_items.len(), 3);
