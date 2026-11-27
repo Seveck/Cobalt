@@ -318,8 +318,7 @@ impl Daemon {
                     }
                     "command" => {
                         activity.kind = CliActivityKind::Command;
-                        activity.detail =
-                            str_at(p, "/command").map(|c| short(&scrub(c).text, 160));
+                        activity.detail = str_at(p, "/command").map(|c| short(&scrub(c).text, 160));
                     }
                     event @ ("turn_end" | "session_end") => {
                         let ended = event == "session_end";

@@ -482,7 +482,8 @@ async fn mcp_end_to_end_over_socket_and_http() {
     assert_eq!(status, 200);
     assert!(head.contains("text/markdown") && body.contains("Complete guide for AI assistants"));
     let auth = [("Authorization", bearer.as_str())];
-    let (status, _, body) = http(server.addr, "GET", "/api/v1/tools?format=openai", &auth, "").await;
+    let (status, _, body) =
+        http(server.addr, "GET", "/api/v1/tools?format=openai", &auth, "").await;
     assert_eq!(status, 200, "{body}");
     let tools: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(tools["tools"].as_array().unwrap().len(), 8);
@@ -532,9 +533,13 @@ async fn mcp_end_to_end_over_socket_and_http() {
     assert_eq!(status, 202);
     let mut seen = false;
     for _ in 0..50 {
-        if recorder.cli.lock().unwrap().iter().any(|a| {
-            a.client_name == "my-agent" && a.detail.as_deref() == Some("cargo test")
-        }) {
+        if recorder
+            .cli
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|a| a.client_name == "my-agent" && a.detail.as_deref() == Some("cargo test"))
+        {
             seen = true;
             break;
         }
@@ -606,8 +611,7 @@ async fn stdio_bridge_survives_daemon_restart() {
 
     ask(json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "bridge-client", "version": "1" } } })).await;
     assert_eq!(next(&mut replies).await["id"], 1);
-    ask(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))
-        .await;
+    ask(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await;
 
     // Daemon restart: every bridge connection is closed, a new server takes the socket.
     drop(socket);
@@ -615,8 +619,7 @@ async fn stdio_bridge_survives_daemon_restart() {
     let _socket = SocketServer::start(daemon.clone()).await.unwrap();
 
     // The client just keeps going: no "connection closed", no replayed initialize reply.
-    ask(json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }))
-        .await;
+    ask(json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} })).await;
     let tools = next(&mut replies).await;
     assert_eq!(tools["id"], 2, "{tools}");
     assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 8);
