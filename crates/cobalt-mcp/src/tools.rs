@@ -498,7 +498,11 @@ impl Daemon {
                 response
                     .hits
                     .into_iter()
-                    .map(|h| (h.memory, Some(h.similarity_score)))
+                    .map(|h| {
+                        // Text-only matches (identifiers, error codes) have no vector score.
+                        let similarity = h.vector_rank.map(|_| h.similarity_score);
+                        (h.memory, similarity)
+                    })
                     .collect(),
                 &names,
             )

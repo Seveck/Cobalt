@@ -51,8 +51,9 @@ pub fn search_memory(o: &SearchMemoryOutput) -> String {
         };
         let _ = writeln!(
             s,
-            "{:.2} {:<10} {}{}{} conf={:.2} [id:{}]",
-            m.similarity.unwrap_or(0.0),
+            "{} {:<10} {}{}{} conf={:.2} [id:{}]",
+            m.similarity
+                .map_or_else(|| "text".to_owned(), |v| format!("{v:.2}")),
             m.category.as_str(),
             m.content.trim(),
             file,
