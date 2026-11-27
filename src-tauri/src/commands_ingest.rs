@@ -201,9 +201,24 @@ pub async fn reindex_files(
         return Ok(());
     }
     let ingest = state.ingest()?;
+    // Only files inside the project's own folder: an AI editing a linked git worktree (another
+    // checkout of the same repo) resolves to this project but its half-done copies must not be
+    // indexed; they arrive through the main checkout once merged.
+    let Some(root) = state
+        .store()
+        .get_project(project_id)
+        .await?
+        .and_then(|p| p.root_path)
+    else {
+        return Ok(());
+    };
+    let root = std::path::PathBuf::from(root);
     let existing: Vec<String> = files
         .into_iter()
-        .filter(|f| std::path::Path::new(f).is_file())
+        .filter(|f| {
+            let path = std::path::Path::new(f);
+            path.starts_with(&root) && path.is_file()
+        })
         .collect();
     if existing.is_empty() {
         return Ok(());
