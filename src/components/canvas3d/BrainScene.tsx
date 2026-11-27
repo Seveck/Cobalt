@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { isTauri } from "@/lib/ipc";
+import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 import {
   matchesVisualFilters,
   useMemoryStore,
@@ -34,6 +35,12 @@ import {
   NODE_POINT_FRAGMENT_SHADER,
   NODE_POINT_VERTEX_SHADER,
 } from "./pointShader";
+import {
+  prepareSandTransition,
+  REDUCED_MOTION_FADE_SEC,
+  smoothstep,
+  stepSandTransition,
+} from "./sandTransition";
 import { SpatialHashGrid } from "./spatialIndex";
 import {
   areCustomShadersAllowed,
@@ -54,7 +61,6 @@ import {
   validateShaderProgram,
 } from "./themeShaders";
 
-const LERP_DURATION_SEC = 0.72;
 const CAMERA_FOCUS_DURATION_SEC = 0.65;
 const PULSE_DIM_OPACITY = 0.3;
 const PULSE_VISIBILITY_REPORT_MS = 100;
@@ -64,6 +70,10 @@ const VOLUMETRIC_SCALE_MULTIPLIER = 0.45;
 const WATCHDOG_FRAME_MS_THRESHOLD = 100;
 const WATCHDOG_SUSTAINED_MS = 3_000;
 const WATCHDOG_WINDOW_MS = 1_000;
+const STRUCTURAL_EDGE_BASE_OPACITY = 0.36;
+const CUSTOM_MESH_BACKDROP_BASE_OPACITY = 0.15;
+const ISLAND_SLABS_BASE_OPACITY = 0.78;
+const ISLAND_RIMS_BASE_OPACITY = 0.86;
 
 export type ViewportEdge = "top" | "bottom" | "left" | "right";
 
@@ -204,6 +214,9 @@ interface PointBuffers {
   positions: Float32Array;
   prevPositions: Float32Array;
   targetPositions: Float32Array;
+  arcOffsets: Float32Array;
+  nodeDelays: Float32Array;
+  nodeDurations: Float32Array;
   colors: Float32Array;
   sizes: Float32Array;
   baseOpacities: Float32Array;
@@ -216,11 +229,63 @@ interface PointBuffers {
   pulseAttr: THREE.BufferAttribute;
 }
 
+interface SemanticEdgeBundle {
+  geometry: THREE.BufferGeometry;
+  posArray: Float32Array;
+  posAttr: THREE.BufferAttribute;
+  pairs: Int32Array;
+}
+
+type LayoutTransitionMode = "none" | "sand" | "fade";
+
+interface LayoutTransitionState {
+  initialized: boolean;
+  mode: LayoutTransitionMode;
+  elapsedSec: number;
+  maxEndTimeSec: number;
+  fadeHalfSec: number;
+  fadeSwapped: boolean;
+  fadeOpacity: number;
+  nodeIds: Uuid[];
+}
+
+function setMaterialOpacity(mat: THREE.Material, opacity: number): void {
+  if (mat instanceof THREE.ShaderMaterial && mat.uniforms.uOpacity) {
+    mat.uniforms.uOpacity.value = opacity;
+  } else {
+    mat.opacity = opacity;
+  }
+}
+
+function syncSemanticEdgesFromPositions(
+  bundle: SemanticEdgeBundle | null,
+  positions: Float32Array,
+): void {
+  if (!bundle) return;
+  const { pairs, posArray, posAttr } = bundle;
+  const edgeCount = pairs.length >>> 1;
+  for (let e = 0; e < edgeCount; e += 1) {
+    const src3 = (pairs[e * 2] ?? 0) * 3;
+    const dst3 = (pairs[e * 2 + 1] ?? 0) * 3;
+    const e6 = e * 6;
+    posArray[e6] = positions[src3] ?? 0;
+    posArray[e6 + 1] = positions[src3 + 1] ?? 0;
+    posArray[e6 + 2] = positions[src3 + 2] ?? 0;
+    posArray[e6 + 3] = positions[dst3] ?? 0;
+    posArray[e6 + 4] = positions[dst3 + 1] ?? 0;
+    posArray[e6 + 5] = positions[dst3 + 2] ?? 0;
+  }
+  posAttr.needsUpdate = true;
+}
+
 function createPointBuffers(capacity: number): PointBuffers {
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array(capacity * 3);
   const prevPositions = new Float32Array(capacity * 3);
   const targetPositions = new Float32Array(capacity * 3);
+  const arcOffsets = new Float32Array(capacity * 3);
+  const nodeDelays = new Float32Array(capacity);
+  const nodeDurations = new Float32Array(capacity);
   const colors = new Float32Array(capacity * 3);
   const sizes = new Float32Array(capacity);
   const baseOpacities = new Float32Array(capacity);
@@ -251,6 +316,9 @@ function createPointBuffers(capacity: number): PointBuffers {
     positions,
     prevPositions,
     targetPositions,
+    arcOffsets,
+    nodeDelays,
+    nodeDurations,
     colors,
     sizes,
     baseOpacities,
@@ -539,8 +607,14 @@ export function BrainScene({
   const requiredCapacity = nextCapacity(Math.max(1, graph.nodes.length));
   const buffersRef = useRef<PointBuffers | null>(null);
   if (!buffersRef.current || buffersRef.current.capacity < requiredCapacity) {
-    buffersRef.current?.geometry.dispose();
-    buffersRef.current = createPointBuffers(requiredCapacity);
+    const prevBuffers = buffersRef.current;
+    const nextBuffers = createPointBuffers(requiredCapacity);
+    if (prevBuffers) {
+      nextBuffers.positions.set(prevBuffers.positions);
+      nextBuffers.prevPositions.set(prevBuffers.prevPositions);
+      prevBuffers.geometry.dispose();
+    }
+    buffersRef.current = nextBuffers;
   }
   const buffers = buffersRef.current;
 
@@ -817,10 +891,17 @@ export function BrainScene({
   const bgColorRef = useRef(new THREE.Color(manifest.palette.background));
   bgColorRef.current.set(manifest.palette.background);
 
-  // Smooth dimming & pulse tracking refs (zero-allocation per-frame updates)
+  // Smooth dimming, fade, & pulse tracking refs (zero-allocation per-frame updates)
   const dimFactorRef = useRef(1.0);
   const appliedDimFactorRef = useRef(1.0);
+  const appliedFadeOpacityRef = useRef(1.0);
+  const appliedChromeOpacityRef = useRef(1.0);
+  const appliedSemanticFadeRef = useRef(1.0);
   const activePulsedIndicesRef = useRef<Set<number>>(new Set());
+
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const prefersReducedMotionRef = useRef(prefersReducedMotion);
+  prefersReducedMotionRef.current = prefersReducedMotion;
 
   const writeVolumetricInstance = useCallback(
     (mesh: THREE.InstancedMesh, idx: number, updateColor: boolean) => {
@@ -885,50 +966,173 @@ export function BrainScene({
   const spatialGridRef = useRef<SpatialHashGrid>(new SpatialHashGrid(14));
   const spatialDirtyRef = useRef(true);
 
-  // Lerp transition state
-  const lerpStateRef = useRef<{ progress: number; initialized: boolean }>({
-    progress: 1,
+  // Organic sand / reduced-motion fade layout transition state (all per-node data lives in GPU buffers)
+  const transitionRef = useRef<LayoutTransitionState>({
     initialized: false,
+    mode: "none",
+    elapsedSec: 0,
+    maxEndTimeSec: 0,
+    fadeHalfSec: REDUCED_MOTION_FADE_SEC * 0.5,
+    fadeSwapped: false,
+    fadeOpacity: 1,
+    nodeIds: [],
   });
 
-  // Update target positions whenever layout or node set changes, triggering smooth lerp
+  // Update target positions whenever layout or node set changes, triggering sand or reduced-motion transition
   useEffect(() => {
     const count = graph.nodes.length;
-    const { positions, prevPositions, targetPositions, geometry, posAttr } = buffers;
-    const state = lerpStateRef.current;
+    const {
+      positions,
+      prevPositions,
+      targetPositions,
+      arcOffsets,
+      nodeDelays,
+      nodeDurations,
+      geometry,
+      posAttr,
+    } = buffers;
+    const state = transitionRef.current;
 
-    for (let i = 0; i < count; i += 1) {
-      const node = graph.nodes[i];
-      if (!node) continue;
-      const target = layoutResult.nodePositions[node.id] ?? [0, 0, 0];
-      const i3 = i * 3;
-
-      if (!state.initialized) {
+    if (!state.initialized) {
+      for (let i = 0; i < count; i += 1) {
+        const node = graph.nodes[i];
+        if (!node) continue;
+        const target = layoutResult.nodePositions[node.id] ?? [0, 0, 0];
+        const i3 = i * 3;
         positions[i3] = target[0];
         positions[i3 + 1] = target[1];
         positions[i3 + 2] = target[2];
         prevPositions[i3] = target[0];
         prevPositions[i3 + 1] = target[1];
         prevPositions[i3 + 2] = target[2];
-      } else {
+        targetPositions[i3] = target[0];
+        targetPositions[i3 + 1] = target[1];
+        targetPositions[i3 + 2] = target[2];
+      }
+
+      geometry.setDrawRange(0, count);
+      state.initialized = true;
+      state.mode = "none";
+      state.elapsedSec = 0;
+      state.maxEndTimeSec = 0;
+      state.fadeSwapped = false;
+      state.fadeOpacity = 1;
+      state.nodeIds = graph.nodes.map((n) => n.id);
+      posAttr.needsUpdate = true;
+      spatialDirtyRef.current = true;
+      return;
+    }
+
+    // Check whether node list order is unchanged (common layout-switch path, zero allocations)
+    const prevIds = state.nodeIds;
+    let sameNodeOrder = prevIds.length === count;
+    if (sameNodeOrder) {
+      for (let i = 0; i < count; i += 1) {
+        if (prevIds[i] !== graph.nodes[i]?.id) {
+          sameNodeOrder = false;
+          break;
+        }
+      }
+    }
+
+    if (sameNodeOrder) {
+      for (let i = 0; i < count; i += 1) {
+        const node = graph.nodes[i];
+        if (!node) continue;
+        const target = layoutResult.nodePositions[node.id] ?? [0, 0, 0];
+        const i3 = i * 3;
+        // Continue seamlessly from current GPU positions (handles mid-flight interruptions)
         prevPositions[i3] = positions[i3] ?? target[0];
         prevPositions[i3 + 1] = positions[i3 + 1] ?? target[1];
         prevPositions[i3 + 2] = positions[i3 + 2] ?? target[2];
+        targetPositions[i3] = target[0];
+        targetPositions[i3 + 1] = target[1];
+        targetPositions[i3 + 2] = target[2];
       }
+    } else {
+      const prevIdxById = new Map<Uuid, number>();
+      for (let i = 0; i < prevIds.length; i += 1) {
+        const id = prevIds[i];
+        if (id) prevIdxById.set(id, i);
+      }
+      const oldSnapshot = positions.slice(0, prevIds.length * 3);
 
-      targetPositions[i3] = target[0];
-      targetPositions[i3 + 1] = target[1];
-      targetPositions[i3 + 2] = target[2];
+      for (let i = 0; i < count; i += 1) {
+        const node = graph.nodes[i];
+        if (!node) continue;
+        const target = layoutResult.nodePositions[node.id] ?? [0, 0, 0];
+        const i3 = i * 3;
+        const oldIdx = prevIdxById.get(node.id);
+
+        if (oldIdx !== undefined) {
+          const o3 = oldIdx * 3;
+          const ox = oldSnapshot[o3] ?? target[0];
+          const oy = oldSnapshot[o3 + 1] ?? target[1];
+          const oz = oldSnapshot[o3 + 2] ?? target[2];
+          prevPositions[i3] = ox;
+          prevPositions[i3 + 1] = oy;
+          prevPositions[i3 + 2] = oz;
+          positions[i3] = ox;
+          positions[i3 + 1] = oy;
+          positions[i3 + 2] = oz;
+        } else {
+          // Brand-new node spawns directly at its destination
+          prevPositions[i3] = target[0];
+          prevPositions[i3 + 1] = target[1];
+          prevPositions[i3 + 2] = target[2];
+          positions[i3] = target[0];
+          positions[i3 + 1] = target[1];
+          positions[i3 + 2] = target[2];
+        }
+
+        targetPositions[i3] = target[0];
+        targetPositions[i3 + 1] = target[1];
+        targetPositions[i3 + 2] = target[2];
+      }
+      state.nodeIds = graph.nodes.map((n) => n.id);
     }
 
     geometry.setDrawRange(0, count);
-    if (!state.initialized) {
-      state.initialized = true;
-      state.progress = 1;
-      posAttr.needsUpdate = true;
+
+    if (prefersReducedMotionRef.current) {
+      const halfSec = REDUCED_MOTION_FADE_SEC * 0.5;
+      state.fadeHalfSec = halfSec;
+      if (state.mode === "fade" && !state.fadeSwapped) {
+        // Already fading out: keep current fade progress toward the newest target
+      } else if (state.mode === "fade" && state.fadeSwapped) {
+        // Interrupted while fading in: reverse smoothly from current opacity without popping
+        state.elapsedSec = halfSec * (1 - state.fadeOpacity);
+        state.fadeSwapped = false;
+      } else {
+        state.mode = "fade";
+        state.elapsedSec = 0;
+        state.fadeSwapped = false;
+        state.fadeOpacity = 1;
+      }
+      if (!sameNodeOrder) {
+        posAttr.needsUpdate = true;
+      }
     } else {
-      state.progress = 0;
+      const maxEndTimeSec = prepareSandTransition({
+        nodes: graph.nodes,
+        prevPositions,
+        targetPositions,
+        arcOffsets,
+        nodeDelays,
+        nodeDurations,
+      });
+      state.mode = maxEndTimeSec > 0 ? "sand" : "none";
+      state.elapsedSec = 0;
+      state.maxEndTimeSec = maxEndTimeSec;
+      state.fadeSwapped = false;
+      state.fadeOpacity = 1;
+      if (!sameNodeOrder || maxEndTimeSec === 0) {
+        posAttr.needsUpdate = true;
+      }
     }
+
+    // Force layout chrome opacity resync on the next frame
+    appliedChromeOpacityRef.current = -1;
     spatialDirtyRef.current = true;
   }, [buffers, graph.nodes, layoutResult]);
 
@@ -941,6 +1145,7 @@ export function BrainScene({
     const scaleByHits = manifest.node_geometry.scale_by_hits;
     const activePulses = activePulsedIndicesRef.current;
     const currentDim = dimFactorRef.current;
+    const currentFade = transitionRef.current.fadeOpacity;
 
     for (let i = 0; i < count; i += 1) {
       const node = graph.nodes[i];
@@ -979,17 +1184,19 @@ export function BrainScene({
       meta[i4] = node.is_core_pin ? 1 : 0;
       meta[i4 + 1] = node.is_reusable ? 1 : 0;
       meta[i4 + 2] = isSelected ? 2 : isHovered ? 1 : isHighlighted ? 3 : 0;
-      meta[i4 + 3] = activePulses.has(i)
+      const rawOpacity = activePulses.has(i)
         ? 1.0
         : isSelected || isHovered
           ? Math.max(baseOpacity * currentDim, 0.85)
           : baseOpacity * currentDim;
+      meta[i4 + 3] = rawOpacity * currentFade;
     }
 
     colorAttr.needsUpdate = true;
     sizeAttr.needsUpdate = true;
     metaAttr.needsUpdate = true;
     appliedDimFactorRef.current = currentDim;
+    appliedFadeOpacityRef.current = currentFade;
     spatialDirtyRef.current = true;
   }, [
     activeLayout,
@@ -1263,11 +1470,13 @@ export function BrainScene({
   // ---------------------------------------------------------------------------
   // 5. Real memory edges & structural layout edges (LineBasicMaterial -> ShaderMaterial only on custom edge shader)
   // ---------------------------------------------------------------------------
-  const semanticEdgeGeometry = useMemo(() => {
+  const semanticEdgeBundle = useMemo<SemanticEdgeBundle | null>(() => {
     const focusId = hoveredNodeId ?? selectedNodeId;
     if (!showConnections && !focusId) return null;
 
+    const useLivePositions = transitionRef.current.initialized;
     const coords: number[] = [];
+    const pairs: number[] = [];
     for (const edge of graph.edges) {
       if (!visibleNodeIds.has(edge.source_id) || !visibleNodeIds.has(edge.target_id)) {
         continue;
@@ -1288,36 +1497,66 @@ export function BrainScene({
         }
       }
 
-      const from = layoutResult.nodePositions[edge.source_id];
-      const to = layoutResult.nodePositions[edge.target_id];
-      if (!from || !to) continue;
-      coords.push(from[0], from[1], from[2], to[0], to[1], to[2]);
+      const srcIdx = nodeIndexMap.get(edge.source_id);
+      const dstIdx = nodeIndexMap.get(edge.target_id);
+      if (srcIdx === undefined || dstIdx === undefined) continue;
+
+      if (useLivePositions) {
+        const s3 = srcIdx * 3;
+        const d3 = dstIdx * 3;
+        coords.push(
+          buffers.positions[s3] ?? 0,
+          buffers.positions[s3 + 1] ?? 0,
+          buffers.positions[s3 + 2] ?? 0,
+          buffers.positions[d3] ?? 0,
+          buffers.positions[d3 + 1] ?? 0,
+          buffers.positions[d3 + 2] ?? 0,
+        );
+      } else {
+        const from = layoutResult.nodePositions[edge.source_id];
+        const to = layoutResult.nodePositions[edge.target_id];
+        if (!from || !to) continue;
+        coords.push(from[0], from[1], from[2], to[0], to[1], to[2]);
+      }
+      pairs.push(srcIdx, dstIdx);
     }
 
     if (coords.length === 0) return null;
+    const posArray = new Float32Array(coords);
+    const posAttr = new THREE.BufferAttribute(posArray, 3);
+    posAttr.setUsage(THREE.DynamicDrawUsage);
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(coords, 3));
+    geometry.setAttribute("position", posAttr);
     if (edgeShaderConfig.isCustom) {
       attachUniformEdgeColorAttribute(geometry, manifest.palette.edge);
     }
-    return geometry;
+    return {
+      geometry,
+      posArray,
+      posAttr,
+      pairs: new Int32Array(pairs),
+    };
   }, [
+    buffers.positions,
     edgeShaderConfig.isCustom,
     graph.edges,
     hoveredNodeId,
     isProjectIslands,
     layoutResult.nodePositions,
     manifest.palette.edge,
+    nodeIndexMap,
     nodeProjectMap,
     selectedNodeId,
     showConnections,
     visibleNodeIds,
   ]);
 
+  const semanticEdgeGeometry = semanticEdgeBundle?.geometry ?? null;
+  const semanticEdgeBaseOpacity = showConnections ? 0.45 : 0.72;
+
   const semanticEdgeMaterial = useMemo<THREE.Material>(() => {
-    const opacity = showConnections ? 0.45 : 0.72;
     if (edgeShaderConfig.isCustom) {
-      return createEdgeShaderMaterial(opacity, {
+      return createEdgeShaderMaterial(semanticEdgeBaseOpacity, {
         vertex: edgeShaderConfig.vertex,
         fragment: edgeShaderConfig.fragment,
       });
@@ -1325,15 +1564,19 @@ export function BrainScene({
     return new THREE.LineBasicMaterial({
       color: manifest.palette.edge,
       transparent: true,
-      opacity,
+      opacity: semanticEdgeBaseOpacity,
     });
   }, [
     edgeShaderConfig.fragment,
     edgeShaderConfig.isCustom,
     edgeShaderConfig.vertex,
     manifest.palette.edge,
-    showConnections,
+    semanticEdgeBaseOpacity,
   ]);
+
+  useEffect(() => {
+    appliedSemanticFadeRef.current = -1;
+  }, [semanticEdgeMaterial]);
 
   useEffect(() => {
     return () => {
@@ -1494,6 +1737,7 @@ export function BrainScene({
   }, [i18n.resolvedLanguage, isProjectIslands, layoutResult.projectContainers, t]);
 
   useEffect(() => {
+    appliedChromeOpacityRef.current = -1;
     return () => {
       for (const lbl of islandLabels) {
         lbl.material.dispose();
@@ -1501,6 +1745,34 @@ export function BrainScene({
       }
     };
   }, [islandLabels]);
+
+  useEffect(() => {
+    const t = transitionRef.current;
+    const initialChromeOpacity =
+      t.mode === "sand" && t.maxEndTimeSec > 0
+        ? smoothstep(0.38, 0.9, Math.min(1, t.elapsedSec / t.maxEndTimeSec))
+        : t.mode === "fade"
+          ? t.fadeOpacity
+          : 1.0;
+    setMaterialOpacity(structuralEdgeMaterial, STRUCTURAL_EDGE_BASE_OPACITY * initialChromeOpacity);
+    if (customMeshBackdropMaterial) {
+      customMeshBackdropMaterial.opacity =
+        CUSTOM_MESH_BACKDROP_BASE_OPACITY * initialChromeOpacity;
+    }
+    islandSlabsMaterial.opacity = ISLAND_SLABS_BASE_OPACITY * initialChromeOpacity;
+    islandRimsMaterial.opacity = ISLAND_RIMS_BASE_OPACITY * initialChromeOpacity;
+    for (const lbl of islandLabels) {
+      lbl.material.opacity = initialChromeOpacity;
+    }
+    appliedChromeOpacityRef.current = initialChromeOpacity;
+  }, [
+    customMeshBackdropMaterial,
+    islandLabels,
+    islandRimsMaterial,
+    islandSlabsMaterial,
+    layoutResult,
+    structuralEdgeMaterial,
+  ]);
 
   // ---------------------------------------------------------------------------
   // 6. Frame-time watchdog (avg > 100 ms sustained for 3 s while custom shaders active)
@@ -1642,19 +1914,33 @@ export function BrainScene({
       }
     }
 
-    // 1. Layout position lerp
-    const lerpState = lerpStateRef.current;
-    if (lerpState.progress < 1) {
-      lerpState.progress = Math.min(1, lerpState.progress + delta / LERP_DURATION_SEC);
-      const tEase = 1 - Math.pow(1 - lerpState.progress, 3);
+    // 1. Organic "sand" layout transition OR reduced-motion plain fade (GPU buffers only)
+    const transition = transitionRef.current;
+    let targetChromeOpacity = 1.0;
+
+    if (transition.mode === "sand") {
+      transition.elapsedSec += delta;
       const count = graph.nodes.length;
-      const len3 = count * 3;
-      const { positions, prevPositions, targetPositions, posAttr } = buffers;
-      for (let i = 0; i < len3; i += 1) {
-        const p = prevPositions[i] ?? 0;
-        const tgt = targetPositions[i] ?? 0;
-        positions[i] = p + (tgt - p) * tEase;
-      }
+      const {
+        positions,
+        prevPositions,
+        targetPositions,
+        arcOffsets,
+        nodeDelays,
+        nodeDurations,
+        posAttr,
+      } = buffers;
+
+      const finished = stepSandTransition(
+        count,
+        transition.elapsedSec,
+        positions,
+        prevPositions,
+        targetPositions,
+        arcOffsets,
+        nodeDelays,
+        nodeDurations,
+      );
       posAttr.needsUpdate = true;
 
       if (instancedMesh) {
@@ -1664,9 +1950,77 @@ export function BrainScene({
         instancedMesh.instanceMatrix.needsUpdate = true;
       }
 
-      if (lerpState.progress >= 1) {
+      syncSemanticEdgesFromPositions(semanticEdgeBundle, positions);
+
+      const overallProgress =
+        transition.maxEndTimeSec > 0
+          ? Math.min(1, transition.elapsedSec / transition.maxEndTimeSec)
+          : 1;
+      targetChromeOpacity = finished ? 1.0 : smoothstep(0.38, 0.9, overallProgress);
+
+      if (finished) {
+        transition.mode = "none";
         spatialDirtyRef.current = true;
       }
+    } else if (transition.mode === "fade") {
+      transition.elapsedSec += delta;
+      const halfSec = transition.fadeHalfSec;
+
+      if (!transition.fadeSwapped && transition.elapsedSec >= halfSec) {
+        const count = graph.nodes.length;
+        const len3 = count * 3;
+        const { positions, targetPositions, posAttr } = buffers;
+        for (let i = 0; i < len3; i += 1) {
+          positions[i] = targetPositions[i] ?? 0;
+        }
+        posAttr.needsUpdate = true;
+
+        if (instancedMesh) {
+          for (let i = 0; i < count; i += 1) {
+            writeVolumetricInstance(instancedMesh, i, false);
+          }
+          instancedMesh.instanceMatrix.needsUpdate = true;
+        }
+
+        syncSemanticEdgesFromPositions(semanticEdgeBundle, positions);
+        transition.fadeSwapped = true;
+        spatialDirtyRef.current = true;
+      }
+
+      if (transition.elapsedSec < halfSec) {
+        transition.fadeOpacity = Math.max(0, 1 - transition.elapsedSec / halfSec);
+      } else if (transition.elapsedSec < halfSec * 2) {
+        transition.fadeOpacity = Math.min(1, (transition.elapsedSec - halfSec) / halfSec);
+      } else {
+        transition.fadeOpacity = 1;
+        transition.mode = "none";
+      }
+      targetChromeOpacity = transition.fadeOpacity;
+    }
+
+    // Apply layout chrome opacity (structural edges, custom mesh backdrop, islands)
+    if (Math.abs(targetChromeOpacity - appliedChromeOpacityRef.current) > 0.002) {
+      setMaterialOpacity(
+        structuralEdgeMaterial,
+        STRUCTURAL_EDGE_BASE_OPACITY * targetChromeOpacity,
+      );
+      if (customMeshBackdropMaterial) {
+        customMeshBackdropMaterial.opacity =
+          CUSTOM_MESH_BACKDROP_BASE_OPACITY * targetChromeOpacity;
+      }
+      islandSlabsMaterial.opacity = ISLAND_SLABS_BASE_OPACITY * targetChromeOpacity;
+      islandRimsMaterial.opacity = ISLAND_RIMS_BASE_OPACITY * targetChromeOpacity;
+      for (const lbl of islandLabels) {
+        lbl.material.opacity = targetChromeOpacity;
+      }
+      appliedChromeOpacityRef.current = targetChromeOpacity;
+    }
+
+    // Apply reduced-motion fade to semantic edges
+    const semanticFade = transition.fadeOpacity;
+    if (Math.abs(semanticFade - appliedSemanticFadeRef.current) > 0.002) {
+      setMaterialOpacity(semanticEdgeMaterial, semanticEdgeBaseOpacity * semanticFade);
+      appliedSemanticFadeRef.current = semanticFade;
     }
 
     // 1b. Smooth camera focus transition
@@ -1765,23 +2119,32 @@ export function BrainScene({
     dimFactorRef.current = nextDim;
 
     const dimDelta = Math.abs(nextDim - appliedDimFactorRef.current);
-    if (dimDelta > 0.002 || (membershipChanged && (nextDim < 0.998 || appliedDimFactorRef.current < 0.998))) {
+    const fadeOpacity = transition.fadeOpacity;
+    const fadeDelta = Math.abs(fadeOpacity - appliedFadeOpacityRef.current);
+    if (
+      dimDelta > 0.002 ||
+      fadeDelta > 0.002 ||
+      (membershipChanged && (nextDim < 0.998 || appliedDimFactorRef.current < 0.998))
+    ) {
       const count = graph.nodes.length;
       const currentActive = activePulsedIndicesRef.current;
       for (let i = 0; i < count; i += 1) {
         const i4 = i * 4;
         const baseOp = baseOpacities[i] ?? 1.0;
         const focus = meta[i4 + 2] ?? 0;
+        let op: number;
         if (currentActive.has(i)) {
-          meta[i4 + 3] = 1.0;
+          op = 1.0;
         } else if (focus === 1 || focus === 2) {
-          meta[i4 + 3] = Math.max(baseOp * nextDim, 0.85);
+          op = Math.max(baseOp * nextDim, 0.85);
         } else {
-          meta[i4 + 3] = baseOp * nextDim;
+          op = baseOp * nextDim;
         }
+        meta[i4 + 3] = op * fadeOpacity;
       }
       metaAttr.needsUpdate = true;
       appliedDimFactorRef.current = nextDim;
+      appliedFadeOpacityRef.current = fadeOpacity;
 
       if (instancedMesh) {
         for (let i = 0; i < count; i += 1) {
