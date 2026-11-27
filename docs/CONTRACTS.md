@@ -342,7 +342,9 @@ selectable only in Pro mode (`PRO_ENGLISH_MODELS`). Defaults come from
 - Catalog: `crates/cobalt-core/catalog/ocr.json` (`Catalog::ocr_models`, `DEFAULT_OCR_MODEL =
   "ocrs-latin"`): detection + recognition ONNX files for [ocrs](https://github.com/robertknight/ocrs),
   pinned by SHA-256 + size (upstream URLs are unversioned, so a replaced upstream file fails
-  verification instead of loading). Latin script only (Spanish, English, …).
+  verification instead of loading). Basic Latin only: the recognition alphabet is ASCII
+  (A–Z, a–z, digits, punctuation), so accented letters, ñ, ü, ¿ and ¡ are misread. English reads
+  well; Spanish/French text is readable but loses its accents.
   OCR is approximate: it can misread handwriting, but also computer-made text (small or
   stylized fonts, low resolution, blur, noisy backgrounds, tables, columns). The UI must say so,
   and OCR memories (`category = ocr`) should be treated as possibly inexact.
