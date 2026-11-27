@@ -22,6 +22,7 @@ import {
   Repeat,
   RotateCcw,
   Save,
+  ScanText,
   ShieldAlert,
   Trash2,
   Users,
@@ -571,6 +572,15 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                 >
                   {t(`statuses.${memory.status}`)}
                 </span>
+                {memory.category === "ocr" && (
+                  <span
+                    title={t("ocr.badgeTooltip")}
+                    className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-1.5 py-0.5 uppercase text-cobalt-ink"
+                  >
+                    <ScanText size={10} aria-hidden />
+                    {t("ocr.badge")}
+                  </span>
+                )}
                 {memory.is_core_pin && (
                   <span className="inline-flex items-center gap-1 rounded-[2px] border border-ochre-rule bg-ochre-wash px-1.5 py-0.5 text-ochre">
                     <Pin size={10} aria-hidden />
@@ -798,6 +808,12 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                 <div className="rounded-[2px] border border-rule bg-void p-3 text-xs leading-relaxed whitespace-pre-wrap text-bone">
                   {memory.content}
                 </div>
+              )}
+
+              {memory.category === "ocr" && (
+                <p className="text-[11px] leading-snug text-bone-muted">
+                  {t("inspector.ocrVerifyHint")}
+                </p>
               )}
             </section>
 

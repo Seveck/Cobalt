@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Repeat,
   RotateCcw,
+  ScanText,
   Search,
   ShieldAlert,
   Trash2,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickSinglePath, useFileDrop } from "@/lib/dialogs";
+import { isOcrNotInstalledMessage } from "@/lib/ingest";
 import {
   useFiltersStore,
   useLibraryStore,
@@ -31,6 +33,7 @@ import { Select, type SelectOption } from "@/components/ui";
 import {
   SOURCE_TYPES,
   type FileAvailability,
+  type MemoryCategory,
   type ProjectStats,
   type ReusableAsset,
   type SourceType,
@@ -67,14 +70,17 @@ export function LibraryView() {
   const loadLibrary = useLibraryStore((s) => s.loadLibrary);
 
   const readOnly = useSettingsStore((s) => s.settings.read_only);
+  const graphNodes = useMemoryStore((s) => s.graph?.nodes);
   const setSelectedNodeId = useMemoryStore((s) => s.setSelectedNodeId);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const resetVisualFilters = useFiltersStore((s) => s.resetFilters);
   const setActiveNav = useUiStore((s) => s.setActiveNav);
+  const openSettingsSection = useUiStore((s) => s.openSettingsSection);
 
   const [projects, setProjects] = useState<ProjectStats[]>([]);
   const [searchInput, setSearchInput] = useState(filter.query ?? "");
   const [verifiedMap, setVerifiedMap] = useState<Record<string, FileAvailability>>({});
+  const [fetchedCategories, setFetchedCategories] = useState<Record<string, MemoryCategory>>({});
   const [verifyingIds, setVerifyingIds] = useState<ReadonlySet<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -165,6 +171,49 @@ export function LibraryView() {
       cancelled = true;
     };
   }, [assets]);
+
+  const graphCategoryById = useMemo(() => {
+    const map = new Map<Uuid, MemoryCategory>();
+    for (const node of graphNodes ?? []) {
+      map.set(node.id, node.category);
+    }
+    return map;
+  }, [graphNodes]);
+
+  // Fallback category lookup for any reusable asset not present in the current graph snapshot
+  useEffect(() => {
+    const missingIds = assets
+      .map((a) => a.memory_id)
+      .filter((id) => !graphCategoryById.has(id) && !(id in fetchedCategories));
+    if (missingIds.length === 0) return;
+
+    let cancelled = false;
+    void Promise.all(
+      missingIds.map(async (id) => {
+        try {
+          const mem = await backendCall("get_memory", { id });
+          return [id, mem.category] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((pairs) => {
+      if (cancelled) return;
+      const updates: Record<string, MemoryCategory> = {};
+      for (const pair of pairs) {
+        if (pair) {
+          updates[pair[0]] = pair[1];
+        }
+      }
+      if (Object.keys(updates).length > 0) {
+        setFetchedCategories((prev) => ({ ...prev, ...updates }));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assets, fetchedCategories, graphCategoryById]);
 
   const handlePromotePaths = useCallback(
     async (paths: string[]) => {
@@ -382,8 +431,18 @@ export function LibraryView() {
           </div>
         )}
         {(error || storeError) && (
-          <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
-            {error ?? storeError}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
+            <span>{error ?? storeError}</span>
+            {isOcrNotInstalledMessage(error ?? storeError) && (
+              <button
+                type="button"
+                onClick={() => openSettingsSection("ocr")}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[11px] font-semibold text-bone transition-colors hover:bg-cobalt-bright"
+              >
+                <ScanText size={11} aria-hidden />
+                {t("ocr.installAction")}
+              </button>
+            )}
           </div>
         )}
         {notice && (
@@ -594,6 +653,9 @@ export function LibraryView() {
           <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
             {displayedAssets.map((asset) => {
               const diskStatus = verifiedMap[asset.memory_id] ?? asset.availability;
+              const category =
+                graphCategoryById.get(asset.memory_id) ?? fetchedCategories[asset.memory_id];
+              const isOcr = category === "ocr";
               const isVerifying = verifyingIds.has(asset.memory_id);
               const isBusy = busyId === asset.memory_id;
               const pathCopyKey = `${asset.memory_id}:path`;
@@ -618,6 +680,15 @@ export function LibraryView() {
                         <span className="rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase text-bone-muted">
                           {asset.source_type}
                         </span>
+                        {isOcr && (
+                          <span
+                            title={t("ocr.badgeTooltip")}
+                            className="inline-flex shrink-0 items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-1.5 py-0.5 text-[10px] uppercase text-cobalt-ink"
+                          >
+                            <ScanText size={10} aria-hidden />
+                            {t("ocr.badge")}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-1.5">

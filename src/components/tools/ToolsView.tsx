@@ -20,6 +20,7 @@ import {
   Plus,
   RotateCcw,
   Save,
+  ScanText,
   ShieldAlert,
   Sparkles,
   Upload,
@@ -27,8 +28,20 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickPaths, pickSavePath, pickSinglePath, useFileDrop } from "@/lib/dialogs";
-import { analyzeIngestReport } from "@/lib/ingest";
-import { useIngestStore, useMemoryStore, useSettingsStore, useUiStore, type ToolsTab } from "@/stores";
+import { isEngineStateInstalled } from "@/lib/format";
+import {
+  analyzeIngestReport,
+  isOcrNotInstalledMessage,
+  reportHasOcrNotInstalledError,
+} from "@/lib/ingest";
+import {
+  useHardwareStore,
+  useIngestStore,
+  useMemoryStore,
+  useSettingsStore,
+  useUiStore,
+  type ToolsTab,
+} from "@/stores";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
 import type {
   BackupManifest,
@@ -147,6 +160,8 @@ export function ToolsView() {
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const activeTab = useUiStore((s) => s.toolsTab);
   const setActiveTab = useUiStore((s) => s.setToolsTab);
+  const openSettingsSection = useUiStore((s) => s.openSettingsSection);
+  const ocrStatus = useHardwareStore((s) => s.ocrStatus);
 
   const ingestJobs = useIngestStore((s) => s.jobs);
   const startIngestPaths = useIngestStore((s) => s.startIngestPaths);
@@ -188,7 +203,7 @@ export function ToolsView() {
   const [ingestProjectId, setIngestProjectId] = useState<string>("__global__");
   const [ingestWatch, setIngestWatch] = useState(false);
   const [ingestReusable, setIngestReusable] = useState(false);
-  const [ingestOcr, setIngestOcr] = useState(false);
+  const [ingestOcr, setIngestOcr] = useState(true);
 
   const [pastLifeSource, setPastLifeSource] = useState<PastLifeSource>("chatgpt_export");
   const [pastLifePath, setPastLifePath] = useState("");
@@ -553,7 +568,9 @@ export function ToolsView() {
   ];
 
   const latestFinishedIngestJob = useMemo(
-    () => ingestJobs.find((j) => j.status !== "running" && j.report !== null) ?? null,
+    () =>
+      ingestJobs.find((j) => j.status !== "running" && (j.report !== null || j.error !== null)) ??
+      null,
     [ingestJobs],
   );
   const latestAnalyzedReport = useMemo(
@@ -563,6 +580,12 @@ export function ToolsView() {
         : null,
     [latestFinishedIngestJob],
   );
+  const latestJobHasOcrError = Boolean(
+    latestFinishedIngestJob &&
+      (isOcrNotInstalledMessage(latestFinishedIngestJob.error) ||
+        reportHasOcrNotInstalledError(latestFinishedIngestJob.report)),
+  );
+  const ocrInstalled = Boolean(ocrStatus && isEngineStateInstalled(ocrStatus.state));
 
   return (
     <div className="relative h-full overflow-y-auto bg-void p-6 lg:p-8">
@@ -625,8 +648,18 @@ export function ToolsView() {
           </div>
         )}
         {error && (
-          <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
-            {error}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
+            <span>{error}</span>
+            {isOcrNotInstalledMessage(error) && (
+              <button
+                type="button"
+                onClick={() => openSettingsSection("ocr")}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[11px] font-semibold text-bone transition-colors hover:bg-cobalt-bright"
+              >
+                <ScanText size={11} aria-hidden />
+                {t("ocr.installAction")}
+              </button>
+            )}
           </div>
         )}
         {notice && (
@@ -1120,15 +1153,26 @@ export function ToolsView() {
                   />
                   <span>{t("tools.importer.reusableOption")}</span>
                 </label>
-                <label className="flex items-center gap-2 text-bone-muted">
-                  <Toggle
-                    checked={ingestOcr}
-                    disabled={readOnly}
-                    ariaLabel={t("tools.importer.ocrOption")}
-                    onChange={setIngestOcr}
-                  />
-                  <span>{t("tools.importer.ocrOption")}</span>
-                </label>
+                <div className="flex items-center gap-2 text-bone-muted">
+                  <label className="flex items-center gap-2">
+                    <Toggle
+                      checked={ingestOcr}
+                      disabled={readOnly}
+                      ariaLabel={t("tools.importer.ocrOption")}
+                      onChange={setIngestOcr}
+                    />
+                    <span>{t("tools.importer.ocrOption")}</span>
+                  </label>
+                  {ocrStatus && !ocrInstalled && (
+                    <button
+                      type="button"
+                      onClick={() => openSettingsSection("ocr")}
+                      className="rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-1.5 py-0.5 font-mono text-[10px] font-medium text-cobalt-ink transition-colors hover:bg-cobalt hover:text-bone"
+                    >
+                      {t("ocr.installAction")}
+                    </button>
+                  )}
+                </div>
 
                 <button
                   type="button"
@@ -1214,79 +1258,115 @@ export function ToolsView() {
             </section>
 
             {/* Latest ingest report (synced with global ingest store) */}
-            {latestFinishedIngestJob && latestAnalyzedReport && (
+            {latestFinishedIngestJob && (latestAnalyzedReport || latestFinishedIngestJob.error) && (
               <div
                 className={`space-y-2.5 rounded-[2px] border p-4 text-xs ${
-                  latestFinishedIngestJob.status === "cancelled"
-                    ? "border-ochre-rule bg-ochre-wash/50"
-                    : "border-verdigris-rule bg-verdigris-wash/60"
+                  latestFinishedIngestJob.status === "failed" || latestJobHasOcrError
+                    ? "border-cinnabar-rule bg-cinnabar-wash/45"
+                    : latestFinishedIngestJob.status === "cancelled"
+                      ? "border-ochre-rule bg-ochre-wash/50"
+                      : "border-verdigris-rule bg-verdigris-wash/60"
                 }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div
                     className={`font-mono text-[11px] font-semibold uppercase tracking-[0.1em] ${
-                      latestFinishedIngestJob.status === "cancelled"
-                        ? "text-ochre"
-                        : "text-verdigris"
+                      latestFinishedIngestJob.status === "failed" || latestJobHasOcrError
+                        ? "text-cinnabar"
+                        : latestFinishedIngestJob.status === "cancelled"
+                          ? "text-ochre"
+                          : "text-verdigris"
                     }`}
                   >
                     {t("tools.importer.reportTitle")} · {latestFinishedIngestJob.label}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => openIngestReport(latestFinishedIngestJob.id)}
-                    className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-2 py-0.5 font-mono text-[10px] font-medium text-cobalt-ink hover:bg-cobalt hover:text-bone"
-                  >
-                    <FileText size={10} aria-hidden />
-                    {t("ingest.actions.viewReport")}
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums sm:grid-cols-4">
-                  <div>
-                    <span className="text-bone-subtle">{t("tools.importer.docsCreated")}: </span>
-                    <strong className="text-bone">{latestAnalyzedReport.documentsCreated}</strong>
-                  </div>
-                  <div>
-                    <span className="text-bone-subtle">{t("tools.importer.docsUpdated")}: </span>
-                    <strong className="text-bone">{latestAnalyzedReport.documentsUpdated}</strong>
-                  </div>
-                  <div>
-                    <span className="text-bone-subtle">{t("ingest.report.filesUnchanged")}: </span>
-                    <strong className="text-bone">{latestAnalyzedReport.documentsUnchanged}</strong>
-                  </div>
-                  <div>
-                    <span className="text-bone-subtle">{t("tools.importer.memsCreated")}: </span>
-                    <strong className="text-bone">{latestAnalyzedReport.memoriesCreated}</strong>
-                  </div>
-                  <div>
-                    <span className="text-bone-subtle">{t("tools.importer.tokensIndexed")}: </span>
-                    <strong className="text-bone">
-                      {latestAnalyzedReport.totalTokens.toLocaleString()}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-bone-subtle">{t("tools.importer.redactedSecrets")}: </span>
-                    <strong className="text-ochre">{latestAnalyzedReport.redactedSecrets}</strong>
-                  </div>
-                  <div>
-                    <span className="text-bone-subtle">{t("ingest.report.skipped")}: </span>
-                    <strong className="text-ochre">{latestAnalyzedReport.skippedCount}</strong>
-                  </div>
-                  <div>
-                    <span className="text-bone-subtle">{t("ingest.report.errors")}: </span>
-                    <strong
-                      className={
-                        latestAnalyzedReport.errorIssues.length > 0 ? "text-cinnabar" : "text-bone"
-                      }
+                  <div className="flex items-center gap-1.5">
+                    {latestJobHasOcrError && (
+                      <button
+                        type="button"
+                        onClick={() => openSettingsSection("ocr")}
+                        className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2 py-0.5 font-mono text-[10px] font-semibold text-bone hover:bg-cobalt-bright"
+                      >
+                        <ScanText size={10} aria-hidden />
+                        {t("ocr.installAction")}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => openIngestReport(latestFinishedIngestJob.id)}
+                      className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-2 py-0.5 font-mono text-[10px] font-medium text-cobalt-ink hover:bg-cobalt hover:text-bone"
                     >
-                      {latestAnalyzedReport.errorIssues.length}
-                    </strong>
+                      <FileText size={10} aria-hidden />
+                      {t("ingest.actions.viewReport")}
+                    </button>
                   </div>
                 </div>
-                {latestAnalyzedReport.skippedCount > 0 && (
-                  <p className="text-[11px] text-bone-muted">
-                    {t("ingest.report.skippedRulesHint")}
-                  </p>
+                {latestFinishedIngestJob.error && (
+                  <p className="text-xs text-cinnabar">{latestFinishedIngestJob.error}</p>
+                )}
+                {latestAnalyzedReport && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums sm:grid-cols-4">
+                      <div>
+                        <span className="text-bone-subtle">{t("tools.importer.docsCreated")}: </span>
+                        <strong className="text-bone">{latestAnalyzedReport.documentsCreated}</strong>
+                      </div>
+                      <div>
+                        <span className="text-bone-subtle">{t("tools.importer.docsUpdated")}: </span>
+                        <strong className="text-bone">{latestAnalyzedReport.documentsUpdated}</strong>
+                      </div>
+                      <div>
+                        <span className="text-bone-subtle">{t("ingest.report.filesUnchanged")}: </span>
+                        <strong className="text-bone">{latestAnalyzedReport.documentsUnchanged}</strong>
+                      </div>
+                      <div>
+                        <span className="text-bone-subtle">{t("tools.importer.memsCreated")}: </span>
+                        <strong className="text-bone">{latestAnalyzedReport.memoriesCreated}</strong>
+                      </div>
+                      <div>
+                        <span className="text-bone-subtle">{t("tools.importer.tokensIndexed")}: </span>
+                        <strong className="text-bone">
+                          {latestAnalyzedReport.totalTokens.toLocaleString()}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-bone-subtle">{t("tools.importer.redactedSecrets")}: </span>
+                        <strong className="text-ochre">{latestAnalyzedReport.redactedSecrets}</strong>
+                      </div>
+                      <div>
+                        <span className="text-bone-subtle">{t("ingest.report.skipped")}: </span>
+                        <strong className="text-ochre">{latestAnalyzedReport.skippedCount}</strong>
+                      </div>
+                      <div>
+                        <span className="text-bone-subtle">{t("ingest.report.errors")}: </span>
+                        <strong
+                          className={
+                            latestAnalyzedReport.errorIssues.length > 0 ? "text-cinnabar" : "text-bone"
+                          }
+                        >
+                          {latestAnalyzedReport.errorIssues.length}
+                        </strong>
+                      </div>
+                    </div>
+                    {latestAnalyzedReport.hasOcrNotInstalledError && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-cinnabar-rule/80 bg-void/70 px-3 py-2 text-[11px] text-cinnabar">
+                        <span>{t("ingest.ocrNotInstalledBanner")}</span>
+                        <button
+                          type="button"
+                          onClick={() => openSettingsSection("ocr")}
+                          className="inline-flex shrink-0 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[10px] font-semibold text-bone hover:bg-cobalt-bright"
+                        >
+                          <ScanText size={10} aria-hidden />
+                          {t("ocr.installAction")}
+                        </button>
+                      </div>
+                    )}
+                    {latestAnalyzedReport.skippedCount > 0 && (
+                      <p className="text-[11px] text-bone-muted">
+                        {t("ingest.report.skippedRulesHint")}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             )}

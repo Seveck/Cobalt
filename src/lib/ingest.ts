@@ -35,10 +35,24 @@ export interface AnalyzedIngestReport {
   skipIssues: IngestIssue[];
   errorIssues: IngestIssue[];
   skipReasonCategories: SkipReasonCategory[];
+  hasOcrNotInstalledError: boolean;
 }
+
+const OCR_NOT_INSTALLED_PATTERN = /ocr is not installed/i;
 
 const SKIP_ISSUE_PATTERN =
   /\b(skip|skipped|omit|omitted|ignor|ignored|binary|binario|too large|exceeds|2\s*mib|2\s*mb|size limit|unsupported|no soportado)\b/i;
+
+/** Returns true when a backend error or ingest issue indicates the local OCR model is missing. */
+export function isOcrNotInstalledMessage(message: string | null | undefined): boolean {
+  return Boolean(message && OCR_NOT_INSTALLED_PATTERN.test(message));
+}
+
+/** Returns true when an `IngestReport` contains any issue reporting OCR is not installed. */
+export function reportHasOcrNotInstalledError(report: IngestReport | null | undefined): boolean {
+  if (!report) return false;
+  return report.errors.some((issue) => isOcrNotInstalledMessage(issue.message));
+}
 
 /** Extract just the filename from a Unix or Windows path. */
 export function extractFileName(filePath: string | null | undefined): string | null {
@@ -175,9 +189,13 @@ export function analyzeIngestReport(report: IngestReport): AnalyzedIngestReport 
   const skipIssues: IngestIssue[] = [];
   const errorIssues: IngestIssue[] = [];
   const reasonSet = new Set<SkipReasonCategory>();
+  let hasOcrNotInstalledError = false;
 
   for (const issue of report.errors) {
-    if (SKIP_ISSUE_PATTERN.test(issue.message)) {
+    if (isOcrNotInstalledMessage(issue.message)) {
+      hasOcrNotInstalledError = true;
+      errorIssues.push(issue);
+    } else if (SKIP_ISSUE_PATTERN.test(issue.message)) {
       skipIssues.push(issue);
       reasonSet.add(classifySkipReason(issue.message));
     } else {
@@ -202,5 +220,6 @@ export function analyzeIngestReport(report: IngestReport): AnalyzedIngestReport 
     skipIssues,
     errorIssues,
     skipReasonCategories: [...reasonSet],
+    hasOcrNotInstalledError,
   };
 }

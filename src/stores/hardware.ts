@@ -1,25 +1,40 @@
 import { create } from "zustand";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { backendCall, backendOn } from "@/lib/backend";
-import type {
-  DownloadProgress,
-  EmbeddingModelSpec,
-  EngineInstallRequest,
-  EngineKind,
-  EngineStatus,
-  EngineSwapProgress,
-  EngineSwapReport,
-  EngineSwapRequest,
-  HardwareProfile,
+import {
+  DEFAULT_OCR_MODEL,
+  type DownloadProgress,
+  type EmbeddingModelSpec,
+  type EngineInstallRequest,
+  type EngineKind,
+  type EngineStatus,
+  type EngineSwapProgress,
+  type EngineSwapReport,
+  type EngineSwapRequest,
+  type HardwareProfile,
+  type OcrStatus,
 } from "@/types/contracts";
+
+function isOcrArtifactId(artifactId: string): boolean {
+  return (
+    artifactId === DEFAULT_OCR_MODEL ||
+    artifactId.startsWith(`${DEFAULT_OCR_MODEL}/`) ||
+    artifactId.startsWith("ocrs-")
+  );
+}
 
 export interface HardwareState {
   profile: HardwareProfile | null;
   models: EmbeddingModelSpec[];
   engineStatus: EngineStatus | null;
+  ocrStatus: OcrStatus | null;
   downloadProgress: DownloadProgress | null;
   isInstalling: boolean;
   isCancelling: boolean;
+  ocrDownloadProgress: DownloadProgress | null;
+  isInstallingOcr: boolean;
+  isCancellingOcr: boolean;
+  ocrError: string | null;
   swapProgress: EngineSwapProgress | null;
   swapReport: EngineSwapReport | null;
   isSwapping: boolean;
@@ -29,8 +44,11 @@ export interface HardwareState {
   loadProfile: () => Promise<HardwareProfile | null>;
   loadModels: () => Promise<EmbeddingModelSpec[]>;
   loadEngineStatus: () => Promise<EngineStatus | null>;
+  loadOcrStatus: () => Promise<OcrStatus | null>;
   installEngine: (req: EngineInstallRequest) => Promise<EngineStatus | null>;
   cancelDownload: () => Promise<void>;
+  installOcr: (modelId?: string) => Promise<OcrStatus | null>;
+  cancelOcrDownload: () => Promise<void>;
   swapEngine: (req: EngineSwapRequest) => Promise<EngineSwapReport | null>;
   removeEngineArtifacts: (
     engine: EngineKind | null,
@@ -40,6 +58,7 @@ export interface HardwareState {
   setSwapProgress: (progress: EngineSwapProgress | null) => void;
   clearSwapReport: () => void;
   clearError: () => void;
+  clearOcrError: () => void;
   subscribeDownloadProgress: () => Promise<UnlistenFn>;
   subscribeEngineSwapProgress: () => Promise<UnlistenFn>;
 }
@@ -48,9 +67,14 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
   profile: null,
   models: [],
   engineStatus: null,
+  ocrStatus: null,
   downloadProgress: null,
   isInstalling: false,
   isCancelling: false,
+  ocrDownloadProgress: null,
+  isInstallingOcr: false,
+  isCancellingOcr: false,
+  ocrError: null,
   swapProgress: null,
   swapReport: null,
   isSwapping: false,
@@ -60,12 +84,13 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
   loadAll: async () => {
     set({ loading: true, error: null });
     try {
-      const [profile, models, engineStatus] = await Promise.all([
+      const [profile, models, engineStatus, ocrStatus] = await Promise.all([
         backendCall("get_hardware_profile"),
         backendCall("list_embedding_models"),
         backendCall("get_engine_status"),
+        backendCall("get_ocr_status").catch(() => null),
       ]);
-      set({ profile, models, engineStatus, loading: false });
+      set({ profile, models, engineStatus, ocrStatus, loading: false });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       set({ loading: false, error: message });
@@ -108,6 +133,18 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
     }
   },
 
+  loadOcrStatus: async () => {
+    try {
+      const ocrStatus = await backendCall("get_ocr_status");
+      set({ ocrStatus });
+      return ocrStatus;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ ocrError: message });
+      return null;
+    }
+  },
+
   installEngine: async (req) => {
     set({ isInstalling: true, isCancelling: false, error: null, downloadProgress: null });
     try {
@@ -130,6 +167,42 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       set({ error: message, isCancelling: false });
+    }
+  },
+
+  installOcr: async (modelId) => {
+    const targetModelId = modelId ?? get().ocrStatus?.model_id ?? DEFAULT_OCR_MODEL;
+    set({
+      isInstallingOcr: true,
+      isCancellingOcr: false,
+      ocrError: null,
+      ocrDownloadProgress: null,
+    });
+    try {
+      const ocrStatus = await backendCall("install_ocr", { model_id: targetModelId });
+      set({ ocrStatus, isInstallingOcr: false, isCancellingOcr: false });
+      return ocrStatus;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ isInstallingOcr: false, isCancellingOcr: false, ocrError: message });
+      void backendCall("get_ocr_status")
+        .then((ocrStatus) => set({ ocrStatus }))
+        .catch(() => {
+          // Keep current status on refresh error
+        });
+      return null;
+    }
+  },
+
+  cancelOcrDownload: async () => {
+    const progress = get().ocrDownloadProgress;
+    const artifactId = progress?.artifact_id ?? get().ocrStatus?.model_id ?? DEFAULT_OCR_MODEL;
+    set({ isCancellingOcr: true });
+    try {
+      await backendCall("cancel_download", { artifact_id: artifactId });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ ocrError: message, isCancellingOcr: false });
     }
   },
 
@@ -172,10 +245,22 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
   setSwapProgress: (swapProgress) => set({ swapProgress }),
   clearSwapReport: () => set({ swapReport: null, swapProgress: null }),
   clearError: () => set({ error: null }),
+  clearOcrError: () => set({ ocrError: null }),
 
   subscribeDownloadProgress: () =>
     backendOn("cobalt://download-progress", (payload) => {
-      set({ downloadProgress: payload });
+      if (isOcrArtifactId(payload.artifact_id)) {
+        const isTerminal =
+          payload.phase === "completed" ||
+          payload.phase === "failed" ||
+          payload.phase === "cancelled";
+        set((state) => ({
+          ocrDownloadProgress: payload,
+          isCancellingOcr: isTerminal ? false : state.isCancellingOcr,
+        }));
+      } else {
+        set({ downloadProgress: payload });
+      }
     }),
 
   subscribeEngineSwapProgress: () =>

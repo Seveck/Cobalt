@@ -145,7 +145,7 @@ export function BrainCanvas() {
         project_id: null,
         watch: false,
         mark_reusable: false,
-        ocr: false,
+        ocr: true,
       });
     },
     [readOnly, startIngestPaths],
