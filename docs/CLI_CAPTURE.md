@@ -68,6 +68,15 @@ shape for both clients. It prints nothing when Cobalt is closed, when there is n
 or when the option is off, and it never blocks the session (waits ≤ 4 s). Codex has no
 SessionStart hook; it relies on the global instructions.
 
+### 3.3 Memory proposals (v1.14.0, `capture.proposals`, default on)
+At each turn/session end (Claude `Stop`/`SessionEnd`, Gemini `AfterAgent`/`SessionEnd`, Codex
+`agent-turn-complete`, generic `turn_end`/`session_end` with optional `user_message`), Cobalt
+looks at the AI's last message for **decisions** and **fixes** (root cause + solution) and at the
+user's last message for **preferences** ("siempre…", "nunca…", "prefiero…", "always…").
+Local keyword heuristics, ≤ 3 per turn, scrubbed, skipped when a similar memory already exists.
+They go to an inbox (`list_proposals`); the user accepts (optionally edited) or rejects each one.
+Nothing is saved automatically.
+
 ## 4. Git (`git_hooks`, per project, `capture.git_commits`)
 `.git/hooks/post-commit` (existing hook preserved and chained) runs `cobalt --hook git`, which
 records `"Commit <short-sha> on <branch>: <subject>\n<body>"` (+ changed files) as a `doc` memory of

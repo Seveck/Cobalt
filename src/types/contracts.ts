@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.13.0";
+export const CONTRACT_VERSION = "1.14.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -846,6 +846,8 @@ export interface CaptureSettings {
   ocr_model_id: string;
   /** Rules + latest handoff injected at Claude/Gemini session start (v1.13.0). */
   session_context: boolean;
+  /** Propose decisions/fixes/preferences noticed in AI sessions for review (v1.14.0). */
+  proposals: boolean;
 }
 
 export interface AppSettings {
@@ -1197,6 +1199,7 @@ export const EVENTS = {
   daemonStatus: "cobalt://daemon-status",
   cliActivity: "cobalt://cli-activity",
   themesChanged: "cobalt://themes-changed",
+  proposalsChanged: "cobalt://proposals-changed",
 } as const;
 
 /** Something an AI CLI did, captured by hooks even if the AI never called Cobalt. */
@@ -1247,6 +1250,38 @@ export interface DaemonStatus {
   clients: ConnectedClient[];
 }
 
+// ---------------------------------------------------------------- memory proposals (v1.14.0)
+
+export type ProposalKind = "decision" | "fix" | "preference";
+export type ProposalStatus = "pending" | "accepted" | "rejected";
+
+/** Something Cobalt noticed in an AI session; nothing is saved until the user accepts it. */
+export interface MemoryProposal {
+  id: Uuid;
+  project_id: Uuid | null;
+  client_name: string;
+  kind: ProposalKind;
+  content: string;
+  evidence: string | null;
+  created_at: IsoDateTime;
+  status: ProposalStatus;
+  memory_id: Uuid | null;
+}
+
+export interface ListProposalsArgs {
+  status?: ProposalStatus | null;
+}
+
+export interface AcceptProposalArgs {
+  id: Uuid;
+  /** Edited text; omitted = keep the proposal's content. */
+  content?: string | null;
+}
+
+export interface ProposalsChanged {
+  pending: number;
+}
+
 /** Payload of `cobalt://themes-changed` (v1.12.0). */
 export interface ThemesChanged {
   theme_id: string;
@@ -1278,6 +1313,7 @@ export interface EventPayloadMap {
   "cobalt://daemon-status": DaemonStatus;
   "cobalt://cli-activity": CliActivity;
   "cobalt://themes-changed": ThemesChanged;
+  "cobalt://proposals-changed": ProposalsChanged;
 }
 export type EventName = keyof EventPayloadMap;
 
@@ -1405,6 +1441,11 @@ export interface IpcCommandMap {
   save_custom_theme: { args: SaveCustomThemeArgs; result: InstalledTheme };
   /** Writes a shareable `.cobalt-theme` file; returns its size in bytes. */
   export_theme: { args: ExportThemeArgs; result: number };
+  /** Inbox of decisions/fixes/preferences noticed in AI sessions (v1.14.0). */
+  list_proposals: { args: ListProposalsArgs; result: MemoryProposal[] };
+  /** Saves it as a memory (optionally edited) through the normal write path. */
+  accept_proposal: { args: AcceptProposalArgs; result: MemoryProposal };
+  reject_proposal: { args: IdArgs; result: MemoryProposal };
   list_installed_themes: { args: void; result: InstalledTheme[] };
   get_theme_manifest: { args: ThemeIdArgs; result: ThemeManifest };
   ingest_paths: { args: IngestRequest; result: IngestReport };

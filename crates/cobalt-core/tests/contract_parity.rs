@@ -130,7 +130,7 @@ fn every_ipc_command_is_in_the_typescript_map() {
 #[test]
 fn every_event_is_in_the_typescript_map() {
     let events = string_consts(EVENTS_RS);
-    assert_eq!(events.len(), 10);
+    assert_eq!(events.len(), 11);
     for ev in events {
         assert!(
             TS.contains(&format!("\"{ev}\": ")),

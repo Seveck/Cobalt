@@ -435,3 +435,88 @@ pub async fn get_deletion_impact(
         consequences,
     })
 }
+
+// ------------------------------------------------------------------ memory proposals (v1.14.0)
+
+/// Inbox of decisions, fixes and preferences noticed in AI sessions.
+#[tauri::command]
+pub async fn list_proposals(
+    state: State<'_, AppState>,
+    args: cobalt_core::ipc::ListProposalsArgs,
+) -> CmdResult<Vec<cobalt_core::model::MemoryProposal>> {
+    state.store().list_proposals(args.status, 200).await
+}
+
+/// Saves the proposal (optionally edited) through the normal write path — scrubber, firewall,
+/// Check-Before-Write — credited to the AI whose session produced it.
+#[tauri::command]
+pub async fn accept_proposal(
+    state: State<'_, AppState>,
+    args: cobalt_core::ipc::AcceptProposalArgs,
+) -> CmdResult<cobalt_core::model::MemoryProposal> {
+    use cobalt_core::enums::{MemoryCategory, ProposalKind, ProposalStatus};
+    let proposal = state
+        .store()
+        .get_proposal(args.id)
+        .await?
+        .ok_or_else(|| CobaltError::NotFound(format!("proposal {}", args.id)))?;
+    if proposal.status != ProposalStatus::Pending {
+        return Err(CobaltError::Conflict(
+            "this proposal was already reviewed".into(),
+        ));
+    }
+    let content = args
+        .content
+        .map(|c| c.trim().to_owned())
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| proposal.content.clone());
+    let category = match proposal.kind {
+        ProposalKind::Preference => MemoryCategory::Preference,
+        ProposalKind::Decision | ProposalKind::Fix => MemoryCategory::Decision,
+    };
+    let outcome = {
+        let _slot = state.daemon.write_slot().await;
+        state
+            .daemon
+            .save_from_app(
+                cobalt_core::model::NewMemory {
+                    content,
+                    category,
+                    project_id: proposal.project_id,
+                    branch_id: None,
+                    source_doc_id: None,
+                    source_type: None,
+                    confidence: Some(0.9),
+                    is_core_pin: false,
+                    is_reusable: false,
+                    reusable_snippet: None,
+                    source_client: None,
+                },
+                &proposal.client_name,
+            )
+            .await?
+    };
+    let updated = state
+        .store()
+        .set_proposal_status(
+            proposal.id,
+            ProposalStatus::Accepted,
+            Some(outcome.memory.id),
+        )
+        .await?;
+    state.daemon.announce_proposals().await;
+    Ok(updated)
+}
+
+#[tauri::command]
+pub async fn reject_proposal(
+    state: State<'_, AppState>,
+    args: IdArgs,
+) -> CmdResult<cobalt_core::model::MemoryProposal> {
+    let updated = state
+        .store()
+        .set_proposal_status(args.id, cobalt_core::enums::ProposalStatus::Rejected, None)
+        .await?;
+    state.daemon.announce_proposals().await;
+    Ok(updated)
+}

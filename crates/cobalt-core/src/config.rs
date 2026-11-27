@@ -225,6 +225,9 @@ pub struct CaptureSettings {
     /// At session start, Claude Code / Gemini CLI receive the project's rules and the latest
     /// handoff automatically through their SessionStart hook (v1.13.0).
     pub session_context: bool,
+    /// Decisions, fixes and preferences noticed in AI sessions are proposed for review
+    /// (never saved without the user's approval, v1.14.0).
+    pub proposals: bool,
 }
 
 impl Default for CaptureSettings {
@@ -236,6 +239,7 @@ impl Default for CaptureSettings {
             indexing_paused: false,
             ocr_model_id: crate::catalog::DEFAULT_OCR_MODEL.to_owned(),
             session_context: true,
+            proposals: true,
         }
     }
 }

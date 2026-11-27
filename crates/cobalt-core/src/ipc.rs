@@ -91,6 +91,10 @@ pub mod commands {
     pub const UNINSTALL_THEME: &str = "uninstall_theme";
     pub const SAVE_CUSTOM_THEME: &str = "save_custom_theme";
     pub const EXPORT_THEME: &str = "export_theme";
+    // Memory proposals (v1.14.0)
+    pub const LIST_PROPOSALS: &str = "list_proposals";
+    pub const ACCEPT_PROPOSAL: &str = "accept_proposal";
+    pub const REJECT_PROPOSAL: &str = "reject_proposal";
     pub const LIST_INSTALLED_THEMES: &str = "list_installed_themes";
     pub const GET_THEME_MANIFEST: &str = "get_theme_manifest";
     pub const INGEST_PATHS: &str = "ingest_paths";
@@ -143,6 +147,21 @@ pub struct SaveCustomThemeArgs {
     pub manifest: crate::theme::ThemeManifest,
     #[serde(default)]
     pub apply: bool,
+}
+
+/// `list_proposals` (v1.14.0).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListProposalsArgs {
+    #[serde(default)]
+    pub status: Option<crate::enums::ProposalStatus>,
+}
+
+/// `accept_proposal` (v1.14.0): optional edited text replaces the proposal's content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AcceptProposalArgs {
+    pub id: crate::Id,
+    #[serde(default)]
+    pub content: Option<String>,
 }
 
 /// `export_theme` (v1.12.0): writes a `.cobalt-theme` package to `path` (user-chosen).

@@ -100,6 +100,13 @@ impl EventSink for TauriSink {
         });
     }
 
+    fn proposals_changed(&self, pending: u64) {
+        let _ = self.app.emit(
+            cobalt_core::events::EVENT_PROPOSALS_CHANGED,
+            cobalt_core::events::ProposalsChanged { pending },
+        );
+    }
+
     fn project_active(&self, project: &cobalt_core::model::Project) {
         let app = self.app.clone();
         let project = project.clone();
@@ -266,6 +273,9 @@ pub fn run() {
             commands_admin::get_usage_stats,
             commands_admin::save_custom_theme,
             commands_admin::export_theme,
+            commands_memory::list_proposals,
+            commands_memory::accept_proposal,
+            commands_memory::reject_proposal,
             commands_admin::query_telemetry,
             commands_admin::list_connectors,
             commands_admin::toggle_connector,

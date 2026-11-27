@@ -243,6 +243,7 @@ export function createDefaultSettings(): AppSettings {
       indexing_paused: false,
       ocr_model_id: "paddleocr-latin",
       session_context: true,
+      proposals: true,
     },
   };
 }

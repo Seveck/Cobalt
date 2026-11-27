@@ -26,6 +26,14 @@ pub const EVENT_DAEMON_STATUS: &str = "cobalt://daemon-status";
 pub const EVENT_CLI_ACTIVITY: &str = "cobalt://cli-activity";
 /// A theme was saved by the user or created by an AI (v1.12.0). Payload `ThemesChanged`.
 pub const EVENT_THEMES_CHANGED: &str = "cobalt://themes-changed";
+/// New or reviewed memory proposals (v1.14.0). Payload `ProposalsChanged`.
+pub const EVENT_PROPOSALS_CHANGED: &str = "cobalt://proposals-changed";
+
+/// Payload of `cobalt://proposals-changed`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProposalsChanged {
+    pub pending: u64,
+}
 
 /// Payload of `cobalt://themes-changed`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

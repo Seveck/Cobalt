@@ -33,6 +33,8 @@ pub trait EventSink: Send + Sync {
     fn cli_activity(&self, _activity: &cobalt_core::events::CliActivity) {}
     /// A project with a root path is in use (first time per process): auto-watch it.
     fn project_active(&self, _project: &cobalt_core::model::Project) {}
+    /// Pending memory proposals changed (v1.14.0).
+    fn proposals_changed(&self, _pending: u64) {}
 }
 
 /// Sink that ignores everything (tests, headless tooling).
@@ -66,7 +68,7 @@ pub struct Daemon {
     pub(crate) tokens: Arc<dyn TokenCounter>,
     pub(crate) firewall: TokenFirewall,
     pub(crate) home: PathBuf,
-    sink: Arc<dyn EventSink>,
+    pub(crate) sink: Arc<dyn EventSink>,
     events: broadcast::Sender<DaemonEvent>,
     read_only: AtomicBool,
     write_gate: RwLock<()>,

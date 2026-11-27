@@ -43,7 +43,7 @@ pub use ids::{Id, MAIN_BRANCH_ID, MAIN_BRANCH_NAME, Timestamp};
 
 /// Version of the frozen contracts. Bump the minor version for additive changes and the
 /// major version for breaking ones (requires updating `src/types/contracts.ts`).
-pub const CONTRACT_VERSION: &str = "1.13.0";
+pub const CONTRACT_VERSION: &str = "1.14.0";
 
 /// SQLite schema version (`PRAGMA user_version`) expected by this build.
 pub const SCHEMA_VERSION: u32 = 3;

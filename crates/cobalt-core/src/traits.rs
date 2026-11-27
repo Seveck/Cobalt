@@ -204,6 +204,46 @@ pub trait HandoffRepository: Send + Sync {
         project_id: Option<Id>,
         consumer: &str,
     ) -> Result<Option<Handoff>>;
+
+    /// Stores a proposal unless an identical one (same normalized content and project) already
+    /// exists in any status; returns `None` for duplicates (contract v1.14.0).
+    async fn add_proposal(
+        &self,
+        new: crate::model::NewMemoryProposal,
+    ) -> Result<Option<crate::model::MemoryProposal>> {
+        let _ = new;
+        Err(crate::error::CobaltError::Unsupported(
+            "memory proposals".into(),
+        ))
+    }
+    /// Newest first; `status = None` lists every status.
+    async fn list_proposals(
+        &self,
+        status: Option<crate::enums::ProposalStatus>,
+        limit: u32,
+    ) -> Result<Vec<crate::model::MemoryProposal>> {
+        let _ = (status, limit);
+        Err(crate::error::CobaltError::Unsupported(
+            "memory proposals".into(),
+        ))
+    }
+    async fn get_proposal(&self, id: Id) -> Result<Option<crate::model::MemoryProposal>> {
+        let _ = id;
+        Err(crate::error::CobaltError::Unsupported(
+            "memory proposals".into(),
+        ))
+    }
+    async fn set_proposal_status(
+        &self,
+        id: Id,
+        status: crate::enums::ProposalStatus,
+        memory_id: Option<Id>,
+    ) -> Result<crate::model::MemoryProposal> {
+        let _ = (id, status, memory_id);
+        Err(crate::error::CobaltError::Unsupported(
+            "memory proposals".into(),
+        ))
+    }
 }
 
 #[async_trait]

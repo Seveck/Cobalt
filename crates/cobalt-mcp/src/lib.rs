@@ -13,6 +13,7 @@ pub mod connectors;
 pub mod daemon;
 pub mod http;
 pub mod project;
+pub mod proposals;
 pub mod protocol;
 mod render;
 pub mod shaping;

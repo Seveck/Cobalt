@@ -248,6 +248,16 @@ string_enum! {
 }
 
 string_enum! {
+    /// What an automatically captured proposal is (contract v1.14.0).
+    pub enum ProposalKind { Decision => "decision", Fix => "fix", Preference => "preference" }
+}
+
+string_enum! {
+    /// Review state of a memory proposal (contract v1.14.0).
+    pub enum ProposalStatus { Pending => "pending", Accepted => "accepted", Rejected => "rejected" }
+}
+
+string_enum! {
     /// Local OCR implementation (contract v1.8.0).
     pub enum OcrEngineKind { Ocrs => "ocrs", PaddleOcr => "paddle_ocr" }
 }

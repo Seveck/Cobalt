@@ -1,4 +1,11 @@
-# Cobalt — Frozen Contracts (v1.13.0)
+# Cobalt — Frozen Contracts (v1.14.0)
+
+> v1.14.0 (additive): memory proposals — `MemoryProposal`, `ProposalKind`, `ProposalStatus`,
+> table `memory_proposals` (§2.3, schema v4), `HandoffRepository::{add_proposal, list_proposals,
+> get_proposal, set_proposal_status}`, IPC `list_proposals` / `accept_proposal` /
+> `reject_proposal`, event `cobalt://proposals-changed`, `CaptureSettings.proposals`.
+> Search answers are token-lean (`SearchMemoryArgs.max_tokens`, `CompactMemory.{excerpt,
+> already_sent}`, `SearchSettings.response_token_budget`).
 
 > v1.13.0 (additive): `CaptureSettings.session_context` (default on) — Claude Code / Gemini CLI
 > SessionStart hooks receive the project's rules + latest handoff (`docs/CLI_CAPTURE.md` §3.2).
@@ -297,6 +304,31 @@ What "saved tokens" means, deliberately conservative:
 - `saved = max(0, avoided − injected)`. `injected` counts the larger of the text and the
   structured JSON actually returned.
 - The v2→v3 migration and v1/v2 backup imports recompute past rows with these rules.
+
+### 2.3 Memory proposals (schema v4)
+
+```sql
+-- Decisions / fixes / preferences noticed in AI sessions, waiting for the user's review.
+CREATE TABLE memory_proposals (
+  id           TEXT PRIMARY KEY NOT NULL,
+  project_id   TEXT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  client_name  TEXT NOT NULL,
+  kind         TEXT NOT NULL CHECK (kind IN ('decision','fix','preference')),
+  content      TEXT NOT NULL,          -- scrubbed, ≤ 320 chars
+  content_key  TEXT NOT NULL,          -- normalized (lowercase, collapsed spaces) for de-dup
+  evidence     TEXT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','rejected')),
+  memory_id    TEXT NULL REFERENCES memories(id) ON DELETE SET NULL,
+  created_at   TEXT NOT NULL,
+  reviewed_at  TEXT NULL,
+  UNIQUE (content_key, project_id)
+);
+CREATE INDEX idx_memory_proposals_status ON memory_proposals(status, created_at);
+```
+- `add_proposal` returns `None` for a duplicate in any status (a rejected idea is never proposed
+  again). Accepting saves through the normal write path (scrubber, firewall, Check-Before-Write)
+  credited to `client_name`; nothing reaches `memories` without the user's approval.
+- Pending proposals older than 30 days are deleted by retention.
 
 ### Domain invariants (enforced by `cobalt-store`)
 

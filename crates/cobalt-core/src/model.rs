@@ -502,3 +502,33 @@ pub struct DeletionImpact {
     /// i18n keys of the consequences that apply (`delete.consequence.*`).
     pub consequences: Vec<String>,
 }
+
+// ------------------------------------------------------------------ memory proposals (v1.14.0)
+
+/// A decision, fix or preference Cobalt noticed in an AI session, waiting for the user's review.
+/// Nothing reaches memory until the user accepts it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MemoryProposal {
+    pub id: Id,
+    pub project_id: Option<Id>,
+    /// AI client whose session produced it (`claude-code`, `codex`, …).
+    pub client_name: String,
+    pub kind: crate::enums::ProposalKind,
+    /// Proposed memory text (scrubbed), 1–4 lines.
+    pub content: String,
+    /// Short excerpt of the conversation it came from (scrubbed).
+    pub evidence: Option<String>,
+    pub created_at: Timestamp,
+    pub status: crate::enums::ProposalStatus,
+    /// The memory created when accepted.
+    pub memory_id: Option<Id>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewMemoryProposal {
+    pub project_id: Option<Id>,
+    pub client_name: String,
+    pub kind: crate::enums::ProposalKind,
+    pub content: String,
+    pub evidence: Option<String>,
+}

@@ -96,6 +96,38 @@ fn last_assistant_message(transcript: &Path) -> Option<String> {
     last
 }
 
+/// Last plain-text message the user typed in a Claude Code transcript (tool results skipped).
+fn last_user_message(transcript: &Path) -> Option<String> {
+    let file = std::fs::File::open(transcript).ok()?;
+    let mut last = None;
+    for line in std::io::BufReader::new(file)
+        .lines()
+        .map_while(std::result::Result::ok)
+    {
+        let Ok(v) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if v.get("type").and_then(Value::as_str) != Some("user") {
+            continue;
+        }
+        match v.pointer("/message/content") {
+            Some(Value::String(t)) => last = Some(t.clone()),
+            Some(Value::Array(parts)) => {
+                let text: Vec<&str> = parts
+                    .iter()
+                    .filter(|p| p.get("type").and_then(Value::as_str) == Some("text"))
+                    .filter_map(|p| p.get("text").and_then(Value::as_str))
+                    .collect();
+                if !text.is_empty() {
+                    last = Some(text.join("\n"));
+                }
+            }
+            _ => {}
+        }
+    }
+    last
+}
+
 /// Who sent a hook event and from where.
 fn hook_client(env: &HookEnvelope) -> ClientContext {
     let mut ctx = ClientContext::new(McpTransport::Stdio);
@@ -235,8 +267,9 @@ impl Daemon {
                         } else {
                             CliActivityKind::SessionEnd
                         };
-                        let message = str_at(p, "/transcript_path")
-                            .and_then(|t| last_assistant_message(Path::new(t)));
+                        let transcript = str_at(p, "/transcript_path").map(Path::new);
+                        let message = transcript.and_then(last_assistant_message);
+                        let user = transcript.and_then(last_user_message);
                         activity.detail = message.as_deref().map(|m| short(&scrub(m).text, 160));
                         activity.files = self.session_files(&session);
                         self.auto_handoff(
@@ -246,6 +279,13 @@ impl Daemon {
                             message.as_deref(),
                             &activity.files,
                             event == "SessionEnd",
+                        )
+                        .await;
+                        self.propose_from_turn(
+                            &ctx.client_name,
+                            resolved.project_id(),
+                            message.as_deref(),
+                            user.as_deref(),
                         )
                         .await;
                     }
@@ -279,6 +319,7 @@ impl Daemon {
                             CliActivityKind::SessionEnd
                         };
                         let message = str_at(p, "/prompt_response").map(str::to_owned);
+                        let user = str_at(p, "/prompt").map(str::to_owned);
                         activity.detail = message.as_deref().map(|m| short(&scrub(m).text, 160));
                         activity.files = self.session_files(&session);
                         self.auto_handoff(
@@ -288,6 +329,13 @@ impl Daemon {
                             message.as_deref(),
                             &activity.files,
                             event == "SessionEnd",
+                        )
+                        .await;
+                        self.propose_from_turn(
+                            &ctx.client_name,
+                            resolved.project_id(),
+                            message.as_deref(),
+                            user.as_deref(),
                         )
                         .await;
                     }
@@ -303,6 +351,19 @@ impl Daemon {
                 let turn = str_at(p, "/turn-id").unwrap_or("codex").to_owned();
                 self.auto_handoff(&ctx, &resolved, &turn, message.as_deref(), &[], false)
                     .await;
+                let user = p
+                    .get("input-messages")
+                    .and_then(Value::as_array)
+                    .and_then(|a| a.last())
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                self.propose_from_turn(
+                    &ctx.client_name,
+                    resolved.project_id(),
+                    message.as_deref(),
+                    user.as_deref(),
+                )
+                .await;
             }
             "git" => {
                 activity.kind = CliActivityKind::GitCommit;
@@ -400,6 +461,7 @@ impl Daemon {
                             self.track_file(&session, f);
                         }
                         let message = str_at(p, "/message").map(str::to_owned);
+                        let user = str_at(p, "/user_message").map(str::to_owned);
                         activity.detail = message.as_deref().map(|m| short(&scrub(m).text, 160));
                         activity.files = self.session_files(&session);
                         self.auto_handoff(
@@ -409,6 +471,13 @@ impl Daemon {
                             message.as_deref(),
                             &activity.files,
                             ended,
+                        )
+                        .await;
+                        self.propose_from_turn(
+                            &ctx.client_name,
+                            resolved.project_id(),
+                            message.as_deref(),
+                            user.as_deref(),
                         )
                         .await;
                     }
