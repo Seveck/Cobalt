@@ -3,6 +3,7 @@
 mod documents;
 mod jobs;
 mod ocr;
+mod paddle_ocr;
 mod past_life;
 mod transfer;
 mod watcher;
@@ -21,6 +22,7 @@ use tokio::sync::Mutex;
 
 pub use cobalt_core;
 pub use ocr::OcrsEngine;
+pub use paddle_ocr::PaddleOcrEngine;
 
 /// The daemon's document ingestion and knowledge transfer service.
 pub struct IngestService {

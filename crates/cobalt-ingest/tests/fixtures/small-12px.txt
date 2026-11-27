@@ -1,0 +1,4 @@
+Settings are saved locally on this computer.
+Version 1.8.0 | Build 207 | 13:42 UTC
+Only checked items will appear in the export.
+Open the folder to review the downloaded files.

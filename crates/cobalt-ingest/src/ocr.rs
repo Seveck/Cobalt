@@ -21,7 +21,7 @@ const MAX_DECODE_BYTES: u64 = 256 * 1024 * 1024;
 pub struct OcrsEngine(ocrs::OcrEngine);
 
 impl OcrsEngine {
-    /// Loads the verified files returned by `EngineManager::ocr_model_paths`.
+    /// Loads the verified detection and recognition files from `OcrModelFiles`.
     pub fn from_paths(detection: impl AsRef<Path>, recognition: impl AsRef<Path>) -> Result<Self> {
         let detection_model = Model::load_file(detection).map_err(|error| {
             CobaltError::Internal(format!("cannot load OCR detection model: {error}"))
@@ -41,14 +41,7 @@ impl OcrsEngine {
 
 impl OcrEngine for OcrsEngine {
     fn recognize(&self, encoded: &[u8]) -> Result<String> {
-        let mut reader = ImageReader::new(Cursor::new(encoded))
-            .with_guessed_format()
-            .map_err(image_error)?;
-        let mut limits = Limits::default();
-        limits.max_alloc = Some(MAX_DECODE_BYTES);
-        reader.limits(limits);
-        let decoded = reader.decode().map_err(image_error)?;
-        let image = downscale(decoded);
+        let image = decode_image(encoded)?;
         let gray = if image.color().has_alpha() {
             let rgba = image.into_rgba8();
             GrayImage::from_fn(rgba.width(), rgba.height(), |x, y| {
@@ -66,6 +59,16 @@ impl OcrEngine for OcrsEngine {
         drop(gray);
         self.0.get_text(&input).map_err(ocr_error)
     }
+}
+
+pub(crate) fn decode_image(encoded: &[u8]) -> Result<DynamicImage> {
+    let mut reader = ImageReader::new(Cursor::new(encoded))
+        .with_guessed_format()
+        .map_err(image_error)?;
+    let mut limits = Limits::default();
+    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    reader.limits(limits);
+    reader.decode().map(downscale).map_err(image_error)
 }
 
 fn downscale(image: DynamicImage) -> DynamicImage {
