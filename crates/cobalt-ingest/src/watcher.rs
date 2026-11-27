@@ -68,9 +68,22 @@ fn watcher_error(error: notify::Error) -> CobaltError {
     CobaltError::Storage(format!("file watcher: {error}"))
 }
 
+fn ignore_rule_root(path: &Path) -> Option<&Path> {
+    if path
+        .file_name()
+        .is_some_and(|name| name == MEMORY_IGNORE_FILE || name == ".gitignore")
+    {
+        return path.parent();
+    }
+    if path.ends_with(".git/info/exclude") {
+        return path.ancestors().nth(3);
+    }
+    None
+}
+
 #[derive(Default)]
 struct EventFilter {
-    watched: HashMap<PathBuf, (Option<Id>, bool)>,
+    watched: HashMap<PathBuf, Option<Id>>,
     project_roots: HashMap<Id, PathBuf>,
     ignores: IgnoreMatchers,
 }
@@ -92,7 +105,7 @@ impl EventFilter {
         }
         filter.watched = docs
             .iter()
-            .map(|doc| (PathBuf::from(&doc.file_path), (doc.project_id, doc.is_dir)))
+            .map(|doc| (PathBuf::from(&doc.file_path), doc.project_id))
             .collect();
         filter
     }
@@ -101,23 +114,28 @@ impl EventFilter {
         if event
             .paths
             .iter()
-            .any(|path| path.file_name() == Some(MEMORY_IGNORE_FILE.as_ref()))
+            .any(|path| ignore_rule_root(path).is_some())
         {
             self.ignores = IgnoreMatchers::default();
         }
         event.paths.retain(|path| {
-            let ignore_file = path.file_name() == Some(MEMORY_IGNORE_FILE.as_ref());
-            if ignore_file && path.parent() == global {
+            let rule_root = ignore_rule_root(path);
+            if self.watched.contains_key(path)
+                || (path
+                    .file_name()
+                    .is_some_and(|name| name == MEMORY_IGNORE_FILE)
+                    && rule_root == global)
+            {
                 return true;
             }
             let root = path
                 .ancestors()
                 .find_map(|ancestor| self.watched.get(ancestor))
-                .and_then(|(project, _)| project.as_ref())
+                .and_then(Option::as_ref)
                 .and_then(|project| self.project_roots.get(project))
                 .map(PathBuf::as_path);
-            let (path, is_dir) = if ignore_file && let Some(parent) = path.parent() {
-                (parent, true)
+            let (path, is_dir) = if let Some(root) = rule_root {
+                (root, true)
             } else {
                 let is_dir = match event.kind {
                     EventKind::Create(CreateKind::Folder)
@@ -127,7 +145,7 @@ impl EventFilter {
                     }
                     _ => path.symlink_metadata().map_or_else(
                         // An untyped rename can refer to a directory that has already moved.
-                        |_| self.watched.get(path).is_none_or(|(_, is_dir)| *is_dir),
+                        |_| true,
                         |metadata| metadata.is_dir(),
                     ),
                 };
@@ -355,11 +373,7 @@ async fn reconcile(
         .is_some_and(|global| paths.contains(&global.join(MEMORY_IGNORE_FILE)));
     let ignore_roots: Vec<_> = paths
         .iter()
-        .filter_map(|path| {
-            (path.file_name()? == MEMORY_IGNORE_FILE)
-                .then(|| path.parent())
-                .flatten()
-        })
+        .filter_map(|path| ignore_rule_root(path))
         .collect();
     for doc in docs {
         let watched = Path::new(&doc.file_path);
@@ -385,7 +399,7 @@ async fn reconcile(
         }
     }
     for path in paths {
-        if !super::documents::eligible(&path, None) {
+        if ignore_rule_root(&path).is_some() || !super::documents::eligible(&path, None) {
             continue;
         }
         if let Some(project) = path
@@ -425,7 +439,7 @@ async fn reconcile(
             1 + document_priority(path)
         }
     });
-    let total = jobs.len() as u64;
+    let scheduled: HashSet<_> = jobs.iter().map(|(path, _)| path.clone()).collect();
     let _ = context
         .jobs
         .run(
@@ -437,13 +451,19 @@ async fn reconcile(
             async |cancellation, progress| {
                 let mut failed = false;
                 let mut reconciled_files = HashMap::new();
-                for (index, (path, target)) in jobs.into_iter().enumerate() {
+                let mut pruned_paths = HashSet::new();
+                let mut total = jobs.len() as u64;
+                let mut processed = 0;
+                for (path, target) in jobs {
                     cancellation.check()?;
-                    if reconciled_files.get(&path) == Some(&target.project_id) {
-                        progress.finish(index as u64 + 1, total);
+                    if pruned_paths.contains(&path)
+                        || reconciled_files.get(&path) == Some(&target.project_id)
+                    {
+                        processed += 1;
+                        progress.finish(processed, total);
                         continue;
                     }
-                    progress.document(&path, index as u64, total, INGEST_STAGE_READING);
+                    progress.document(&path, processed, total, INGEST_STAGE_READING);
                     let result = reconcile_path(
                         context,
                         &path,
@@ -461,9 +481,18 @@ async fn reconcile(
                             retry.insert(path);
                             failed = true;
                         }
-                        Ok(()) => {}
+                        Ok(pruned) => {
+                            let added = pruned
+                                .iter()
+                                .filter(|path| !scheduled.contains(*path))
+                                .count() as u64;
+                            total += added;
+                            processed += added;
+                            pruned_paths.extend(pruned);
+                        }
                     }
-                    progress.finish(index as u64 + 1, total);
+                    processed += 1;
+                    progress.finish(processed, total);
                 }
                 if failed {
                     Err(CobaltError::Storage("watcher reconciliation failed".into()))
@@ -484,25 +513,32 @@ async fn reconcile_path(
     callbacks: &Callbacks,
     progress: &Progress,
     reconciled_files: &mut HashMap<PathBuf, Option<Id>>,
-) -> Result<()> {
-    match path.symlink_metadata() {
+) -> Result<Vec<PathBuf>> {
+    let missing = match path.symlink_metadata() {
         Err(error)
             if matches!(
                 error.kind(),
                 std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
             ) =>
         {
-            return retire(context, path, "file deleted", cancellation, callbacks).await;
+            true
         }
         Err(error) => return Err(error.into()),
-        Ok(metadata) if target.was_directory == Some(true) && !metadata.is_dir() => return Ok(()),
+        Ok(metadata) if target.was_directory == Some(true) && !metadata.is_dir() => {
+            return Ok(Vec::new());
+        }
         Ok(metadata) if target.was_directory == Some(false) && metadata.is_dir() => {
             retire(context, path, "file excluded", cancellation, callbacks).await?;
             if !target.folder_limited {
-                return Ok(());
+                return Ok(Vec::new());
             }
+            false
         }
-        Ok(_) => {}
+        Ok(_) => false,
+    };
+    if missing && target.was_directory != Some(false) {
+        retire(context, path, "file deleted", cancellation, callbacks).await?;
+        return Ok(Vec::new());
     }
     let req = IngestRequest {
         paths: vec![path.to_string_lossy().into_owned()],
@@ -511,7 +547,7 @@ async fn reconcile_path(
         mark_reusable: false,
         ocr: true,
     };
-    let report = context
+    let outcome = context
         .ingest_watched(
             req,
             target.folder_limited,
@@ -521,16 +557,20 @@ async fn reconcile_path(
             reconciled_files,
         )
         .await?;
-    let excluded = report.skipped_ignored == 1
+    let report = outcome.report;
+    let excluded = outcome.pruned.is_empty()
+        && report.skipped_ignored == 1
         && report.errors.is_empty()
         && report.documents_created + report.documents_updated + report.documents_unchanged == 0;
     for issue in report.errors {
         context.watch_issue(issue);
     }
-    if excluded {
+    if missing && outcome.pruned.is_empty() {
+        retire(context, path, "file deleted", cancellation, callbacks).await?;
+    } else if excluded {
         retire(context, path, "file excluded", cancellation, callbacks).await?;
     }
-    Ok(())
+    Ok(outcome.pruned)
 }
 
 async fn retire(
