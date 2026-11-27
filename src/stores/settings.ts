@@ -49,6 +49,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const settings: AppSettings = {
         ...defaults,
         ...loaded,
+        search: {
+          ...defaults.search,
+          ...(loaded.search ?? {}),
+          rrf: {
+            ...defaults.search.rrf,
+            ...(loaded.search?.rrf ?? {}),
+          },
+        },
         capture: { ...defaults.capture, ...(loaded.capture ?? {}) },
       };
       await applyLanguageToDom(settings.language);

@@ -471,6 +471,10 @@
     "captureIndexingPausedDesc": "Detiene temporalmente la vigilancia automática de carpetas y la re-indexación en segundo plano hasta que la reanudes.",
     "captureAutoWatchTitle": "Vigilar proyectos automáticamente",
     "captureAutoWatchDesc": "Cuando importas una carpeta o una IA trabaja dentro de un proyecto, Cobalt mantiene sus archivos indexados al día en segundo plano.",
+    "captureSessionContextTitle": "Contexto al iniciar sesión",
+    "captureSessionContextDesc": "Claude Code y Gemini CLI reciben las reglas del proyecto y dónde se quedó la última sesión",
+    "captureProposalsTitle": "Proponer memorias",
+    "captureProposalsDesc": "Detecta decisiones, arreglos y preferencias en tus sesiones; nada se guarda sin tu aprobación",
     "captureSessionHandoffsTitle": "Resúmenes automáticos entre sesiones",
     "captureSessionHandoffsDesc": "Cuando termina una sesión con tu IA, guarda un resumen corto y temporal de lo último que hicieron para que la siguiente IA retome sin perder el hilo.",
     "captureGitCommitsTitle": "Registrar cambios confirmados (Git)",
@@ -750,7 +754,10 @@
       "confidenceWeight": "Peso de confianza",
       "confidenceWeightHint": "Prioriza memorias con mayor confianza.",
       "corePinBoost": "Impulso de Ley Nuclear",
-      "corePinBoostHint": "Prioridad adicional para reglas fijadas."
+      "corePinBoostHint": "Prioridad adicional para reglas fijadas.",
+      "responseTokenBudget": "Límite de tokens por búsqueda",
+      "responseTokenBudgetHint": "Máximo de tokens de memoria que Cobalt devuelve en cada búsqueda de una IA.",
+      "responseTokenBudgetValue": "{{tokens}} tokens"
     },
     "docstringsTitle": "Descripciones de herramientas MCP",
     "docstringsDesc": "Personaliza las instrucciones que leen tus IAs para cada herramienta de Cobalt.",
@@ -775,6 +782,7 @@
       "30d": "30 días"
     },
     "avoidedVsInjected": "{{avoided}} evitados · {{injected}} enviados",
+    "conservativeSavingsNote": "Cálculo conservador: cada archivo cuenta como máximo 2.000 tokens y una vez cada 30 min por IA; guardar no cuenta como ahorro.",
     "sessionHint": "Tokens ahorrados desde que abriste Cobalt.",
     "injectedShare": "Solo se envió el {{pct}}% del tamaño completo",
     "readsVsReuseTitle": "Lecturas vs Reúso",
@@ -1379,6 +1387,59 @@
       "reuse": "Reúsos",
       "handoff": "Relevos",
       "blocked_firewall": "Bloqueados"
+    }
+  },
+  "proposals": {
+    "title": "Propuestas",
+    "subtitle": "Revisa y decide qué guardar en tu memoria",
+    "triggerAria": "Abrir bandeja de propuestas",
+    "triggerAriaWithCount_one": "Propuestas ({{count}} pendiente)",
+    "triggerAriaWithCount_other": "Propuestas ({{count}} pendientes)",
+    "tabsAria": "Filtrar propuestas por estado",
+    "tabs": {
+      "pending": "Pendientes",
+      "accepted": "Aceptadas",
+      "rejected": "Descartadas"
+    },
+    "kind": {
+      "decision": "Decisión",
+      "fix": "Arreglo",
+      "preference": "Preferencia"
+    },
+    "status": {
+      "accepted": "Aceptada",
+      "rejected": "Descartada"
+    },
+    "fromAi": "Detectado por {{client}}",
+    "editedBadge": "Editado",
+    "editAction": "Editar",
+    "editContentAria": "Editar texto de la propuesta",
+    "resetText": "Restaurar original",
+    "doneEditing": "Listo",
+    "contextLabel": "Contexto",
+    "accept": "Aceptar",
+    "discard": "Descartar",
+    "acceptAll": "Aceptar todas",
+    "discardAll": "Descartar todas",
+    "pendingSummary_one": "1 propuesta pendiente",
+    "pendingSummary_other": "{{count}} propuestas pendientes",
+    "confirmAcceptAll_one": "¿Guardar esta propuesta en tu memoria?",
+    "confirmAcceptAll_other": "¿Guardar las {{count}} propuestas pendientes en tu memoria?",
+    "confirmRejectAll_one": "¿Descartar esta propuesta?",
+    "confirmRejectAll_other": "¿Descartar las {{count}} propuestas pendientes?",
+    "confirmAcceptAllAction": "Sí, aceptar todas",
+    "confirmRejectAllAction": "Sí, descartar todas",
+    "savedToast": "Guardado en tu memoria",
+    "savedAllToast": "{{count}} propuestas guardadas en tu memoria",
+    "loading": "Cargando propuestas…",
+    "readOnlyNotice": "Modo Solo Lectura activo — desactívalo para aceptar o descartar propuestas.",
+    "comingSoonTitle": "Disponible pronto",
+    "comingSoonDesc": "La bandeja de propuestas automáticas se está activando en esta versión de Cobalt. Nada se guarda en tu memoria sin tu aprobación.",
+    "retryAction": "Comprobar de nuevo",
+    "empty": {
+      "pending": "Cuando tus IAs tomen decisiones, arreglen fallos o menciones preferencias, aparecerán aquí para que decidas si guardarlas.",
+      "accepted": "Todavía no has aceptado ninguna propuesta.",
+      "rejected": "No hay propuestas descartadas."
     }
   }
 }

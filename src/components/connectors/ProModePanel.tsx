@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard } from "@/lib/dialogs";
-import { createDefaultSettings, formatBytes } from "@/lib/format";
+import { createDefaultSettings, formatBytes, formatTokenCount } from "@/lib/format";
 import { useHardwareStore, useMemoryStore, useSettingsStore } from "@/stores";
 import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import {
@@ -77,7 +77,8 @@ function SliderRow({
 }
 
 export function ProModePanel() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language = i18n.resolvedLanguage ?? i18n.language ?? "en";
 
   const settings = useSettingsStore((s) => s.settings);
   const saving = useSettingsStore((s) => s.saving);
@@ -657,6 +658,22 @@ export function ProModePanel() {
                 step={0.1}
                 formatValue={(v) => v.toFixed(1)}
                 onChange={(v) => setSearchDraft((s) => ({ ...s, core_pin_boost: v }))}
+              />
+              <SliderRow
+                label={t("pro.sliders.responseTokenBudget")}
+                hint={t("pro.sliders.responseTokenBudgetHint")}
+                value={searchDraft.response_token_budget}
+                min={200}
+                max={8000}
+                step={100}
+                formatValue={(v) =>
+                  t("pro.sliders.responseTokenBudgetValue", {
+                    tokens: formatTokenCount(v, language),
+                  })
+                }
+                onChange={(v) =>
+                  setSearchDraft((s) => ({ ...s, response_token_budget: v }))
+                }
               />
             </div>
           </div>

@@ -59,3 +59,14 @@ export function on<E extends EventName>(
 export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
+
+/** Detect an IPC `"unsupported"` error (e.g. while backend storage is landing). */
+export function isUnsupportedError(err: unknown): boolean {
+  if (err instanceof IpcError && err.kind === "unsupported") {
+    return true;
+  }
+  if (err instanceof Error && /\bunsupported\b/i.test(err.message)) {
+    return true;
+  }
+  return false;
+}
