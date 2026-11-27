@@ -754,3 +754,5 @@ async fn watched_file_replacement_rolls_back_metadata_chunks_and_vectors_on_writ
         .await
         .unwrap();
 }
+
+mod similarity;

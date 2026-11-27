@@ -20,7 +20,7 @@ use crate::repositories::{
     text, timestamp,
 };
 use crate::vector::{Index, Scope, checked_vector};
-use crate::{Retrieval, SqliteStore, calibrated_similarity};
+use crate::{Retrieval, SimilarityKind, SqliteStore, calibrated_similarity};
 
 pub(crate) fn memory(row: &Row<'_>) -> rusqlite::Result<Memory> {
     Ok(Memory {
@@ -782,8 +782,11 @@ pub(crate) fn add_semantic_edges(
     scope.clause.push_str(" AND m.id <> ?");
     scope.params.push(row.id.to_string().into());
     for hit in retrieval.index.scoped(conn, embedding, 16, scope)? {
-        let similarity =
-            calibrated_similarity(&retrieval.embedder.spec().id, f64::from(hit.similarity));
+        let similarity = calibrated_similarity(
+            &retrieval.embedder.spec().id,
+            SimilarityKind::Document,
+            f64::from(hit.similarity),
+        );
         if similarity < threshold {
             break;
         }
@@ -846,7 +849,11 @@ pub(crate) fn semantic_match(
     best.map(|hit| {
         Ok((
             required_memory(conn, hit.memory_id)?,
-            calibrated_similarity(&retrieval.embedder.spec().id, f64::from(hit.similarity)),
+            calibrated_similarity(
+                &retrieval.embedder.spec().id,
+                SimilarityKind::Document,
+                f64::from(hit.similarity),
+            ),
         ))
     })
     .transpose()
