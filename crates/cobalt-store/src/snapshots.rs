@@ -10,7 +10,7 @@ use cobalt_core::traits::SnapshotRepository;
 use rusqlite::backup::{Backup, StepResult};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params};
 
-use crate::db::{blocking, sql_error};
+use crate::db::{blocking, migrate, sql_error};
 use crate::migration::{StagedIndex, indexed_texts, prepare_vectors, save_engine_settings};
 use crate::repositories::{id, load_settings, timestamp};
 use crate::vector::Index;
@@ -155,13 +155,14 @@ fn stage_restore(
     let check: String = source
         .pragma_query_value(None, "quick_check", |row| row.get(0))
         .map_err(sql_error)?;
-    if version != SCHEMA_VERSION || check != "ok" {
+    if !matches!(version, 1 | SCHEMA_VERSION) || check != "ok" {
         return Err(CobaltError::Integrity(
             "snapshot database failed schema or integrity check".into(),
         ));
     }
     let mut staged_db = Connection::open_in_memory().map_err(sql_error)?;
     backup(&source, &mut staged_db)?;
+    migrate(&mut staged_db)?;
     let settings = load_settings(&staged_db)?;
     let current = load_settings(conn)?;
     if retrieval.is_none()

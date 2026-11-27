@@ -109,7 +109,7 @@ async fn migration_sets_canonical_schema_and_connection_pragmas() {
     store.db.read(|conn| {
         for (pragma, expected) in [
             ("journal_mode", "wal"), ("foreign_keys", "1"), ("synchronous", "1"),
-            ("busy_timeout", "5000"), ("temp_store", "2"), ("user_version", "1"),
+            ("busy_timeout", "5000"), ("temp_store", "2"), ("user_version", "2"),
         ] {
             let actual = conn.pragma_query_value(None, pragma, |row| {
                 Ok(match row.get_ref(0)? {
@@ -123,7 +123,7 @@ async fn migration_sets_canonical_schema_and_connection_pragmas() {
         let tables = stmt.query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<Vec<String>>>().unwrap();
         assert_eq!(tables, [
             "app_config", "branches", "handoffs", "installed_themes", "memories", "memories_fts",
-            "memory_edges", "projects", "snapshots", "source_documents", "telemetry_logs",
+            "memory_edges", "projects", "snapshots", "source_documents", "telemetry_logs", "usage_hourly",
         ]);
         let main = crate::repositories::branch(conn, None)?;
         assert_eq!(main.id, MAIN_BRANCH_ID);
@@ -874,6 +874,7 @@ async fn usearch_home_child() {
 }
 
 mod phase2;
+mod usage_stats;
 
 #[tokio::test]
 async fn watched_file_replacement_rolls_back_metadata_chunks_and_vectors_on_write_error() {

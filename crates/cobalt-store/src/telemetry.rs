@@ -7,7 +7,7 @@ use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::{Id, Timestamp, new_id, now, timestamp_to_sql};
 use cobalt_core::telemetry::{
     ClientStats, NewTelemetryEvent, NodeValue, Page, ReturnedItem, TelemetryLog, TelemetryQuery,
-    TelemetryRange, TelemetrySummary, TimeBucket,
+    TelemetryRange, TelemetrySummary, TimeBucket, UsageStats, UsageStatsRequest,
 };
 use cobalt_core::traits::TelemetryRepository;
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -56,7 +56,7 @@ fn log(row: &Row<'_>) -> rusqlite::Result<TelemetryLog> {
     })
 }
 
-pub(crate) fn insert_event(conn: &Connection, event: NewTelemetryEvent) -> Result<TelemetryLog> {
+fn insert_event(conn: &Connection, event: NewTelemetryEvent) -> Result<TelemetryLog> {
     if event.client_name.trim().is_empty()
         || [
             event.injected_tokens,
@@ -100,6 +100,12 @@ pub(crate) fn insert_event(conn: &Connection, event: NewTelemetryEvent) -> Resul
 impl TelemetryRepository for SqliteStore {
     async fn record_event(&self, event: NewTelemetryEvent) -> Result<TelemetryLog> {
         self.db.write(move |conn| insert_event(conn, event)).await
+    }
+
+    async fn usage_stats(&self, req: UsageStatsRequest) -> Result<UsageStats> {
+        self.db
+            .read(move |conn| crate::usage_stats::read(conn, req, now()))
+            .await
     }
 
     async fn compute_avoided_tokens(&self, items: &[ReturnedItem]) -> Result<i64> {

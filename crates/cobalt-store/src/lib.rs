@@ -15,6 +15,7 @@ mod repositories;
 mod retrieval;
 mod snapshots;
 mod telemetry;
+mod usage_stats;
 mod vector;
 
 use std::path::PathBuf;
@@ -39,7 +40,7 @@ pub use ingest::WatchedFileUpdate;
 pub use memory::project_embedding;
 pub use vector::{SqliteVec, Usearch};
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// A daemon-owned store. Open one instance per database and clone it to share the writer and pool.
 #[derive(Clone)]

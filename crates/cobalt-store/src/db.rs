@@ -218,7 +218,7 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-fn migrate(conn: &mut Connection) -> Result<()> {
+pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(sql_error)?;
@@ -238,15 +238,19 @@ fn migrate(conn: &mut Connection) -> Result<()> {
                 ],
             )
             .map_err(sql_error)?;
-            tx.pragma_update(None, "user_version", SCHEMA_VERSION)
-                .map_err(sql_error)?;
         }
-        SCHEMA_VERSION => {}
+        1 | SCHEMA_VERSION => {}
         _ => {
             return Err(CobaltError::Integrity(format!(
                 "SQLite schema version {version} is incompatible with version {SCHEMA_VERSION}"
             )));
         }
+    }
+    if version < 2 {
+        tx.execute_batch(include_str!("usage_hourly.sql"))
+            .map_err(sql_error)?;
+        tx.pragma_update(None, "user_version", 2)
+            .map_err(sql_error)?;
     }
     tx.commit().map_err(sql_error)
 }
