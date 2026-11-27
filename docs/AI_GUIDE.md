@@ -44,14 +44,15 @@ curl -s http://127.0.0.1:7437/api/v1/health        # → {"status":"ok",...}
 
 ---
 
-## 2. How to connect — pick ONE of four ways
+## 2. How to connect — pick ONE way
 
 | Your situation | Use |
 |---|---|
 | Your client supports MCP and launches local commands (Claude Desktop/Code, Cursor, Windsurf, Cline, Codex CLI, Gemini CLI, LM Studio, Continue, …) | **2.1 MCP stdio** |
 | Your client supports MCP over HTTP (Open WebUI, custom agents, LangChain/LlamaIndex MCP adapters, …) | **2.2 MCP HTTP** |
 | Your program speaks plain HTTP/JSON (scripts, bots, local LLM wrappers) | **2.3 REST API** |
-| A local model with **no tool calling at all** (raw Ollama/llama.cpp chat) | **2.4 Host loop** |
+| A local model with function calling but no MCP (Ollama, llama.cpp, LM Studio API, vLLM…) | **2.4 Function calling** |
+| A local model with **no tool calling at all** (raw chat) | **2.5 Host loop** |
 
 ### 2.1 MCP over stdio (recommended)
 
@@ -108,7 +109,14 @@ after a 401). Interactive docs: `http://127.0.0.1:7437/api/v1/docs`; schema:
 | `POST /memories` | Save a memory (`NewMemory`, same safety pipeline as MCP) |
 | `GET /memories/{id}` | One memory |
 | `GET /telemetry/summary` | Token-savings summary |
+| `GET /tools` | The 8 tools with JSON Schemas; `?format=openai` = function-calling array for OpenAI / Ollama / llama.cpp / LM Studio |
+| `POST /tools/{name}` | Run any tool (same arguments, rules and results as MCP) → `{ "text", "structured" }` |
+| `POST /hooks/{source}` | Send a hook event (§5.1) |
+| `GET /guide` | This guide as Markdown (no auth) |
 | `GET /ws?token=<token>` | WebSocket stream of live events (§9) |
+
+Optional headers for `/tools/{name}`: `X-Cobalt-Client: <your name>` (shown to the user; default
+`rest-api`) and `X-Cobalt-Cwd: <absolute dir>` (project detection when `project` is omitted).
 
 ```bash
 TOKEN=$(cat ~/.cobalt/daemon.token)
@@ -126,19 +134,36 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 
 - `scope` defaults to **global only** when omitted — set it explicitly. A project scope looks like
   `{"kind":"project_and_global","project_id":"<uuid>"}` (ids come from search results / status).
-- REST has no handoff, rules, update or archive endpoints yet **(planned)**; use MCP for those.
+- **Prefer `/tools/{name}`**: it gives plain-HTTP clients every MCP tool (rules, handoffs, update,
+  archive…) with project names instead of ids:
 
-### 2.4 Local model without tool calling (host loop)
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H 'X-Cobalt-Client: my-local-agent' \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"session cache decision","project":"/home/me/code/my-app"}' \
+  http://127.0.0.1:7437/api/v1/tools/search_memory
+```
+
+### 2.4 Local model with function calling (Ollama, llama.cpp, LM Studio, vLLM…)
+
+1. `GET /api/v1/tools?format=openai` → pass the array as `tools` to your model's chat API.
+2. When the model returns a tool call `{name, arguments}`, send `arguments` to
+   `POST /api/v1/tools/{name}` (with `X-Cobalt-Client`) and give the returned `text` back to the
+   model as the tool result.
+3. Put the five rules (§0) in the system prompt, or fetch them: `GET /api/v1/guide`.
+
+### 2.5 Local model without tool calling (host loop)
 
 If the model cannot call tools, the **program that hosts it** does the calls:
 
-1. Session start: run `list_project_rules` (MCP) or a REST search for the project's laws, and put
-   the result in the system prompt as "rules you must obey".
-2. Before each user turn: `POST /search` with the user's message; inject the top results as
-   context ("Relevant memories: …"), with their ids.
+1. Session start: `POST /tools/list_project_rules` and put the `text` in the system prompt as
+   "rules you must obey".
+2. Before each user turn: `POST /tools/search_memory` with the user's message; inject the `text`
+   as context ("Relevant memories: …").
 3. Ask the model to end answers that contain a durable decision/fix/preference with a line like
-   `SAVE: <category> | <1–4 line memory>`; the host parses it and calls `POST /memories`.
-4. Never let the host save the raw conversation: only those short lines.
+   `SAVE: <category> | <1–4 line memory>`; the host parses it and calls `POST /tools/save_memory`.
+4. When the session ends mid-task, the host calls `POST /tools/create_handoff` with a summary.
+5. Never let the host save the raw conversation: only those short lines.
 
 ---
 
@@ -209,7 +234,7 @@ Everything is optional, reversible, and toggled in *Connectors*.
 | Session hooks | `cobalt --hook <source>` receives the CLI's event JSON (stdin, or last argument for Codex). |
 | Git hook | `.git/hooks/post-commit` runs `cobalt --hook git` → each commit becomes a `doc` memory and its files are re-indexed. Existing hooks are preserved and chained. |
 
-Hook sources understood today and their events:
+Built-in hook sources and their events:
 
 | `source` | Configured in | Events used |
 |---|---|---|
@@ -224,11 +249,36 @@ files; throttled to one per 10 min per session). Hooks never block the client: i
 closed, events go to `~/.cobalt/hook-queue.jsonl` and are replayed at the next start. Exit code
 is always 0.
 
-**Writing your own hook:** a hook is just a command your tool runs at an event, e.g.
-`/path/to/cobalt --hook claude < event.json`. Sources other than the four above are accepted but
-**ignored** today; a generic source for any tool (`--hook custom` with a documented event
-format) is **(planned)**. Until then, custom tools should capture through MCP/REST (§2) and use
-the git hook for commits.
+### 5.1 Your own hooks (any tool)
+
+Any other source name uses the **generic event format**; the source becomes your client name
+(lowercase, spaces → `-`, ≤ 32 chars):
+
+```json
+{ "event": "session_start | file_edit | command | turn_end | session_end",
+  "session_id": "optional, groups events",
+  "cwd": "/abs/project/dir (optional, for project detection)",
+  "files": ["/abs/path/edited.py"],
+  "command": "pytest -q",
+  "message": "last assistant message (turn_end / session_end)" }
+```
+
+Send it either way:
+
+```bash
+# 1. command line (JSON on stdin, or as the last argument)
+echo '{"event":"file_edit","files":["/home/me/app/main.py"]}' | /path/to/cobalt --hook my-agent
+
+# 2. HTTP
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H 'X-Cobalt-Cwd: /home/me/app' \
+  -d '{"event":"turn_end","session_id":"s1","message":"Fixed the login bug: ..."}' \
+  http://127.0.0.1:7437/api/v1/hooks/my-agent
+```
+
+Effects: `file_edit` re-indexes the files now; `command` shows in the live feed; `turn_end` /
+`session_end` create the automatic handoff (message + files touched in that session). The command
+line form queues events while Cobalt is closed; the HTTP form needs Cobalt running.
 
 ---
 

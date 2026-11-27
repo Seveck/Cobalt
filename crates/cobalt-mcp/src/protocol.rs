@@ -22,7 +22,8 @@ const INSTRUCTIONS: &str = "Cobalt is the user's persistent memory shared by all
 At session start call list_project_rules. Call search_memory before reading large files or asking \
 for context again, and search_reusable_assets before writing boilerplate. Save durable decisions, \
 fixes and preferences with save_memory (atomic, 1-4 lines). Use create_handoff when stopping mid-task \
-and resume_handoff when asked to continue.";
+and resume_handoff when asked to continue. Full usage guide (connecting, hooks, themes): \
+GET http://127.0.0.1:7437/api/v1/guide.";
 
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;

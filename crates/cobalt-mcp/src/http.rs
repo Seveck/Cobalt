@@ -85,7 +85,8 @@ impl HttpServer {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Cobalt local API", description = "Local REST API of the Cobalt daemon. DTOs are documented in docs/CONTRACTS.md (snake_case JSON). Authenticate with `Authorization: Bearer <~/.cobalt/daemon.token>`."),
-    paths(api_health, api_status, api_search, api_get_memory, api_save_memory, api_telemetry_summary),
+    paths(api_health, api_status, api_search, api_get_memory, api_save_memory, api_telemetry_summary,
+          api_list_tools, api_call_tool, api_hook, api_guide),
     modifiers(&BearerAuth)
 )]
 struct ApiDoc;
@@ -111,6 +112,10 @@ fn router(ctx: AppCtx) -> Router {
         .route("/memories", post(api_save_memory))
         .route("/memories/{id}", get(api_get_memory))
         .route("/telemetry/summary", get(api_telemetry_summary))
+        .route("/tools", get(api_list_tools))
+        .route("/tools/{name}", post(api_call_tool))
+        .route("/hooks/{source}", post(api_hook))
+        .route("/guide", get(api_guide))
         .route("/ws", get(api_ws));
     Router::new()
         .route("/mcp", post(mcp_post).delete(mcp_delete).get(mcp_get))
@@ -390,6 +395,141 @@ async fn api_telemetry_summary(State(ctx): State<AppCtx>, headers: HeaderMap) ->
         Ok(s) => Json(s).into_response(),
         Err(e) => api_error(e),
     }
+}
+
+// ------------------------------------------------------------------------ tools over REST
+
+/// The AI guide, embedded so every installed Cobalt can teach any AI how to use it.
+pub const AI_GUIDE: &str = include_str!("../../../docs/AI_GUIDE.md");
+
+#[utoipa::path(get, path = "/api/v1/guide",
+    responses((status = 200, description = "docs/AI_GUIDE.md (Markdown)", body = String)))]
+async fn api_guide() -> Response {
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_static("text/markdown; charset=utf-8"),
+        )],
+        AI_GUIDE,
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct ToolsQuery {
+    format: Option<String>,
+}
+
+#[utoipa::path(get, path = "/api/v1/tools", security(("bearer" = [])),
+    params(("format" = Option<String>, Query, description = "`openai` = function-calling array (OpenAI / Ollama / llama.cpp)")),
+    responses((status = 200, description = "Tool definitions with JSON Schemas", body = Object)))]
+async fn api_list_tools(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Query(q): Query<ToolsQuery>,
+) -> Response {
+    if !authorized(&ctx, &headers, None) {
+        return unauthorized();
+    }
+    let openai = q.format.as_deref() == Some("openai");
+    let tools: Vec<Value> = crate::tools::TOOLS
+        .iter()
+        .map(|spec| {
+            let description = ctx.daemon.tool_description(spec);
+            let schema = crate::tools::input_schema(spec.name);
+            if openai {
+                json!({ "type": "function", "function": {
+                    "name": spec.name, "description": description, "parameters": schema } })
+            } else {
+                json!({ "name": spec.name, "description": description,
+                        "input_schema": schema, "read_only": spec.read_only })
+            }
+        })
+        .collect();
+    Json(json!({ "tools": tools })).into_response()
+}
+
+/// Caller identity for REST: `X-Cobalt-Client` (name shown to the user) and `X-Cobalt-Cwd`
+/// (working directory used for project detection when `project` is omitted).
+fn rest_context(headers: &HeaderMap) -> ClientContext {
+    let mut ctx = ClientContext::new(McpTransport::StreamableHttp);
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+    };
+    let client = header("x-cobalt-client")
+        .map(crate::capture::client_label)
+        .filter(|c| !c.is_empty());
+    ctx.client_name = client.unwrap_or_else(|| "rest-api".into());
+    ctx.cwd = header("x-cobalt-cwd").map(str::to_owned);
+    ctx
+}
+
+#[utoipa::path(post, path = "/api/v1/tools/{name}", security(("bearer" = [])),
+    params(("name" = String, Path, description = "Tool name, e.g. search_memory"),
+           ("X-Cobalt-Client" = Option<String>, Header, description = "Your client name"),
+           ("X-Cobalt-Cwd" = Option<String>, Header, description = "Working directory for project detection")),
+    request_body(content = Object, description = "Tool arguments (same JSON Schema as MCP)"),
+    responses((status = 200, description = "{ text, structured }", body = Object)))]
+async fn api_call_tool(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    body: String,
+) -> Response {
+    if !authorized(&ctx, &headers, None) {
+        return unauthorized();
+    }
+    if !crate::tools::TOOLS.iter().any(|t| t.name == name) {
+        return api_error(CobaltError::NotFound(format!("tool '{name}'")));
+    }
+    let args: Value = if body.trim().is_empty() {
+        json!({})
+    } else {
+        match serde_json::from_str(&body) {
+            Ok(v) => v,
+            Err(e) => return api_error(CobaltError::InvalidInput(format!("arguments: {e}"))),
+        }
+    };
+    let client = rest_context(&headers);
+    match ctx.daemon.call_tool(&name, args, &client).await {
+        Ok(out) => Json(json!({ "text": out.text, "structured": out.structured })).into_response(),
+        Err(e) => api_error(e),
+    }
+}
+
+#[utoipa::path(post, path = "/api/v1/hooks/{source}", security(("bearer" = [])),
+    params(("source" = String, Path, description = "Your tool name (generic event format) or claude/gemini/codex/git")),
+    request_body(content = Object, description = "Event JSON (docs/CLI_CAPTURE.md §3.1)"),
+    responses((status = 202, description = "Accepted")))]
+async fn api_hook(
+    State(ctx): State<AppCtx>,
+    headers: HeaderMap,
+    Path(source): Path<String>,
+    Json(payload): Json<Value>,
+) -> Response {
+    if !authorized(&ctx, &headers, None) {
+        return unauthorized();
+    }
+    let cwd = headers
+        .get("x-cobalt-cwd")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let env = crate::capture::HookEnvelope {
+        source,
+        cwd,
+        payload,
+    };
+    let daemon = ctx.daemon.clone();
+    tokio::spawn(async move {
+        if let Err(err) = daemon.handle_hook(env).await {
+            tracing::debug!(%err, "REST hook ignored");
+        }
+    });
+    StatusCode::ACCEPTED.into_response()
 }
 
 #[derive(Deserialize)]

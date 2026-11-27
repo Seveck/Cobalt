@@ -475,6 +475,72 @@ async fn mcp_end_to_end_over_socket_and_http() {
     let (status, _, body) = http(server.addr, "GET", "/api/v1/openapi.json", &[], "").await;
     assert_eq!(status, 200);
     assert!(body.contains("/api/v1/search"));
+    assert!(body.contains("/api/v1/tools/{name}"));
+
+    // Any AI over plain HTTP: the guide (no auth), tool schemas for function calling, tool calls.
+    let (status, head, body) = http(server.addr, "GET", "/api/v1/guide", &[], "").await;
+    assert_eq!(status, 200);
+    assert!(head.contains("text/markdown") && body.contains("Complete guide for AI assistants"));
+    let auth = [("Authorization", bearer.as_str())];
+    let (status, _, body) = http(server.addr, "GET", "/api/v1/tools?format=openai", &auth, "").await;
+    assert_eq!(status, 200, "{body}");
+    let tools: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(tools["tools"].as_array().unwrap().len(), 8);
+    assert_eq!(tools["tools"][0]["type"], "function");
+    assert!(tools["tools"][0]["function"]["parameters"]["properties"].is_object());
+
+    let local = [
+        ("Authorization", bearer.as_str()),
+        ("X-Cobalt-Client", "Ollama Agent"),
+    ];
+    let (status, _, body) = http(
+        server.addr,
+        "POST",
+        "/api/v1/tools/save_memory",
+        &local,
+        r#"{"content":"Decision: local agent uses Cobalt over REST for memory.","category":"decision","project":"rest-proj"}"#,
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let saved: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(saved["structured"]["project"]["name"], "rest-proj");
+    let (status, _, body) = http(
+        server.addr,
+        "POST",
+        "/api/v1/tools/list_project_rules",
+        &local,
+        r#"{"project":"rest-proj"}"#,
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let (status, _, _) = http(server.addr, "POST", "/api/v1/tools/nope", &local, "{}").await;
+    assert_eq!(status, 404);
+    {
+        let activity = recorder.activity.lock().unwrap();
+        assert!(activity.iter().any(|a| a.client_name == "ollama-agent"));
+    }
+
+    // Generic hook format from any tool, over REST.
+    let (status, _, _) = http(
+        server.addr,
+        "POST",
+        "/api/v1/hooks/my-agent",
+        &auth,
+        r#"{"event":"command","command":"cargo test","session_id":"s1"}"#,
+    )
+    .await;
+    assert_eq!(status, 202);
+    let mut seen = false;
+    for _ in 0..50 {
+        if recorder.cli.lock().unwrap().iter().any(|a| {
+            a.client_name == "my-agent" && a.detail.as_deref() == Some("cargo test")
+        }) {
+            seen = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(seen, "generic hook event recorded");
 }
 
 /// `cobalt --mcp-stdio` survives a daemon restart: the bridge reconnects, replays the MCP

@@ -46,6 +46,19 @@ fn str_at<'a>(v: &'a Value, path: &str) -> Option<&'a str> {
     v.pointer(path).and_then(Value::as_str)
 }
 
+/// Client name for a custom hook source: lowercase `[a-z0-9._-]` (spaces become `-`), ≤ 32 chars
+/// (empty = invalid).
+pub fn client_label(source: &str) -> String {
+    source
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_whitespace() { '-' } else { c })
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        .take(32)
+        .collect()
+}
+
 fn short(text: &str, max: usize) -> String {
     let t: String = text.chars().take(max).collect();
     if text.chars().count() > max {
@@ -96,8 +109,11 @@ impl Daemon {
             "codex" => "codex".into(),
             "gemini" => "gemini-cli".into(),
             "git" => "git".into(),
-            other => short(other, 32),
+            other => client_label(other),
         };
+        if ctx.client_name.is_empty() {
+            return Ok(());
+        }
         let resolved = if ctx.cwd.is_some() {
             self.resolve_project(None, &ctx).await?
         } else {
@@ -278,7 +294,59 @@ impl Daemon {
                     }
                 }
             }
-            _ => return Ok(()),
+            // Any other tool: the generic event format (docs/CLI_CAPTURE.md §3.1).
+            _ => {
+                let files: Vec<String> = p
+                    .get("files")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .take(MAX_TRACKED_FILES)
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                match str_at(p, "/event").unwrap_or_default() {
+                    "session_start" => activity.kind = CliActivityKind::SessionStart,
+                    "file_edit" => {
+                        activity.kind = CliActivityKind::FileEdit;
+                        for f in &files {
+                            self.track_file(&session, f);
+                        }
+                        activity.files = files;
+                    }
+                    "command" => {
+                        activity.kind = CliActivityKind::Command;
+                        activity.detail =
+                            str_at(p, "/command").map(|c| short(&scrub(c).text, 160));
+                    }
+                    event @ ("turn_end" | "session_end") => {
+                        let ended = event == "session_end";
+                        activity.kind = if ended {
+                            CliActivityKind::SessionEnd
+                        } else {
+                            CliActivityKind::TurnEnd
+                        };
+                        for f in &files {
+                            self.track_file(&session, f);
+                        }
+                        let message = str_at(p, "/message").map(str::to_owned);
+                        activity.detail = message.as_deref().map(|m| short(&scrub(m).text, 160));
+                        activity.files = self.session_files(&session);
+                        self.auto_handoff(
+                            &ctx,
+                            &resolved,
+                            &session,
+                            message.as_deref(),
+                            &activity.files,
+                            ended,
+                        )
+                        .await;
+                    }
+                    _ => return Ok(()),
+                }
+            }
         }
         self.emit_cli_activity(activity);
         Ok(())
@@ -407,6 +475,15 @@ pub async fn run_hook(home: &Path, source: &str, last_arg: Option<String>) -> Re
         "codex" => last_arg
             .and_then(|a| serde_json::from_str(&a).ok())
             .unwrap_or(Value::Null),
+        // Custom tools may pass the event JSON as the last argument instead of stdin.
+        _ if last_arg
+            .as_deref()
+            .is_some_and(|a| a.trim_start().starts_with('{')) =>
+        {
+            last_arg
+                .and_then(|a| serde_json::from_str(&a).ok())
+                .unwrap_or(Value::Null)
+        }
         _ => {
             let mut raw = String::new();
             let read = tokio::time::timeout(Duration::from_secs(2), async {

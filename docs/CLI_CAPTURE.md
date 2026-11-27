@@ -1,4 +1,4 @@
-# Cobalt — Automatic capture from AI CLIs (v1.4.0)
+# Cobalt — Automatic capture from AI CLIs (v1.5.0)
 
 Goal: Cobalt stays current **even when an AI never calls its MCP tools**, so no agent keeps
 receiving outdated knowledge. Owner: [CLAUDE] (hooks, daemon, connectors); [CODEX] (watcher
@@ -39,6 +39,23 @@ instructions file (backup `.bak-<stamp>` first; removal deletes only the block):
   immediately; on `Stop`/`SessionEnd`/Codex `agent-turn-complete` (if `capture.session_handoffs`)
   it creates/refreshes an automatic **handoff** for the project from the last assistant message
   (scrubbed, ≤ 250 tokens) plus touched files — ephemeral, never permanent memory.
+
+### 3.1 Generic hook format (any tool, v1.5.0)
+Any source name other than `claude`, `codex`, `gemini`, `git` uses this format; the source becomes
+the client name (lowercase `[a-z0-9._-]`, spaces → `-`, ≤ 32 chars). Delivery: `cobalt --hook <source>`
+with the JSON on stdin or as the last argument, or `POST /api/v1/hooks/<source>` (bearer token,
+optional `X-Cobalt-Cwd` header). Unknown events are ignored.
+
+```json
+{ "event": "session_start | file_edit | command | turn_end | session_end",
+  "session_id": "optional, groups events (default \"default\")",
+  "cwd": "optional absolute dir (project detection)",
+  "files": ["/abs/path/edited.rs"],
+  "command": "for event=command",
+  "message": "last assistant message, for turn_end / session_end" }
+```
+- `file_edit` → files re-indexed now; `turn_end`/`session_end` → automatic handoff (same rules
+  as above) with `message` + the session's touched files.
 
 ## 4. Git (`git_hooks`, per project, `capture.git_commits`)
 `.git/hooks/post-commit` (existing hook preserved and chained) runs `cobalt --hook git`, which
