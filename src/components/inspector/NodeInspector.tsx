@@ -322,7 +322,6 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
     const newPath = await pickSinglePath({
       title: t("library.relinkDialogTitle"),
       defaultPath: sourceDoc.file_path,
-      fallbackPlaceholder: sourceDoc.file_path,
     });
     if (!newPath) return;
 

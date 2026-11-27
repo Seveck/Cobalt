@@ -13,6 +13,8 @@ import { useTranslation } from "react-i18next";
 import { Canvas } from "@react-three/fiber";
 import {
   Clock,
+  FolderKanban,
+  Plug,
   Radio,
   RotateCcw,
   SearchCode,
@@ -31,7 +33,7 @@ import {
   useUiStore,
 } from "@/stores";
 import { NodeInspector } from "@/components/inspector/NodeInspector";
-import { MockBadge } from "@/components/shell/MockBadge";
+import { CobaltMark } from "@/components/shell/CobaltMark";
 import { BranchSwitcher } from "@/components/tools/BranchSwitcher";
 import { CleanBrainPanel } from "@/components/tools/CleanBrainPanel";
 import { RagDebugger } from "@/components/tools/RagDebugger";
@@ -83,7 +85,7 @@ export function BrainCanvas() {
 
   const graph = useMemoryStore((s) => s.graph);
   const loading = useMemoryStore((s) => s.loading);
-  const isMockData = useMemoryStore((s) => s.isMockData);
+  const graphError = useMemoryStore((s) => s.error);
   const hoveredNodeId = useMemoryStore((s) => s.hoveredNodeId);
   const selectedNodeId = useMemoryStore((s) => s.selectedNodeId);
   const highlightedNodeIds = useMemoryStore((s) => s.highlightedNodeIds);
@@ -101,6 +103,8 @@ export function BrainCanvas() {
   const toggleShowConnections = useThemeStore((s) => s.toggleShowConnections);
 
   const appInfo = useUiStore((s) => s.appInfo);
+  const setActiveNav = useUiStore((s) => s.setActiveNav);
+  const openToolsTab = useUiStore((s) => s.openToolsTab);
 
   const themeBasePath = useMemo(() => {
     if (manifest.id === BUILTIN_THEME_ID) return null;
@@ -108,7 +112,7 @@ export function BrainCanvas() {
     if (installed?.local_path && !installed.local_path.startsWith("builtin://")) {
       return installed.local_path;
     }
-    if (appInfo?.data_dir && !appInfo.data_dir.includes("(mock)")) {
+    if (appInfo?.data_dir) {
       const clean = appInfo.data_dir.replace(/[\\/]+$/, "");
       const sep = clean.includes("\\") && !clean.includes("/") ? "\\" : "/";
       return `${clean}${sep}themes${sep}${manifest.id}`;
@@ -304,8 +308,6 @@ export function BrainCanvas() {
                 </span>
               </span>
             )}
-
-            {isMockData && <MockBadge className="pointer-events-auto" />}
           </div>
 
           {/* Top-right: 5-Layout Switcher + Governance Tools + Camera Reset */}
@@ -461,6 +463,66 @@ export function BrainCanvas() {
           </CanvasErrorBoundary>
         )}
 
+        {/* Helpful empty state for a brand-new install with 0 memories */}
+        {!loading && graph && graph.nodes.length === 0 && (
+          <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center p-6">
+            <div className="pointer-events-auto w-full max-w-md rounded-[2px] border border-rule-strong bg-surface/95 p-6 text-center shadow-[0_20px_48px_rgba(0,0,0,0.7)] backdrop-blur-sm">
+              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-[2px] border border-cobalt-rule bg-cobalt-wash">
+                <CobaltMark size={22} />
+              </div>
+              <h2 className="mt-4 font-display text-xl font-medium tracking-tight text-bone">
+                {t("brain.emptyTitle")}
+              </h2>
+              <p className="mt-2 text-xs leading-relaxed text-bone-muted">
+                {t("brain.emptyDesc")}
+              </p>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openToolsTab("importer")}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3.5 py-2 font-mono text-xs font-semibold text-bone transition-colors hover:bg-cobalt-bright"
+                >
+                  <Upload size={13} aria-hidden />
+                  <span>{t("brain.emptyImportAction")}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveNav("connectors")}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-2 font-mono text-xs text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:text-bone"
+                >
+                  <Plug size={13} aria-hidden />
+                  <span>{t("brain.emptyConnectAction")}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openToolsTab("projects")}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-2 font-mono text-xs text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:text-bone"
+                >
+                  <FolderKanban size={13} aria-hidden />
+                  <span>{t("brain.emptyProjectAction")}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Load error state when initial graph fetch fails */}
+        {!loading && !graph && graphError && (
+          <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center p-6">
+            <div className="pointer-events-auto w-full max-w-md rounded-[2px] border border-cinnabar-rule bg-surface/95 p-5 text-center">
+              <p className="text-xs text-cinnabar">{graphError}</p>
+              <button
+                type="button"
+                onClick={() => void loadGraph()}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-1.5 font-mono text-xs text-bone hover:border-cobalt-ink/60"
+              >
+                <RotateCcw size={12} aria-hidden />
+                {t("common.refresh")}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Pointer-tracked hover tooltip (only for hovered node — THEME_SPEC §6.1) */}
         {hoveredNode && (
           <NodeTooltip
@@ -480,34 +542,38 @@ export function BrainCanvas() {
             <SynapticHud />
 
             {/* Minimal palette legend */}
-            <div className="hidden items-center gap-3 rounded-[2px] border border-rule bg-surface/90 px-2.5 py-1 font-mono text-[10px] text-bone-muted lg:flex">
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: manifest.palette.core_pin }}
-                />
-                {t("brain.corePin")}
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: manifest.palette.reusable }}
-                />
-                {t("brain.reusable")}
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: manifest.palette.node }}
-                />
-                {t("categories.decision")}
-              </span>
-            </div>
+            {graph && graph.nodes.length > 0 && (
+              <div className="hidden items-center gap-3 rounded-[2px] border border-rule bg-surface/90 px-2.5 py-1 font-mono text-[10px] text-bone-muted lg:flex">
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: manifest.palette.core_pin }}
+                  />
+                  {t("brain.corePin")}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: manifest.palette.reusable }}
+                  />
+                  {t("brain.reusable")}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: manifest.palette.node }}
+                  />
+                  {t("categories.decision")}
+                </span>
+              </div>
+            )}
           </div>
 
           {timeTravelOpen && <TimeTravelBar onClose={() => setTimeTravelOpen(false)} />}
 
-          {graph && <FilterDock nodes={graph.nodes} projects={graph.projects} />}
+          {graph && graph.nodes.length > 0 && (
+            <FilterDock nodes={graph.nodes} projects={graph.projects} />
+          )}
         </div>
       </div>
 

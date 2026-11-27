@@ -34,7 +34,6 @@ import {
   useUiStore,
 } from "@/stores";
 import { DownloadProgressBar, HardwareConfigForm } from "@/components/onboarding";
-import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
 import {
   CONTRACT_VERSION,
@@ -264,7 +263,6 @@ export function SettingsView() {
               <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
                 {t("settings.title")}
               </h1>
-              <MockBadge />
             </div>
             <p className="mt-1.5 text-sm text-bone-muted">{t("settings.subtitle")}</p>
           </div>

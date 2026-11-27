@@ -300,20 +300,26 @@ export function WelcomeGreeting() {
           <li className="flex items-start gap-2">
             <Brain size={13} className="mt-0.5 shrink-0 text-cobalt-ink" aria-hidden />
             <span className="leading-snug text-bone">
-              {t("welcome.brainFact", {
-                memories: formatTokenCount(memoriesCount, lang),
-                projects: formatTokenCount(projectsCount, lang),
-              })}
+              {memoriesCount === 0 && projectsCount === 0
+                ? t("welcome.emptyBrainFact")
+                : t("welcome.brainFact", {
+                    memories: formatTokenCount(memoriesCount, lang),
+                    projects: formatTokenCount(projectsCount, lang),
+                  })}
             </span>
           </li>
 
           <li className="flex items-start gap-2">
             <TrendingDown size={13} className="mt-0.5 shrink-0 text-verdigris" aria-hidden />
             <span className="leading-snug">
-              {t("welcome.tokensFact", {
-                total: formatTokenCount(snapshot.totalSavedTokens, lang),
-                today: formatTokenCount(snapshot.todaySavedTokens, lang),
-              })}
+              {snapshot.totalSavedTokens === 0 &&
+              snapshot.todaySavedTokens === 0 &&
+              !snapshot.lastActivity
+                ? t("welcome.noSavingsYet")
+                : t("welcome.tokensFact", {
+                    total: formatTokenCount(snapshot.totalSavedTokens, lang),
+                    today: formatTokenCount(snapshot.todaySavedTokens, lang),
+                  })}
             </span>
           </li>
 

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { backendCall, isCommandMocked } from "@/lib/backend";
+import { backendCall } from "@/lib/backend";
 import { MINIMAL_THEME_MANIFEST } from "@/themes/minimal";
 import {
   BUILTIN_THEME_ID,
@@ -58,7 +58,6 @@ export interface ThemeState {
   themeWarnings: ThemeRuntimeWarning[];
   loading: boolean;
   error: string | null;
-  isMockData: boolean;
   setActiveTheme: (themeId: string) => Promise<boolean>;
   setActiveLayout: (layout: LayoutType) => void;
   setClusterSizeMetric: (metric: ClusterSizeMetric) => void;
@@ -85,7 +84,6 @@ export const useThemeStore = create<ThemeState>((set) => ({
   themeWarnings: [],
   loading: false,
   error: null,
-  isMockData: isCommandMocked("list_installed_themes"),
 
   setActiveTheme: async (themeId) => {
     set((state) => ({
@@ -188,7 +186,7 @@ export const useThemeStore = create<ThemeState>((set) => ({
     })),
 
   loadInstalledThemes: async () => {
-    set({ loading: true, error: null, isMockData: isCommandMocked("list_installed_themes") });
+    set({ loading: true, error: null });
     try {
       const installedThemes = await backendCall("list_installed_themes");
       set({ installedThemes, loading: false });

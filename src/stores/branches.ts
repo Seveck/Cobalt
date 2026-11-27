@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { backendCall, isCommandMocked } from "@/lib/backend";
+import { backendCall } from "@/lib/backend";
 import {
   MAIN_BRANCH_ID,
   type Branch,
@@ -14,7 +14,6 @@ export interface BranchesState {
   mutating: boolean;
   error: string | null;
   lastMergeReport: BranchMergeReport | null;
-  isMockData: boolean;
   loadBranches: () => Promise<void>;
   setActiveBranchId: (branchId: Uuid) => void;
   createBranch: (name: string, parentBranchId?: Uuid | null) => Promise<Branch | null>;
@@ -32,10 +31,9 @@ export const useBranchesStore = create<BranchesState>((set, get) => ({
   mutating: false,
   error: null,
   lastMergeReport: null,
-  isMockData: isCommandMocked("list_branches"),
 
   loadBranches: async () => {
-    set({ loading: true, error: null, isMockData: isCommandMocked("list_branches") });
+    set({ loading: true, error: null });
     try {
       const branches = await backendCall("list_branches");
       const active = branches.find((b) => b.is_active);

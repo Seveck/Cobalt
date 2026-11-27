@@ -13,11 +13,13 @@ import {
   YAxis,
 } from "recharts";
 import {
+  BarChart3,
   ChevronDown,
   ChevronRight,
   Compass,
   Loader2,
   Play,
+  Plug,
   RefreshCw,
   Search,
 } from "lucide-react";
@@ -29,7 +31,6 @@ import {
   useTelemetryStore,
   useUiStore,
 } from "@/stores";
-import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, type SelectOption } from "@/components/ui";
 import {
   OPERATION_COLORS,
@@ -256,11 +257,36 @@ export function TelemetryView() {
   const totalPages = Math.max(1, Math.ceil(historyPage.total / HISTORY_PAGE_SIZE));
   const currentPage = Math.floor(offset / HISTORY_PAGE_SIZE) + 1;
 
+  const hasAvoidedData = Boolean(summary && summary.total_avoided_tokens > 0);
   const compressionPct = Math.round((summary?.compression_ratio ?? 0) * 100);
   const injectedPct =
     summary && summary.total_avoided_tokens > 0
       ? Math.min(100, Math.round((summary.total_injected_tokens / summary.total_avoided_tokens) * 100))
       : 0;
+  const hasReadsOrReuse = Boolean(
+    summary && (summary.saved_from_reads > 0 || summary.saved_from_reuse > 0),
+  );
+  const hasSummaryActivity = Boolean(
+    summary &&
+      (summary.total_saved_tokens > 0 ||
+        summary.total_injected_tokens > 0 ||
+        summary.total_avoided_tokens > 0 ||
+        summary.by_client.length > 0 ||
+        summary.timeline.length > 0 ||
+        summary.top_nodes.length > 0),
+  );
+  const hasHistoryFilters =
+    Boolean(searchText.trim()) ||
+    clientFilter !== "__all__" ||
+    projectFilter !== "__all__" ||
+    selectedOps.length > 0;
+  const isCompletelyEmpty =
+    !loading &&
+    !historyLoading &&
+    rangePreset === "all" &&
+    !hasHistoryFilters &&
+    !hasSummaryActivity &&
+    historyPage.total === 0;
 
   return (
     <div className="h-full overflow-y-auto bg-void p-6 lg:p-8">
@@ -272,7 +298,6 @@ export function TelemetryView() {
               <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
                 {t("telemetry.title")}
               </h1>
-              <MockBadge />
             </div>
             <p className="mt-1.5 text-sm text-bone-muted">{t("telemetry.subtitle")}</p>
           </div>
@@ -320,177 +345,214 @@ export function TelemetryView() {
           </div>
         )}
 
-        {/* KPI strip */}
-        {summary && (
+        {/* Brand-new install empty state (no telemetry recorded yet) */}
+        {isCompletelyEmpty ? (
+          <section className="rounded-[2px] border border-rule bg-surface px-6 py-14 text-center">
+            <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-[2px] border border-cobalt-rule bg-cobalt-wash text-cobalt-ink">
+              <BarChart3 size={20} aria-hidden />
+            </div>
+            <h2 className="mt-4 font-display text-xl font-medium tracking-tight text-bone">
+              {t("telemetry.emptyTitle")}
+            </h2>
+            <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-bone-muted">
+              {t("telemetry.emptyDesc")}
+            </p>
+            <div className="mt-5 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => setActiveNav("connectors")}
+                className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-4 py-2 font-mono text-xs font-semibold text-bone transition-colors hover:bg-cobalt-bright"
+              >
+                <Plug size={13} aria-hidden />
+                <span>{t("telemetry.emptyConnectAction")}</span>
+              </button>
+            </div>
+          </section>
+        ) : (
           <>
-            <section className="grid grid-cols-1 divide-y divide-rule rounded-[2px] border border-rule bg-surface sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
-              <div className="p-5">
-                <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
-                  {t("telemetry.totalSaved")}
-                </div>
-                <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-verdigris">
-                  {summary.total_saved_tokens.toLocaleString()}
-                </div>
-                <div className="mt-1 font-mono text-[10px] text-bone-subtle">
-                  {t("telemetry.avoidedVsInjected", {
-                    avoided: summary.total_avoided_tokens.toLocaleString(),
-                    injected: summary.total_injected_tokens.toLocaleString(),
-                  })}
-                </div>
-              </div>
-
-              <div className="p-5">
-                <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
-                  {t("telemetry.sessionSaved")}
-                </div>
-                <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-cobalt-ink">
-                  {summary.session_saved_tokens.toLocaleString()}
-                </div>
-                <div className="mt-1 text-[11px] text-bone-subtle">
-                  {t("telemetry.sessionHint")}
-                </div>
-              </div>
-
-              <div className="p-5">
-                <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
-                  {t("telemetry.compressionRatio")}
-                </div>
-                <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-ochre">
-                  {compressionPct}%
-                </div>
-                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-[1px] bg-void">
-                  <div
-                    className="h-full bg-ochre"
-                    style={{ width: `${Math.max(0, Math.min(100, compressionPct))}%` }}
-                  />
-                </div>
-                <div className="mt-1 font-mono text-[10px] text-bone-subtle">
-                  {t("telemetry.injectedShare", { pct: injectedPct })}
-                </div>
-              </div>
-
-              <div className="p-5">
-                <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
-                  {t("telemetry.readsVsReuseTitle")}
-                </div>
-                <div className="mt-2 flex items-baseline gap-2 font-mono text-lg font-semibold tabular-nums">
-                  <span className="text-cobalt-ink">
-                    {summary.saved_from_reads.toLocaleString()}
-                  </span>
-                  <span className="text-xs text-bone-subtle">/</span>
-                  <span className="text-pulse-reuse">
-                    {summary.saved_from_reuse.toLocaleString()}
-                  </span>
-                </div>
-                <div className="mt-1 font-mono text-[10px] text-bone-subtle">
-                  {t("telemetry.readsVsReuseLegend")}
-                </div>
-              </div>
-            </section>
-
-            {/* Charts Row 1: Timeline + Reads vs Reuse */}
-            <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div className="rounded-[2px] border border-rule bg-surface p-5 lg:col-span-2">
-                <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
-                  {t("telemetry.savedOverTime")}
-                </h2>
-                <div className="mt-4 h-60 w-full">
-                  {timelineData.length === 0 ? (
-                    <div className="flex h-full items-center justify-center text-xs text-bone-subtle">
-                      {t("telemetry.noChartData")}
+            {/* KPI strip */}
+            {summary && (
+              <>
+                <section className="grid grid-cols-1 divide-y divide-rule rounded-[2px] border border-rule bg-surface sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
+                  <div className="p-5">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
+                      {t("telemetry.totalSaved")}
                     </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={timelineData}>
-                        <defs>
-                          <linearGradient id="cobaltSavedGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#34B37E" stopOpacity={0.38} />
-                            <stop offset="95%" stopColor="#34B37E" stopOpacity={0.02} />
-                          </linearGradient>
-                          <linearGradient id="cobaltInjectedGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#79A8FF" stopOpacity={0.28} />
-                            <stop offset="95%" stopColor="#79A8FF" stopOpacity={0.02} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid stroke="#23262F" strokeDasharray="3 3" />
-                        <XAxis
-                          dataKey="label"
-                          stroke="#6F6C65"
-                          tick={{ fill: "#A4A096", fontSize: 11 }}
-                        />
-                        <YAxis
-                          stroke="#6F6C65"
-                          tick={{ fill: "#A4A096", fontSize: 11 }}
-                          width={56}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "#111317",
-                            borderColor: "#363C4A",
-                            borderRadius: 2,
-                            fontSize: 12,
-                            color: "#ECE9E1",
-                          }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="saved"
-                          name={t("telemetry.chartSaved")}
-                          stroke="#34B37E"
-                          strokeWidth={2}
-                          fill="url(#cobaltSavedGrad)"
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="injected"
-                          name={t("telemetry.chartInjected")}
-                          stroke="#79A8FF"
-                          strokeWidth={1.5}
-                          fill="url(#cobaltInjectedGrad)"
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </div>
+                    <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-verdigris">
+                      {summary.total_saved_tokens.toLocaleString()}
+                    </div>
+                    <div className="mt-1 font-mono text-[10px] text-bone-subtle">
+                      {t("telemetry.avoidedVsInjected", {
+                        avoided: summary.total_avoided_tokens.toLocaleString(),
+                        injected: summary.total_injected_tokens.toLocaleString(),
+                      })}
+                    </div>
+                  </div>
 
-              <div className="rounded-[2px] border border-rule bg-surface p-5">
-                <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
-                  {t("telemetry.readsVsReuseTitle")}
-                </h2>
-                <div className="mt-4 h-60 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={breakdownData}>
-                      <CartesianGrid stroke="#23262F" strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="name"
-                        stroke="#6F6C65"
-                        tick={{ fill: "#A4A096", fontSize: 11 }}
-                      />
-                      <YAxis
-                        stroke="#6F6C65"
-                        tick={{ fill: "#A4A096", fontSize: 11 }}
-                        width={54}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "#111317",
-                          borderColor: "#363C4A",
-                          borderRadius: 2,
-                          fontSize: 12,
-                          color: "#ECE9E1",
+                  <div className="p-5">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
+                      {t("telemetry.sessionSaved")}
+                    </div>
+                    <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-cobalt-ink">
+                      {summary.session_saved_tokens.toLocaleString()}
+                    </div>
+                    <div className="mt-1 text-[11px] text-bone-subtle">
+                      {t("telemetry.sessionHint")}
+                    </div>
+                  </div>
+
+                  <div className="p-5">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
+                      {t("telemetry.compressionRatio")}
+                    </div>
+                    <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-ochre">
+                      {hasAvoidedData ? `${compressionPct}%` : "—"}
+                    </div>
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-[1px] bg-void">
+                      <div
+                        className="h-full bg-ochre"
+                        style={{
+                          width: hasAvoidedData
+                            ? `${Math.max(0, Math.min(100, compressionPct))}%`
+                            : "0%",
                         }}
                       />
-                      <Bar dataKey="tokens" radius={[2, 2, 0, 0]}>
-                        {breakdownData.map((entry) => (
-                          <Cell key={entry.name} fill={entry.color} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </section>
+                    </div>
+                    <div className="mt-1 font-mono text-[10px] text-bone-subtle">
+                      {hasAvoidedData
+                        ? t("telemetry.injectedShare", { pct: injectedPct })
+                        : t("telemetry.noChartData")}
+                    </div>
+                  </div>
+
+                  <div className="p-5">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone-subtle">
+                      {t("telemetry.readsVsReuseTitle")}
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-2 font-mono text-lg font-semibold tabular-nums">
+                      <span className="text-cobalt-ink">
+                        {summary.saved_from_reads.toLocaleString()}
+                      </span>
+                      <span className="text-xs text-bone-subtle">/</span>
+                      <span className="text-pulse-reuse">
+                        {summary.saved_from_reuse.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="mt-1 font-mono text-[10px] text-bone-subtle">
+                      {t("telemetry.readsVsReuseLegend")}
+                    </div>
+                  </div>
+                </section>
+
+                {/* Charts Row 1: Timeline + Reads vs Reuse */}
+                <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                  <div className="rounded-[2px] border border-rule bg-surface p-5 lg:col-span-2">
+                    <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+                      {t("telemetry.savedOverTime")}
+                    </h2>
+                    <div className="mt-4 h-60 w-full">
+                      {timelineData.length === 0 ? (
+                        <div className="flex h-full items-center justify-center text-xs text-bone-subtle">
+                          {t("telemetry.noChartData")}
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={timelineData}>
+                            <defs>
+                              <linearGradient id="cobaltSavedGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#34B37E" stopOpacity={0.38} />
+                                <stop offset="95%" stopColor="#34B37E" stopOpacity={0.02} />
+                              </linearGradient>
+                              <linearGradient id="cobaltInjectedGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#79A8FF" stopOpacity={0.28} />
+                                <stop offset="95%" stopColor="#79A8FF" stopOpacity={0.02} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid stroke="#23262F" strokeDasharray="3 3" />
+                            <XAxis
+                              dataKey="label"
+                              stroke="#6F6C65"
+                              tick={{ fill: "#A4A096", fontSize: 11 }}
+                            />
+                            <YAxis
+                              stroke="#6F6C65"
+                              tick={{ fill: "#A4A096", fontSize: 11 }}
+                              width={56}
+                            />
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: "#111317",
+                                borderColor: "#363C4A",
+                                borderRadius: 2,
+                                fontSize: 12,
+                                color: "#ECE9E1",
+                              }}
+                            />
+                            <Area
+                              type="monotone"
+                              dataKey="saved"
+                              name={t("telemetry.chartSaved")}
+                              stroke="#34B37E"
+                              strokeWidth={2}
+                              fill="url(#cobaltSavedGrad)"
+                            />
+                            <Area
+                              type="monotone"
+                              dataKey="injected"
+                              name={t("telemetry.chartInjected")}
+                              stroke="#79A8FF"
+                              strokeWidth={1.5}
+                              fill="url(#cobaltInjectedGrad)"
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[2px] border border-rule bg-surface p-5">
+                    <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+                      {t("telemetry.readsVsReuseTitle")}
+                    </h2>
+                    <div className="mt-4 h-60 w-full">
+                      {!hasReadsOrReuse ? (
+                        <div className="flex h-full items-center justify-center text-xs text-bone-subtle">
+                          {t("telemetry.noChartData")}
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={breakdownData}>
+                            <CartesianGrid stroke="#23262F" strokeDasharray="3 3" />
+                            <XAxis
+                              dataKey="name"
+                              stroke="#6F6C65"
+                              tick={{ fill: "#A4A096", fontSize: 11 }}
+                            />
+                            <YAxis
+                              stroke="#6F6C65"
+                              tick={{ fill: "#A4A096", fontSize: 11 }}
+                              width={54}
+                            />
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: "#111317",
+                                borderColor: "#363C4A",
+                                borderRadius: 2,
+                                fontSize: 12,
+                                color: "#ECE9E1",
+                              }}
+                            />
+                            <Bar dataKey="tokens" radius={[2, 2, 0, 0]}>
+                              {breakdownData.map((entry) => (
+                                <Cell key={entry.name} fill={entry.color} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </div>
+                </section>
 
             {/* Charts Row 2: Client Ranking + Top Nodes */}
             <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -713,7 +775,9 @@ export function TelemetryView() {
             </div>
           ) : historyPage.items.length === 0 ? (
             <p className="py-8 text-center text-xs text-bone-subtle">
-              {t("telemetry.emptyHistory")}
+              {hasHistoryFilters
+                ? t("telemetry.emptyHistory")
+                : t("telemetry.emptyHistoryBrandNew")}
             </p>
           ) : (
             <div className="divide-y divide-rule rounded-[2px] border border-rule bg-void">
@@ -864,6 +928,8 @@ export function TelemetryView() {
             </div>
           )}
         </section>
+          </>
+        )}
       </div>
     </div>
   );

@@ -19,7 +19,6 @@ import { backendCall } from "@/lib/backend";
 import { copyToClipboard } from "@/lib/dialogs";
 import { AI_CLIENT_LABELS, formatAiClientName } from "@/lib/format";
 import { useSettingsStore } from "@/stores";
-import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
 import {
   AI_CLIENTS,
@@ -225,7 +224,6 @@ export function ConnectorsView() {
               <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
                 {t("connectors.title")}
               </h1>
-              <MockBadge />
             </div>
             <p className="mt-1.5 text-sm text-bone-muted">{t("connectors.subtitle")}</p>
           </div>

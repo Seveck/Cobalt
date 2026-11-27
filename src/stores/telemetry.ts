@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { backendCall, isCommandMocked } from "@/lib/backend";
+import { backendCall } from "@/lib/backend";
 import type { McpActivity, TelemetryRange, TelemetrySummary } from "@/types/contracts";
 
 const DEFAULT_RANGE: TelemetryRange = {
@@ -13,7 +13,6 @@ export interface TelemetryState {
   recentActivity: McpActivity[];
   loading: boolean;
   error: string | null;
-  isMockData: boolean;
   loadSummary: (range?: Partial<TelemetryRange>) => Promise<void>;
   pushActivity: (activity: McpActivity) => void;
 }
@@ -23,10 +22,9 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
   recentActivity: [],
   loading: false,
   error: null,
-  isMockData: isCommandMocked("get_telemetry_summary"),
 
   loadSummary: async (range) => {
-    set({ loading: true, error: null, isMockData: isCommandMocked("get_telemetry_summary") });
+    set({ loading: true, error: null });
     try {
       const summary = await backendCall("get_telemetry_summary", {
         ...DEFAULT_RANGE,

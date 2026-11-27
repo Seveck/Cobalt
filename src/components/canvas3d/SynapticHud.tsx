@@ -1,20 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { Activity, ChevronDown, ChevronUp, X, Zap } from "lucide-react";
-import { isEventMocked } from "@/lib/backend";
-import { triggerMockSynapticPulse } from "@/lib/backendMock";
+import { Activity, ChevronDown, ChevronUp, X } from "lucide-react";
 import { useSynapticStore } from "@/stores";
-import { OPERATION_COLORS, type TelemetryOperation } from "@/types/contracts";
-
-const MOCK_CYCLE_OPS: readonly TelemetryOperation[] = [
-  "read",
-  "reuse",
-  "write",
-  "update",
-  "handoff",
-  "blocked_firewall",
-];
-
-let mockOpCursor = 0;
+import { OPERATION_COLORS } from "@/types/contracts";
 
 export function SynapticHud() {
   const { t } = useTranslation();
@@ -26,27 +13,8 @@ export function SynapticHud() {
   const dismissHud = useSynapticStore((s) => s.dismissHud);
   const toggleHudExpanded = useSynapticStore((s) => s.toggleHudExpanded);
 
-  const isMockStream = isEventMocked("cobalt://mcp-activity");
-
-  const handleSimulatePulse = () => {
-    const op = MOCK_CYCLE_OPS[mockOpCursor % MOCK_CYCLE_OPS.length] ?? "read";
-    mockOpCursor += 1;
-    triggerMockSynapticPulse(op);
-  };
-
   if (!hudVisible || !latestActivity) {
-    if (!isMockStream) return null;
-    return (
-      <button
-        type="button"
-        onClick={handleSimulatePulse}
-        title={t("synaptic.simulateHint")}
-        className="pointer-events-auto inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface/90 px-2.5 py-1 font-mono text-[10px] text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:text-bone"
-      >
-        <Zap size={11} className="text-cobalt-ink" aria-hidden />
-        <span>{t("synaptic.simulatePulse")}</span>
-      </button>
-    );
+    return null;
   }
 
   const opColor = OPERATION_COLORS[latestActivity.operation];
@@ -82,16 +50,6 @@ export function SynapticHud() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          {isMockStream && (
-            <button
-              type="button"
-              onClick={handleSimulatePulse}
-              title={t("synaptic.simulatePulse")}
-              className="rounded-[2px] p-1 text-bone-subtle hover:bg-surface-2 hover:text-cobalt-ink"
-            >
-              <Zap size={11} aria-hidden />
-            </button>
-          )}
           <button
             type="button"
             onClick={toggleHudExpanded}

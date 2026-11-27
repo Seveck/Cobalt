@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { backendCall, isGlobalMockMode } from "@/lib/backend";
+import { backendCall } from "@/lib/backend";
 import type { AppInfo } from "@/types/contracts";
 
 export type NavSection =
@@ -20,7 +20,6 @@ export interface UiState {
   appInfo: AppInfo | null;
   showOnboardingOverride: boolean;
   welcomeDismissed: boolean;
-  globalMockMode: boolean;
   setActiveNav: (nav: NavSection) => void;
   setToolsTab: (tab: ToolsTab) => void;
   openToolsTab: (tab: ToolsTab) => void;
@@ -37,7 +36,6 @@ export const useUiStore = create<UiState>((set) => ({
   appInfo: null,
   showOnboardingOverride: false,
   welcomeDismissed: false,
-  globalMockMode: isGlobalMockMode(),
   setActiveNav: (activeNav) => set({ activeNav }),
   setToolsTab: (toolsTab) => set({ toolsTab }),
   openToolsTab: (toolsTab) => set({ activeNav: "tools", toolsTab }),

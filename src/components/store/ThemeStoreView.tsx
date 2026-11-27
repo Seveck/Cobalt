@@ -19,7 +19,6 @@ import { pickSinglePath, useFileDrop } from "@/lib/dialogs";
 import { formatBytes } from "@/lib/format";
 import { useSettingsStore, useThemeStore } from "@/stores";
 import { ThemeWarningsBanner } from "@/components/canvas3d";
-import { MockBadge } from "@/components/shell/MockBadge";
 import {
   BUILTIN_THEME_ID,
   type ThemeCard,
@@ -50,6 +49,7 @@ export function ThemeStoreView() {
   const [query, setQuery] = useState("");
   const [cards, setCards] = useState<ThemeCard[]>([]);
   const [searching, setSearching] = useState(true);
+  const [registryError, setRegistryError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [installingFile, setInstallingFile] = useState(false);
   const [brokenImages, setBrokenImages] = useState<ReadonlySet<string>>(new Set());
@@ -63,14 +63,15 @@ export function ThemeStoreView() {
 
   const searchRegistry = useCallback(async (q: string) => {
     setSearching(true);
-    setError(null);
+    setRegistryError(null);
     try {
       const result = await backendCall("search_theme_registry", {
         query: q.trim() || null,
       });
       setCards(result);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setCards([]);
+      setRegistryError(err instanceof Error ? err.message : String(err));
     } finally {
       setSearching(false);
     }
@@ -164,7 +165,6 @@ export function ThemeStoreView() {
     const path = await pickSinglePath({
       title: t("store.installFileDialogTitle"),
       filters: [{ name: "Cobalt Theme", extensions: ["cobalt-theme"] }],
-      fallbackPlaceholder: "/downloads/custom-theme.cobalt-theme",
     });
     if (path) {
       await handleInstallThemeFilePath(path);
@@ -206,7 +206,6 @@ export function ThemeStoreView() {
               <h1 className="font-display text-2xl font-medium tracking-tight text-bone sm:text-3xl">
                 {t("store.title")}
               </h1>
-              <MockBadge />
             </div>
             <p className="mt-1.5 text-sm text-bone-muted">{t("store.subtitle")}</p>
           </div>
@@ -306,75 +305,86 @@ export function ThemeStoreView() {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {installedThemes.map((theme) => {
-              const isActive = activeThemeId === theme.id;
-              const isBuiltin = theme.id === BUILTIN_THEME_ID;
-              const isBusy = busyId === theme.id;
-              return (
-                <div
-                  key={theme.id}
-                  className={`flex flex-col justify-between gap-3 rounded-[2px] border p-4 ${
-                    isActive
-                      ? "border-cobalt-rule bg-cobalt-wash/40"
-                      : "border-rule bg-surface"
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-bone">{theme.name}</span>
-                      <span className="font-mono text-[10px] text-bone-subtle">
-                        v{theme.version}
-                      </span>
-                    </div>
-                    <div className="mt-1 font-mono text-[10px] text-bone-muted">
-                      {theme.author} · {t(`tiers.${theme.hardware_tier}`)} ·{" "}
-                      {formatBytes(theme.size_bytes)}
-                    </div>
-                  </div>
+          {installedThemes.length === 0 ? (
+            <div className="rounded-[2px] border border-rule bg-surface p-6 text-center">
+              <p className="text-xs text-bone-muted">{t("store.onlyBuiltinInstalled")}</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {installedThemes.map((theme) => {
+                  const isActive = activeThemeId === theme.id;
+                  const isBuiltin = theme.id === BUILTIN_THEME_ID;
+                  const isBusy = busyId === theme.id;
+                  return (
+                    <div
+                      key={theme.id}
+                      className={`flex flex-col justify-between gap-3 rounded-[2px] border p-4 ${
+                        isActive
+                          ? "border-cobalt-rule bg-cobalt-wash/40"
+                          : "border-rule bg-surface"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium text-bone">{theme.name}</span>
+                          <span className="font-mono text-[10px] text-bone-subtle">
+                            v{theme.version}
+                          </span>
+                        </div>
+                        <div className="mt-1 font-mono text-[10px] text-bone-muted">
+                          {theme.author} · {t(`tiers.${theme.hardware_tier}`)} ·{" "}
+                          {formatBytes(theme.size_bytes)}
+                        </div>
+                      </div>
 
-                  <div className="flex items-center justify-between gap-2 border-t border-rule pt-2.5">
-                    {isActive ? (
-                      <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold uppercase text-verdigris">
-                        <Check size={11} aria-hidden />
-                        {t("store.active")}
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={isBusy}
-                        onClick={() => void handleApplyTheme(theme.id)}
-                        className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[10px] font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
-                      >
-                        {isBusy ? (
-                          <Loader2 size={10} className="animate-spin" aria-hidden />
+                      <div className="flex items-center justify-between gap-2 border-t border-rule pt-2.5">
+                        {isActive ? (
+                          <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold uppercase text-verdigris">
+                            <Check size={11} aria-hidden />
+                            {t("store.active")}
+                          </span>
                         ) : (
-                          <Sparkles size={10} aria-hidden />
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => void handleApplyTheme(theme.id)}
+                            className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[10px] font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
+                          >
+                            {isBusy ? (
+                              <Loader2 size={10} className="animate-spin" aria-hidden />
+                            ) : (
+                              <Sparkles size={10} aria-hidden />
+                            )}
+                            {t("store.applyButton")}
+                          </button>
                         )}
-                        {t("store.applyButton")}
-                      </button>
-                    )}
 
-                    {isBuiltin ? (
-                      <span className="font-mono text-[10px] uppercase text-bone-subtle">
-                        {t("store.builtin")}
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={isBusy}
-                        onClick={() => void handleUninstallTheme(theme.id)}
-                        className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2 py-1 font-mono text-[10px] text-cinnabar hover:bg-cinnabar hover:text-bone disabled:opacity-45"
-                      >
-                        <Trash2 size={10} aria-hidden />
-                        {t("store.uninstallButton")}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                        {isBuiltin ? (
+                          <span className="font-mono text-[10px] uppercase text-bone-subtle">
+                            {t("store.builtin")}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => void handleUninstallTheme(theme.id)}
+                            className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2 py-1 font-mono text-[10px] text-cinnabar hover:bg-cinnabar hover:text-bone disabled:opacity-45"
+                          >
+                            <Trash2 size={10} aria-hidden />
+                            {t("store.uninstallButton")}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {installedThemes.every((item) => item.id === BUILTIN_THEME_ID) && (
+                <p className="text-xs text-bone-subtle">{t("store.onlyBuiltinInstalled")}</p>
+              )}
+            </div>
+          )}
         </section>
 
         {/* Registry search & catalog */}
@@ -417,9 +427,47 @@ export function ThemeStoreView() {
               <Loader2 size={14} className="animate-spin text-cobalt-ink" aria-hidden />
               <span>{t("store.searching")}</span>
             </div>
+          ) : registryError ? (
+            <div className="rounded-[2px] border border-rule bg-surface p-8 text-center">
+              <p className="text-sm font-medium text-bone">{t("store.registryErrorTitle")}</p>
+              <p className="mx-auto mt-1.5 max-w-md text-xs text-bone-muted">
+                {t("store.registryErrorDesc")}
+              </p>
+              <p className="mt-2 font-mono text-[11px] text-cinnabar">{registryError}</p>
+              <button
+                type="button"
+                disabled={searching}
+                onClick={() => void searchRegistry(query)}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-1.5 font-mono text-xs text-bone hover:border-cobalt-ink/60 disabled:opacity-45"
+              >
+                <RefreshCw size={12} aria-hidden />
+                {t("common.refresh")}
+              </button>
+            </div>
           ) : cards.length === 0 ? (
-            <div className="rounded-[2px] border border-rule bg-surface p-8 text-center text-xs text-bone-muted">
-              {t("store.noResults")}
+            <div className="rounded-[2px] border border-rule bg-surface p-8 text-center">
+              {query.trim().length > 0 ? (
+                <>
+                  <p className="text-sm font-medium text-bone">{t("store.noResults")}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuery("");
+                      void searchRegistry("");
+                    }}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-1.5 font-mono text-xs text-bone-muted hover:text-bone"
+                  >
+                    {t("filterDock.reset")}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-bone">{t("store.registryEmptyTitle")}</p>
+                  <p className="mx-auto mt-1.5 max-w-md text-xs text-bone-muted">
+                    {t("store.registryEmptyDesc")}
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
