@@ -443,18 +443,66 @@
       "title": "Text in images (OCR)",
       "subtitle": "Local optical character recognition for images and scanned PDFs.",
       "description": "Reads text from images (screenshots, photos, diagrams) and scanned PDFs so it becomes searchable in your memory and across your AIs. Everything runs 100% locally on your device, with nothing sent to the cloud.",
-      "sizeLabel": "Download size",
-      "approxSizeNote": "~12 MB",
-      "privacyLabel": "Privacy",
       "localOnlyBadge": "100% local",
-      "modelLabel": "Model",
+      "recommendedBadge": "Recommended",
       "languagesLabel": "Languages",
-      "languagesNote": "Basic Latin alphabet: reads English well; in Spanish it reads the text but does not recognize accents, ñ, ü, or ¿ ¡. Does not read Chinese, Russian, or Arabic.",
+      "paddleLanguageNote": "Full Latin alphabet: accents, ñ, ü, ¿ (no ¡).",
+      "ocrsLanguageNote": "Basic letters only: no accents, ñ, ü, ¿, or ¡; slightly better on code screenshots.",
       "accuracyWarning": "OCR can make mistakes with both handwritten and computer-generated text (small or decorative fonts, blurry or low-quality images, noisy backgrounds, tables, or columns). Double-check important details (numbers, names, codes) in the original file.",
-      "installButton": "Install OCR",
-      "installingButton": "Installing OCR…",
-      "installedReadyHint": "Ready to read text from images and scanned PDFs 100% locally.",
-      "notInstalledHint": "One-time ~12 MB download. Nothing is downloaded until you click Install."
+      "state": {
+        "notInstalled": "Not installed",
+        "downloadingPercent": "Downloading {{percent}}%",
+        "installed": "Installed",
+        "inUse": "In use"
+      },
+      "installedSizeInline": "{{size}} on disk",
+      "downloadSizeInline": "Download: {{size}}",
+      "installCardButton": "Install",
+      "useThisButton": "Use this",
+      "useThisRequiresInstall": "Install this engine first to use it.",
+      "removeButton": "Remove",
+      "removingButton": "Removing…",
+      "removedFreedNotice": "Removed {{name}} — freed {{size}}.",
+      "activeNotInstalledTitle": "Selected engine: {{name}} (not installed)",
+      "activeNotInstalledHint": "Install it to read text in images and scanned PDFs, or choose the other engine below.",
+      "installActiveButton": "Install {{name}}",
+      "comparison": {
+        "title": "OCR engine comparison",
+        "measuredNote": "Measured on an Intel i3 (lower errors, time, and memory are better).",
+        "metricColumn": "What to expect",
+        "rows": {
+          "spanishErrors": {
+            "label": "Errors in Spanish",
+            "paddle": "1%",
+            "ocrs": "15% (ocrs loses accents and ñ)"
+          },
+          "smallPrint": {
+            "label": "Small print",
+            "paddle": "0%",
+            "ocrs": "3%"
+          },
+          "codeScreenshots": {
+            "label": "Code screenshots",
+            "paddle": "4%",
+            "ocrs": "3%"
+          },
+          "timePerImage": {
+            "label": "Time per image",
+            "paddle": "0.25–0.7 s",
+            "ocrs": "0.5–1 s"
+          },
+          "memoryUsage": {
+            "label": "Memory while reading",
+            "paddle": "~130–170 MB",
+            "ocrs": "~175–200 MB"
+          },
+          "downloadSize": {
+            "label": "Download",
+            "paddle": "12.9 MB",
+            "ocrs": "12.2 MB"
+          }
+        }
+      }
     },
     "hardwareTitle": "Hardware summary & onboarding",
     "rerunOnboarding": "Welcome wizard",
@@ -952,7 +1000,7 @@
     "recentFinishedTitle": "Recent imports",
     "indexingPausedBanner": "Automatic indexing paused",
     "ocrNotInstalledShort": "OCR not installed",
-    "ocrNotInstalledBanner": "To read text from images or scanned PDFs, install the local OCR model (~12 MB).",
+    "ocrNotInstalledBanner": "To read text from images or scanned PDFs, install a local OCR engine (~12–13 MB).",
     "etaLessThanMin": "< 1 min left",
     "etaMinutes": "~{{count}} min left",
     "etaHours": "~{{hours}} h left",

@@ -653,7 +653,7 @@ export function ToolsView() {
             {isOcrNotInstalledMessage(error) && (
               <button
                 type="button"
-                onClick={() => openSettingsSection("ocr")}
+                onClick={() => openSettingsSection("ocr", { autoInstall: true })}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[11px] font-semibold text-bone transition-colors hover:bg-cobalt-bright"
               >
                 <ScanText size={11} aria-hidden />
@@ -1284,7 +1284,7 @@ export function ToolsView() {
                     {latestJobHasOcrError && (
                       <button
                         type="button"
-                        onClick={() => openSettingsSection("ocr")}
+                        onClick={() => openSettingsSection("ocr", { autoInstall: true })}
                         className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2 py-0.5 font-mono text-[10px] font-semibold text-bone hover:bg-cobalt-bright"
                       >
                         <ScanText size={10} aria-hidden />
@@ -1353,7 +1353,7 @@ export function ToolsView() {
                         <span>{t("ingest.ocrNotInstalledBanner")}</span>
                         <button
                           type="button"
-                          onClick={() => openSettingsSection("ocr")}
+                          onClick={() => openSettingsSection("ocr", { autoInstall: true })}
                           className="inline-flex shrink-0 items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[10px] font-semibold text-bone hover:bg-cobalt-bright"
                         >
                           <ScanText size={10} aria-hidden />
