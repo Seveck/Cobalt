@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Check, GitMerge, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { staggerStyle } from "@/lib/motion";
 import { useMemoryStore, useSettingsStore } from "@/stores";
+import { Skeleton } from "@/components/ui";
 import type { DuplicateCluster, Uuid } from "@/types/contracts";
 
 interface CleanBrainPanelProps {
@@ -80,7 +82,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
   };
 
   return (
-    <aside className="flex h-full w-full max-w-[440px] flex-col border-l border-rule-strong bg-surface text-bone shadow-[-12px_0_32px_rgba(0,0,0,0.65)]">
+    <aside className="cobalt-drawer-enter-right flex h-full w-full max-w-[440px] flex-col border-l border-rule-strong bg-surface text-bone shadow-[-12px_0_32px_rgba(0,0,0,0.65)]">
       <div className="flex items-center justify-between gap-2 border-b border-rule px-4 py-3">
         <div>
           <div className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-cobalt-ink">
@@ -125,9 +127,20 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
         {loading ? (
-          <div className="flex items-center justify-center gap-2 py-12 font-mono text-xs text-bone-muted">
-            <Loader2 size={14} className="animate-spin text-cobalt-ink" aria-hidden />
-            <span>{t("cleanBrain.scanning")}</span>
+          <div className="space-y-3" aria-busy="true" aria-label={t("cleanBrain.scanning")}>
+            {[0, 1, 2].map((idx) => (
+              <div
+                key={idx}
+                className="space-y-2.5 rounded-[2px] border border-rule bg-void p-3"
+              >
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-3.5 w-16" />
+                </div>
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            ))}
           </div>
         ) : clusters.length === 0 ? (
           <div className="rounded-[2px] border border-rule bg-void p-6 text-center">
@@ -141,7 +154,8 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
             return (
               <div
                 key={`${cluster.suggested_keep_id}-${idx}`}
-                className="space-y-2.5 rounded-[2px] border border-rule bg-void p-3"
+                style={staggerStyle(idx, 24, 8)}
+                className="cobalt-stagger-item space-y-2.5 rounded-[2px] border border-rule bg-void p-3"
               >
                 <div className="flex items-center justify-between gap-2 font-mono text-[10px]">
                   <span

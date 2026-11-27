@@ -18,8 +18,9 @@ import {
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard } from "@/lib/dialogs";
 import { AI_CLIENT_LABELS, formatAiClientName } from "@/lib/format";
+import { staggerStyle } from "@/lib/motion";
 import { useSettingsStore } from "@/stores";
-import { Select, Toggle, type SelectOption } from "@/components/ui";
+import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import {
   AI_CLIENTS,
   type AiClient,
@@ -321,21 +322,48 @@ export function ConnectorsView() {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {orderedConnectors.map((connector) => {
-              const busy = togglingClient === connector.client;
-              const label = CLIENT_LABELS[connector.client];
-              return (
+          {loading && connectors.length === 0 ? (
+            <div
+              className="grid grid-cols-1 gap-3 md:grid-cols-2"
+              aria-busy="true"
+              aria-label={t("shell.loading")}
+            >
+              {[0, 1, 2, 3, 4, 5].map((idx) => (
                 <div
-                  key={connector.client}
-                  className={`flex flex-col justify-between gap-3 rounded-[2px] border p-4 transition-colors ${
-                    connector.broken
-                      ? "border-cinnabar-rule bg-surface"
-                      : connector.connected
-                        ? "border-cobalt-rule/70 bg-surface"
-                        : "border-rule bg-surface"
-                  }`}
+                  key={idx}
+                  className="flex flex-col justify-between gap-3 rounded-[2px] border border-rule bg-surface p-4"
                 >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Skeleton className="h-4 w-36" />
+                      <Skeleton className="h-3 w-48" />
+                    </div>
+                    <Skeleton className="h-5 w-9 shrink-0 rounded-full" />
+                  </div>
+                  <div className="flex items-center justify-between border-t border-rule pt-2.5">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-3.5 w-28" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {orderedConnectors.map((connector, idx) => {
+                const busy = togglingClient === connector.client;
+                const label = CLIENT_LABELS[connector.client];
+                return (
+                  <div
+                    key={connector.client}
+                    style={staggerStyle(idx, 24, 7)}
+                    className={`cobalt-stagger-item flex flex-col justify-between gap-3 rounded-[2px] border p-4 transition-colors ${
+                      connector.broken
+                        ? "border-cinnabar-rule bg-surface"
+                        : connector.connected
+                          ? "border-cobalt-rule/70 bg-surface"
+                          : "border-rule bg-surface"
+                    }`}
+                  >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -409,9 +437,10 @@ export function ConnectorsView() {
                     )}
                   </div>
                 </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* 02 — Automatic capture */}
@@ -585,7 +614,7 @@ export function ConnectorsView() {
               </div>
 
               <div className="divide-y divide-rule rounded-[2px] border border-rule bg-void">
-                {doctorReport.checks.map((check) => {
+                {doctorReport.checks.map((check, idx) => {
                   const fixing = fixingCheckId === check.id;
                   const translatedLabel =
                     check.label_key === "doctor.client"
@@ -603,7 +632,8 @@ export function ConnectorsView() {
                   return (
                     <div
                       key={check.id}
-                      className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5"
+                      style={staggerStyle(idx, 20, 8)}
+                      className="cobalt-stagger-item flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5"
                     >
                       <div className="flex min-w-0 items-start gap-2.5">
                         <div className="mt-0.5">{checkStatusIcon(check.status)}</div>

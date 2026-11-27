@@ -297,7 +297,9 @@ export function Select<T extends string = string>({
           aria-label={ariaLabel}
           aria-labelledby={ariaLabelledBy}
           className={`absolute z-50 max-h-60 min-w-full overflow-y-auto rounded-[2px] border border-rule-strong bg-surface py-1 shadow-[0_12px_32px_rgba(0,0,0,0.72)] ${
-            resolvedPlacement === "top" ? "bottom-full mb-1" : "top-full mt-1"
+            resolvedPlacement === "top"
+              ? "cobalt-panel-enter-up bottom-full mb-1"
+              : "cobalt-panel-enter-down top-full mt-1"
           } ${align === "right" ? "right-0" : "left-0"} ${menuClassName}`}
         >
           {options.map((opt, index) => {

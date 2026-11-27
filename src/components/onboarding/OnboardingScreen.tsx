@@ -433,7 +433,7 @@ export function OnboardingScreen() {
         </nav>
 
         {step === "name" ? (
-          <form onSubmit={handleNameStepSubmit}>
+          <form key="step-name" className="cobalt-view-enter" onSubmit={handleNameStepSubmit}>
             <section className="border-b border-rule px-6 py-8 sm:py-10">
               <div className="max-w-xl">
                 <div className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cobalt-ink">
@@ -496,7 +496,7 @@ export function OnboardingScreen() {
             </footer>
           </form>
         ) : (
-          <>
+          <div key="step-hardware" className="cobalt-view-enter">
             {/* Editorial title & detected hardware spec sheet */}
             <section className="border-b border-rule px-6 py-6">
               <h1 className="text-2xl font-semibold tracking-tight text-bone sm:text-3xl">
@@ -757,7 +757,7 @@ export function OnboardingScreen() {
                 )}
               </button>
             </footer>
-          </>
+          </div>
         )}
       </div>
     </div>

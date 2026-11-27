@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
 import { backendOn } from "@/lib/backend";
 import { isTauri } from "@/lib/ipc";
 import { applyThemeToRoot } from "@/lib/themeEngine";
+import { Skeleton } from "@/components/ui";
 import {
   useBranchesStore,
   useCliActivityStore,
@@ -190,18 +190,24 @@ function DesktopApp() {
 
   if (!settingsLoaded) {
     return (
-      <div className="cobalt-grid-bg flex h-full w-full flex-col items-center justify-center gap-3 text-xs text-bone-muted">
+      <div className="cobalt-grid-bg cobalt-view-fade flex h-full w-full flex-col items-center justify-center gap-4 text-xs text-bone-muted">
         <CobaltMark size={26} />
-        <div className="flex items-center gap-2 font-mono uppercase tracking-[0.14em]">
-          <Loader2 size={13} className="animate-spin text-cobalt-ink" aria-hidden />
-          <span>{t("shell.loading")}</span>
+        <div className="w-44 space-y-2 text-center">
+          <Skeleton className="h-1.5 w-full" />
+          <div className="font-mono text-[11px] uppercase tracking-[0.14em] text-bone-muted">
+            {t("shell.loading")}
+          </div>
         </div>
       </div>
     );
   }
 
   if (!settings.onboarding_completed || showOnboardingOverride) {
-    return <OnboardingScreen />;
+    return (
+      <div className="cobalt-view-enter h-full w-full">
+        <OnboardingScreen />
+      </div>
+    );
   }
 
   return (
@@ -211,14 +217,19 @@ function DesktopApp() {
         <IngestShellIndicator />
         <CliActivityShellBar />
         <main className="relative min-h-0 flex-1 overflow-hidden bg-void">
-          {activeNav === "brain" && <BrainCanvas />}
-          {activeNav === "library" && <LibraryView />}
-          {activeNav === "telemetry" && <TelemetryView />}
-          {activeNav === "stats" && <StatsView />}
-          {activeNav === "connectors" && <ConnectorsView />}
-          {activeNav === "tools" && <ToolsView />}
-          {activeNav === "store" && <ThemeStoreView />}
-          {activeNav === "settings" && <SettingsView />}
+          <div
+            key={activeNav}
+            className={`h-full w-full ${activeNav === "brain" ? "cobalt-view-fade" : "cobalt-view-enter"}`}
+          >
+            {activeNav === "brain" && <BrainCanvas />}
+            {activeNav === "library" && <LibraryView />}
+            {activeNav === "telemetry" && <TelemetryView />}
+            {activeNav === "stats" && <StatsView />}
+            {activeNav === "connectors" && <ConnectorsView />}
+            {activeNav === "tools" && <ToolsView />}
+            {activeNav === "store" && <ThemeStoreView />}
+            {activeNav === "settings" && <SettingsView />}
+          </div>
           <WelcomeGreeting />
         </main>
       </div>

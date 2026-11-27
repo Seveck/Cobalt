@@ -225,7 +225,7 @@ export function CliActivityShellBar() {
 
       {/* Expandable compact recent CLI activity feed */}
       {expanded && (
-        <div className="pointer-events-auto absolute top-full right-3 z-40 mt-1.5 w-[min(36rem,calc(100%-1.5rem))] max-h-[min(60vh,24rem)] overflow-y-auto rounded-[2px] border border-rule-strong bg-surface/98 shadow-[0_18px_44px_rgba(0,0,0,0.72)] backdrop-blur-sm">
+        <div className="cobalt-panel-enter-down pointer-events-auto absolute top-full right-3 z-40 mt-1.5 w-[min(36rem,calc(100%-1.5rem))] max-h-[min(60vh,24rem)] overflow-y-auto rounded-[2px] border border-rule-strong bg-surface/98 shadow-[0_18px_44px_rgba(0,0,0,0.72)] backdrop-blur-sm">
           <div className="flex items-center justify-between gap-2 border-b border-rule px-3.5 py-2">
             <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-cobalt-ink">
               <Terminal size={11} aria-hidden />

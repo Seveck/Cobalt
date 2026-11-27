@@ -10,6 +10,7 @@ import {
   useMemoryStore,
   useSynapticStore,
   useThemeStore,
+  useUiStore,
 } from "@/stores";
 import type {
   ClusterSizeMetric,
@@ -23,10 +24,10 @@ import type {
   Vec3,
   VisualFilters,
 } from "@/types/contracts";
+import { computeLayoutCameraFraming } from "./cameraFraming";
 import { createNodeGeometry } from "./geometry";
 import {
   buildIslandSlabsGeometry,
-  computeIslandsCameraFraming,
   createIslandLabelSprite,
 } from "./islandVisuals";
 import { resolveLayoutFn } from "./layouts";
@@ -183,6 +184,8 @@ export interface BrainSceneProps {
   activeLayout: LayoutType;
   clusterSizeMetric: ClusterSizeMetric;
   showConnections: boolean;
+  autoRotatePaused: boolean;
+  viewportInsets: { top: number; bottom: number };
   hardwareTier: HardwareTier;
   filters: VisualFilters;
   searchQuery: string;
@@ -367,6 +370,8 @@ export function BrainScene({
   activeLayout,
   clusterSizeMetric,
   showConnections,
+  autoRotatePaused,
+  viewportInsets,
   hardwareTier,
   filters,
   searchQuery,
@@ -910,6 +915,10 @@ export function BrainScene({
   const prefersReducedMotion = usePrefersReducedMotion();
   const prefersReducedMotionRef = useRef(prefersReducedMotion);
   prefersReducedMotionRef.current = prefersReducedMotion;
+  const autoRotatePausedRef = useRef(autoRotatePaused);
+  autoRotatePausedRef.current = autoRotatePaused;
+  const viewportInsetsRef = useRef(viewportInsets);
+  viewportInsetsRef.current = viewportInsets;
 
   const writeVolumetricInstance = useCallback(
     (mesh: THREE.InstancedMesh, idx: number, updateColor: boolean) => {
@@ -1256,35 +1265,75 @@ export function BrainScene({
     writeVolumetricInstance,
   ]);
 
-  const islandFraming = useMemo(() => {
-    if (!isProjectIslands) return null;
-    const containers = layoutResult.projectContainers ?? [];
-    const aspect = sizeRef.current.width / Math.max(1, sizeRef.current.height);
-    return computeIslandsCameraFraming(containers, manifest.camera.fov, aspect);
-  }, [isProjectIslands, layoutResult.projectContainers, manifest.camera.fov]);
-
   // Keep OrbitControls maxDistance monotonic so switching layouts never pulls a zoomed-out camera inward
   const maxOrbitDistanceRef = useRef(480);
-  const desiredMaxOrbitDistance = Math.max(480, islandFraming?.maxDistance ?? 480);
-  if (desiredMaxOrbitDistance > maxOrbitDistanceRef.current) {
-    maxOrbitDistanceRef.current = desiredMaxOrbitDistance;
-  }
 
   // Latest layout/theme/node data in refs so camera actions never re-trigger on layout switches
   const manifestCameraRef = useRef(manifest.camera);
   manifestCameraRef.current = manifest.camera;
   const isProjectIslandsRef = useRef(isProjectIslands);
   isProjectIslandsRef.current = isProjectIslands;
-  const islandFramingRef = useRef(islandFraming);
-  islandFramingRef.current = islandFraming;
   const layoutPositionsRef = useRef(layoutResult.nodePositions);
   layoutPositionsRef.current = layoutResult.nodePositions;
+  const layoutContainersRef = useRef(layoutResult.projectContainers ?? []);
+  layoutContainersRef.current = layoutResult.projectContainers ?? [];
   const nodeIndexMapRef = useRef(nodeIndexMap);
   nodeIndexMapRef.current = nodeIndexMap;
   const visibleNodeIdsRef = useRef(visibleNodeIds);
   visibleNodeIdsRef.current = visibleNodeIds;
   const buffersPositionsRef = useRef(buffers.positions);
   buffersPositionsRef.current = buffers.positions;
+
+  const computeCurrentFraming = useCallback((onlyVisible: boolean) => {
+    const nodePositions = layoutPositionsRef.current;
+    const allPositions = Object.values(nodePositions);
+    const positions: Vec3[] = [];
+    let filteredSubset = false;
+
+    if (onlyVisible) {
+      for (const id of visibleNodeIdsRef.current) {
+        const pos = nodePositions[id];
+        if (pos) positions.push(pos);
+      }
+      if (positions.length > 0 && positions.length < allPositions.length) {
+        filteredSubset = true;
+      }
+    }
+    if (positions.length === 0) {
+      for (const pos of allPositions) {
+        positions.push(pos);
+      }
+    }
+
+    const { sidebarCollapsed, layoutsPanelCollapsed } = useUiStore.getState();
+    const insets = viewportInsetsRef.current;
+    const framing = computeLayoutCameraFraming({
+      positions,
+      containers:
+        filteredSubset && !isProjectIslandsRef.current ? [] : layoutContainersRef.current,
+      isProjectIslands: isProjectIslandsRef.current,
+      themeCamera: manifestCameraRef.current,
+      viewport: {
+        canvasWidth: sizeRef.current.width,
+        canvasHeight: sizeRef.current.height,
+        windowWidth: typeof window !== "undefined" ? window.innerWidth : sizeRef.current.width,
+        windowHeight: typeof window !== "undefined" ? window.innerHeight : sizeRef.current.height,
+        sidebarCollapsed,
+        layoutsPanelCollapsed,
+        topInset: insets.top,
+        bottomInset: insets.bottom,
+      },
+    });
+
+    if (framing.maxDistance > maxOrbitDistanceRef.current) {
+      maxOrbitDistanceRef.current = framing.maxDistance;
+      if (controlsRef.current) {
+        controlsRef.current.maxDistance = framing.maxDistance;
+      }
+    }
+
+    return framing;
+  }, []);
 
   // Unified smooth camera transition state (node focus, reset camera, center view, theme change)
   const focusRequest = useMemoryStore((s) => s.focusRequest);
@@ -1386,26 +1435,28 @@ export function BrainScene({
     };
   }, [gl.domElement]);
 
-  // Apply theme camera ONLY on first load (immediate) and theme switch (smooth ~0.8 s ease).
-  // Switching layouts NEVER touches camera position, target, zoom, FOV, or auto-rotate state.
+  // Apply bounding-sphere framing ONLY on first load (immediate) and theme switch (smooth ~0.8 s ease).
+  // Switching layouts NEVER touches camera position, target, zoom, FOV, or auto-rotate state (f25).
   const cameraInitializedRef = useRef(false);
   const lastThemeIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const cam = manifest.camera;
     const controls = controlsRef.current;
 
     if (!cameraInitializedRef.current) {
       cameraAnimRef.current = null;
-      const [px, py, pz] = cam.position;
-      const [tx, ty, tz] = cam.target;
+      const framing = computeCurrentFraming(false);
+      const [px, py, pz] = framing.position;
+      const [tx, ty, tz] = framing.target;
       camera.position.set(px, py, pz);
+      camera.lookAt(tx, ty, tz);
       if (camera instanceof THREE.PerspectiveCamera) {
-        camera.fov = cam.fov;
+        camera.fov = framing.fov;
         camera.updateProjectionMatrix();
       }
       if (controls) {
         controls.target.set(tx, ty, tz);
+        controls.maxDistance = maxOrbitDistanceRef.current;
         controls.autoRotate = false;
         controls.update();
       }
@@ -1419,140 +1470,57 @@ export function BrainScene({
       if (controls) {
         controls.autoRotate = false;
       }
+      const framing = computeCurrentFraming(false);
       startCameraAnimation(
-        cam.position,
-        cam.target,
-        cam.fov,
+        framing.position,
+        framing.target,
+        framing.fov,
         CAMERA_TRANSITION_DURATION_SEC,
         "inOut",
         true,
       );
     }
-  }, [camera, manifest.camera, manifest.id, startCameraAnimation]);
+  }, [camera, computeCurrentFraming, manifest.camera, manifest.id, startCameraAnimation]);
 
-  // Explicit reset-camera button: smoothly (~0.8 s) ease back to the active theme's camera
+  // Explicit reset-camera button: smoothly (~0.8 s) ease back to the layout's bounding-sphere framing
   const lastResetSignalRef = useRef(resetSignal);
   useEffect(() => {
     if (resetSignal === lastResetSignalRef.current) return;
     lastResetSignalRef.current = resetSignal;
 
-    const cam = manifestCameraRef.current;
     if (controlsRef.current) {
       controlsRef.current.autoRotate = false;
     }
+    const framing = computeCurrentFraming(false);
     startCameraAnimation(
-      cam.position,
-      cam.target,
-      cam.fov,
+      framing.position,
+      framing.target,
+      framing.fov,
       CAMERA_TRANSITION_DURATION_SEC,
       "inOut",
       true,
     );
-  }, [resetSignal, startCameraAnimation]);
+  }, [computeCurrentFraming, resetSignal, startCameraAnimation]);
 
-  // Explicit "Center view" action: island overview for project_islands, or smooth visible-nodes framing
+  // Explicit "Center view" action: smoothly frame visible nodes (or full layout) from its bounding sphere
   const lastCenterViewSignalRef = useRef(centerViewSignal);
   useEffect(() => {
     if (centerViewSignal === lastCenterViewSignalRef.current) return;
     lastCenterViewSignalRef.current = centerViewSignal;
 
-    const cam = manifestCameraRef.current;
-    if (isProjectIslandsRef.current && islandFramingRef.current) {
-      const framing = islandFramingRef.current;
-      if (framing.maxDistance > maxOrbitDistanceRef.current) {
-        maxOrbitDistanceRef.current = framing.maxDistance;
-        if (controlsRef.current) {
-          controlsRef.current.maxDistance = framing.maxDistance;
-        }
-      }
-      startCameraAnimation(
-        framing.position,
-        framing.target,
-        cam.fov,
-        CAMERA_TRANSITION_DURATION_SEC,
-        "inOut",
-        true,
-      );
-      return;
+    if (controlsRef.current) {
+      controlsRef.current.autoRotate = false;
     }
-
-    const visibleIds = visibleNodeIdsRef.current;
-    const nodePositions = layoutPositionsRef.current;
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-    let minZ = Infinity;
-    let maxZ = -Infinity;
-    let count = 0;
-
-    for (const id of visibleIds) {
-      const pos = nodePositions[id];
-      if (!pos) continue;
-      if (pos[0] < minX) minX = pos[0];
-      if (pos[0] > maxX) maxX = pos[0];
-      if (pos[1] < minY) minY = pos[1];
-      if (pos[1] > maxY) maxY = pos[1];
-      if (pos[2] < minZ) minZ = pos[2];
-      if (pos[2] > maxZ) maxZ = pos[2];
-      count += 1;
-    }
-
-    if (count === 0) {
-      startCameraAnimation(
-        cam.position,
-        cam.target,
-        cam.fov,
-        CAMERA_TRANSITION_DURATION_SEC,
-        "inOut",
-        true,
-      );
-      return;
-    }
-
-    const cx = (minX + maxX) * 0.5;
-    const cy = (minY + maxY) * 0.5;
-    const cz = (minZ + maxZ) * 0.5;
-
-    let radiusSq = 0;
-    for (const id of visibleIds) {
-      const pos = nodePositions[id];
-      if (!pos) continue;
-      const dx = pos[0] - cx;
-      const dy = pos[1] - cy;
-      const dz = pos[2] - cz;
-      const dSq = dx * dx + dy * dy + dz * dz;
-      if (dSq > radiusSq) radiusSq = dSq;
-    }
-    const radius = Math.sqrt(radiusSq);
-
-    const dir = new THREE.Vector3(
-      cam.position[0] - cam.target[0],
-      cam.position[1] - cam.target[1],
-      cam.position[2] - cam.target[2],
-    );
-    if (dir.lengthSq() < 1e-4) {
-      dir.set(0, 0.25, 1);
-    }
-    dir.normalize();
-
-    const aspect = Math.max(0.5, sizeRef.current.width / Math.max(1, sizeRef.current.height));
-    const vFov = THREE.MathUtils.degToRad(Math.max(25, Math.min(90, cam.fov)));
-    const hFov = 2 * Math.atan(Math.tan(vFov * 0.5) * aspect);
-    const limitingHalfFov = Math.min(vFov, hFov) * 0.5;
-    const fitDist = Math.max(42, (radius / Math.tan(limitingHalfFov)) * 1.18 + 18);
-
-    const targetPos: Vec3 = [cx + dir.x * fitDist, cy + dir.y * fitDist, cz + dir.z * fitDist];
-    const targetLookAt: Vec3 = [cx, cy, cz];
+    const framing = computeCurrentFraming(true);
     startCameraAnimation(
-      targetPos,
-      targetLookAt,
-      cam.fov,
+      framing.position,
+      framing.target,
+      framing.fov,
       CAMERA_TRANSITION_DURATION_SEC,
       "inOut",
       true,
     );
-  }, [centerViewSignal, startCameraAnimation]);
+  }, [centerViewSignal, computeCurrentFraming, startCameraAnimation]);
 
   // Smoothly focus camera on requested memory node(s) (consumed once per nonce; never re-triggers on layout change)
   const lastHandledFocusNonceRef = useRef(0);
@@ -2305,6 +2273,7 @@ export function BrainScene({
       }
     } else if (
       !prefersReducedMotionRef.current &&
+      !autoRotatePausedRef.current &&
       !userInteractingRef.current &&
       now - lastUserInteractTsRef.current >= AMBIENT_ROTATE_RESUME_DELAY_MS &&
       graph.nodes.length > 0 &&

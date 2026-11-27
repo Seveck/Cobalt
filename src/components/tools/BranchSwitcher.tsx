@@ -114,7 +114,7 @@ export function BranchSwitcher() {
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 z-30 mt-1.5 w-80 rounded-[2px] border border-rule-strong bg-surface p-3 shadow-[0_16px_40px_rgba(0,0,0,0.78)]">
+        <div className="cobalt-panel-enter-down absolute top-full left-0 z-30 mt-1.5 w-80 rounded-[2px] border border-rule-strong bg-surface p-3 shadow-[0_16px_40px_rgba(0,0,0,0.78)]">
           <div className="mb-2 flex items-center justify-between border-b border-rule pb-2">
             <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-bone-muted">
               {t("branches.title")}

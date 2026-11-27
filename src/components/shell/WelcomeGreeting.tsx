@@ -264,8 +264,8 @@ export function WelcomeGreeting() {
           setPaused(false);
         }
       }}
-      className={`pointer-events-auto absolute top-16 right-4 z-30 w-[min(23.5rem,calc(100%-2rem))] overflow-hidden rounded-[2px] border border-rule-strong bg-surface/96 shadow-[0_18px_44px_rgba(0,0,0,0.68)] backdrop-blur-sm transition-all duration-200 ${
-        closing ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100"
+      className={`pointer-events-auto absolute top-16 right-4 z-30 w-[min(23.5rem,calc(100%-2rem))] overflow-hidden rounded-[2px] border border-rule-strong bg-surface/96 shadow-[0_18px_44px_rgba(0,0,0,0.68)] backdrop-blur-sm transition-[opacity,transform] duration-200 ${
+        closing ? "translate-y-1 opacity-0" : "cobalt-panel-enter-down translate-y-0 opacity-100"
       }`}
     >
       {/* Top mineral cobalt accent rule */}
