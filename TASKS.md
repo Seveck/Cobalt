@@ -81,7 +81,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] Inspector: ruta real del archivo, "archivado por <agente>" + Restaurar, agentes que usan el nodo; borrado definitivo con todas las consecuencias y confirmación escrita
 
 ### Pendiente detectado en la Fase 3
-- [ ] OCR: catalogar los modelos de `ocrs` (revisión fija + SHA-256); hasta entonces imágenes/PDF escaneados dan un error claro
+- [x] OCR local (2026-11-27, contratos v1.7.0–v1.8.0): imágenes y PDF escaneados; el usuario elige motor en Ajustes → PaddleOCR (recomendado, por defecto: tildes/ñ, 1 % de errores en español en un i3) u ocrs (solo letras básicas, 15 %); modelos fijados por SHA-256, aviso permanente de que el OCR puede equivocarse
 - [ ] Credenciales para Qdrant remoto / Chroma con autenticación (hoy solo endpoint)
 - [ ] Mover snapshots y memorias cifradas entre equipos (hoy los backups los excluyen y lo informan)
 - [ ] Botón "Borrar por origen" para limpiar datos de prueba
