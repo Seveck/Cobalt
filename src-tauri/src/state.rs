@@ -142,10 +142,19 @@ impl AppState {
         let daemon = self.daemon.clone();
         let changed: cobalt_core::traits::ProgressSink<cobalt_core::model::MemoryChanged> =
             Arc::new(move |c| daemon.emit_memory_changed(c));
-        let ingest = Arc::new(
-            IngestService::with_sqlite_store(store.clone(), tokens)
-                .with_watcher_callbacks(self.ingest_progress.clone(), changed),
-        );
+        let mut service = IngestService::with_sqlite_store(store.clone(), tokens)
+            .with_watcher_callbacks(self.ingest_progress.clone(), changed);
+        // Local OCR (images, scanned PDFs) once its catalog-verified models are installed.
+        if let Some((detection, recognition)) = self
+            .engines
+            .ocr_model_paths(cobalt_core::catalog::DEFAULT_OCR_MODEL)
+        {
+            match cobalt_ingest::OcrsEngine::from_paths(&detection, &recognition) {
+                Ok(engine) => service = service.with_ocr(Arc::new(engine)),
+                Err(err) => tracing::warn!(%err, "OCR models installed but not loadable"),
+            }
+        }
+        let ingest = Arc::new(service);
         let previous = self
             .ingest
             .write()
