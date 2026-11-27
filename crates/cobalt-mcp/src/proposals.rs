@@ -11,6 +11,10 @@ use crate::daemon::Daemon;
 pub const MAX_PER_TURN: usize = 3;
 const MIN_CHARS: usize = 25;
 const MAX_CHARS: usize = 320;
+/// Characters of the AI's message kept around the proposal as evidence.
+const EVIDENCE_AROUND_CHARS: usize = 450;
+/// Characters of the user's request kept as evidence.
+const EVIDENCE_REQUEST_CHARS: usize = 300;
 
 const DECISION_CUES: &[&str] = &[
     "decidimos",
@@ -79,14 +83,75 @@ fn has_cue(s: &str, cues: &[&str]) -> bool {
     cues.iter().any(|c| low.contains(c))
 }
 
+fn clip(text: &str, max: usize) -> String {
+    let t: String = text.chars().take(max).collect();
+    if text.chars().count() > max {
+        format!("{}…", t.trim_end())
+    } else {
+        t
+    }
+}
+
+/// The paragraph of `text` that contains `sentence`, widened to about
+/// [`EVIDENCE_AROUND_CHARS`] with the text right before and after it.
+fn around(text: &str, sentence: &str) -> String {
+    let Some(pos) = text.find(sentence) else {
+        return clip(sentence, EVIDENCE_AROUND_CHARS);
+    };
+    let half = EVIDENCE_AROUND_CHARS.saturating_sub(sentence.len()) / 2;
+    let mut start = pos.saturating_sub(half);
+    while !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    let mut end = (pos + sentence.len() + half).min(text.len());
+    while !text.is_char_boundary(end) {
+        end += 1;
+    }
+    // Prefer whole paragraphs/lines at the edges.
+    if let Some(nl) = text[start..pos].find('\n') {
+        start += nl + 1;
+    }
+    if let Some(nl) = text[pos + sentence.len()..end].rfind('\n') {
+        end = pos + sentence.len() + nl;
+    }
+    let mut out = String::new();
+    if start > 0 {
+        out.push('…');
+    }
+    out.push_str(text[start..end].trim());
+    if end < text.len() {
+        out.push('…');
+    }
+    out
+}
+
+/// Evidence shown next to a proposal: what the user asked and where the AI said it.
+fn evidence(
+    user: Option<&str>,
+    assistant: Option<&str>,
+    sentence: &str,
+    from_user: bool,
+) -> String {
+    let mut parts = Vec::new();
+    if let Some(u) = user.map(str::trim).filter(|u| !u.is_empty()) {
+        parts.push(format!("Usuario: {}", clip(u, EVIDENCE_REQUEST_CHARS)));
+    }
+    if !from_user && let Some(a) = assistant {
+        parts.push(format!("IA: {}", around(a, sentence)));
+    }
+    scrub(&parts.join("\n\n")).text
+}
+
 /// Candidates in one turn: decisions and fixes from the AI's message, preferences from the
-/// user's. De-duplicated, scrubbed, capped at [`MAX_PER_TURN`].
-pub fn extract(assistant: Option<&str>, user: Option<&str>) -> Vec<(ProposalKind, String)> {
-    let mut out: Vec<(ProposalKind, String)> = Vec::new();
+/// user's, each with its evidence (the user's request and the surrounding text). De-duplicated,
+/// scrubbed, capped at [`MAX_PER_TURN`].
+pub fn extract(assistant: Option<&str>, user: Option<&str>) -> Vec<(ProposalKind, String, String)> {
+    let mut out: Vec<(ProposalKind, String, String)> = Vec::new();
     let mut push = |kind: ProposalKind, s: String| {
         let clean = scrub(&s).text;
-        if out.len() < MAX_PER_TURN && !out.iter().any(|(_, o)| o.eq_ignore_ascii_case(&clean)) {
-            out.push((kind, clean));
+        if out.len() < MAX_PER_TURN && !out.iter().any(|(_, o, _)| o.eq_ignore_ascii_case(&clean)) {
+            let ev = evidence(user, assistant, &s, kind == ProposalKind::Preference);
+            out.push((kind, clean, ev));
         }
     };
     if let Some(u) = user {
@@ -120,7 +185,7 @@ impl Daemon {
             return;
         }
         let mut added = 0;
-        for (kind, content) in extract(assistant, user) {
+        for (kind, content, evidence) in extract(assistant, user) {
             if self.already_remembered(&content, project_id).await {
                 continue;
             }
@@ -128,7 +193,7 @@ impl Daemon {
                 project_id,
                 client_name: client.to_owned(),
                 kind,
-                evidence: Some(content.chars().take(MAX_CHARS).collect()),
+                evidence: Some(evidence),
                 content,
             };
             if let Ok(Some(_)) = self.store().add_proposal(new).await {
@@ -189,12 +254,22 @@ mod tests {
         let assistant = "Revisé el código.\nLa causa raíz era que el puente no se reconectaba tras reiniciar el daemon.\nDecidimos usar PaddleOCR como motor por defecto porque lee tildes.\n```rust\nlet x = 1; // decidimos\n```\nListo.";
         let user = "Gracias. A partir de ahora háblame siempre en español, por favor.";
         let got = extract(Some(assistant), Some(user));
-        let kinds: Vec<_> = got.iter().map(|(k, _)| *k).collect();
+        let kinds: Vec<_> = got.iter().map(|(k, _, _)| *k).collect();
+        let decision = got
+            .iter()
+            .find(|(k, _, _)| *k == ProposalKind::Decision)
+            .unwrap();
+        assert!(decision.2.starts_with("Usuario: Gracias"), "{}", decision.2);
+        assert!(
+            decision.2.contains("IA: ") && decision.2.contains("La causa raíz"),
+            "{}",
+            decision.2
+        );
         assert!(kinds.contains(&ProposalKind::Fix));
         assert!(kinds.contains(&ProposalKind::Decision));
         assert!(kinds.contains(&ProposalKind::Preference));
         assert!(got.len() <= MAX_PER_TURN);
-        assert!(got.iter().all(|(_, s)| !s.contains("let x")));
+        assert!(got.iter().all(|(_, s, _)| !s.contains("let x")));
         assert!(extract(Some("Hecho. Todo compila."), Some("ok")).is_empty());
     }
 
@@ -208,5 +283,6 @@ mod tests {
         );
         assert_eq!(got.len(), 1);
         assert!(!got[0].1.contains("sk-proj-AbCd"), "{}", got[0].1);
+        assert!(!got[0].2.contains("sk-proj-AbCd"), "{}", got[0].2);
     }
 }
