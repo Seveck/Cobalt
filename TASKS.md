@@ -112,6 +112,9 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · `[~]` en curso. Dueños: [CLAUDE] · 
 - [x] Estadísticas (2026-11-27, contratos v1.10.0, esquema v2): calendario anual tipo GitHub, Hoy/Semana/Año, IA que más usa Cobalt, hora y día favoritos, rachas, proyecto más usado; resumen por horas permanente (`usage_hourly`)
 - [x] Temas para toda la app (2026-11-27, THEME_SPEC v1.2, contratos v1.11.0): Grafito, Porcelana, Abisal y Niebla incluidos en la tienda; tipografía Geist en toda la app; animaciones de nodos del laboratorio de estilo
 - [ ] Decidir el tema por defecto de una instalación nueva (hoy `cobalt-minimal`)
+- [ ] [GEMINI] Botón visible para pausar/reanudar el giro automático del cerebro 3D en todos los gráficos (pedido 2026-11-27; recordar la elección)
+- [ ] [GEMINI] Cámara inicial un poco más lejos y mejor centrada en todos los gráficos (sin volver a moverla al cambiar de gráfico)
+- [ ] [GEMINI] Animaciones suaves al mostrar o cargar contenido (vistas, paneles, tarjetas, listas, estados de carga), respetando "Movimiento reducido"
 - [ ] Personalización de Apariencia por el usuario (acento, base, contraste, densidad, tamaño) con vista previa, según la investigación de diseño
 - [ ] Pendiente: hooks de Antigravity (`agy`, vía plugin `hooks.json`; formato por verificar) y de Cursor/Windsurf/Cline (sin sistema de hooks: solo instrucciones); los hooks apuntan al binario actual (reinstalar al instalar la versión final)
 
