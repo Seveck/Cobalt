@@ -31,6 +31,7 @@ export interface SettingsState {
   setDaemonStatus: (status: DaemonStatus) => void;
   loadVaultStatus: () => Promise<void>;
   setVaultStatus: (status: VaultStatus) => void;
+  clearError: () => void;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -153,4 +154,5 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   setVaultStatus: (vaultStatus) => set({ vaultStatus }),
+  clearError: () => set({ error: null }),
 }));

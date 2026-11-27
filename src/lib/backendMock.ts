@@ -1285,6 +1285,16 @@ export async function callBackendMock<C extends IpcCommand>(
     }
     case "update_settings": {
       const next = args as AppSettings;
+      const engineOrModelChanged =
+        next.vector_engine !== mockSettings.vector_engine ||
+        next.embedding_model_id !== mockSettings.embedding_model_id;
+      if (engineOrModelChanged && mockEngineStatus.vector_count > 0) {
+        throw new IpcError(command, {
+          kind: "conflict",
+          message:
+            "Cannot change vector_engine or embedding_model_id while memories exist; use swap_engine.",
+        });
+      }
       const prevReadOnly = mockSettings.read_only;
       mockSettings = { ...next };
       persistMockSettings(mockSettings);

@@ -3,11 +3,13 @@ import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowRightLeft,
   Check,
   Cpu,
   Download,
   HardDrive,
   Layers,
+  Loader2,
   Monitor,
   SlidersHorizontal,
   User,
@@ -21,13 +23,14 @@ import {
   formatRamGb,
   isEngineModelInstalled,
 } from "@/lib/format";
-import { useHardwareStore, useSettingsStore, useUiStore } from "@/stores";
+import { useHardwareStore, useMemoryStore, useSettingsStore, useUiStore } from "@/stores";
 import { CobaltMark } from "@/components/shell/CobaltMark";
 import { MockBadge } from "@/components/shell/MockBadge";
 import { Select, type SelectOption } from "@/components/ui";
 import {
   DEFAULT_ENGINE_BY_TIER,
   DEFAULT_MODEL_BY_TIER,
+  type AppSettings,
   type EngineKind,
   type HardwareTier,
   type Language,
@@ -47,18 +50,26 @@ export function OnboardingScreen() {
   const downloadProgress = useHardwareStore((s) => s.downloadProgress);
   const isInstalling = useHardwareStore((s) => s.isInstalling);
   const isCancelling = useHardwareStore((s) => s.isCancelling);
+  const swapProgress = useHardwareStore((s) => s.swapProgress);
+  const isSwapping = useHardwareStore((s) => s.isSwapping);
   const error = useHardwareStore((s) => s.error);
   const loadProfile = useHardwareStore((s) => s.loadProfile);
   const loadEngineStatus = useHardwareStore((s) => s.loadEngineStatus);
   const installEngine = useHardwareStore((s) => s.installEngine);
   const cancelDownload = useHardwareStore((s) => s.cancelDownload);
+  const swapEngine = useHardwareStore((s) => s.swapEngine);
   const setDownloadProgress = useHardwareStore((s) => s.setDownloadProgress);
+  const setSwapProgress = useHardwareStore((s) => s.setSwapProgress);
   const clearError = useHardwareStore((s) => s.clearError);
 
   const settings = useSettingsStore((s) => s.settings);
   const saving = useSettingsStore((s) => s.saving);
+  const settingsError = useSettingsStore((s) => s.error);
+  const loadSettings = useSettingsStore((s) => s.loadSettings);
   const patchSettings = useSettingsStore((s) => s.patchSettings);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
+  const clearSettingsError = useSettingsStore((s) => s.clearError);
+  const loadGraph = useMemoryStore((s) => s.loadGraph);
 
   const showOnboardingOverride = useUiStore((s) => s.showOnboardingOverride);
   const setActiveNav = useUiStore((s) => s.setActiveNav);
@@ -116,39 +127,59 @@ export function OnboardingScreen() {
     setSelectedModelId(profile.recommendation.model_id);
   }, [profile]);
 
+  const busy = isInstalling || isSwapping || saving;
+  const displayError = error ?? settingsError;
+
   useEffect(() => {
     if (!canGoBack) return;
     const hwState = useHardwareStore.getState();
-    if (hwState.isInstalling) return;
+    if (hwState.isInstalling || hwState.isSwapping) return;
     clearError();
+    clearSettingsError();
     if (
       hwState.downloadProgress?.phase === "completed" ||
       hwState.downloadProgress?.phase === "cancelled"
     ) {
       setDownloadProgress(null);
     }
+    if (
+      hwState.swapProgress?.phase === "completed" ||
+      hwState.swapProgress?.phase === "rolled_back" ||
+      hwState.swapProgress?.phase === "failed"
+    ) {
+      setSwapProgress(null);
+    }
     void loadEngineStatus();
     void loadProfile();
-  }, [canGoBack, clearError, loadEngineStatus, loadProfile, setDownloadProgress]);
+  }, [
+    canGoBack,
+    clearError,
+    clearSettingsError,
+    loadEngineStatus,
+    loadProfile,
+    setDownloadProgress,
+    setSwapProgress,
+  ]);
 
   const handleBack = useCallback(() => {
-    if (!canGoBack || isInstalling || saving) return;
+    if (!canGoBack || busy) return;
     clearError();
+    clearSettingsError();
     setActiveNav("settings");
     setShowOnboardingOverride(false);
-  }, [canGoBack, clearError, isInstalling, saving, setActiveNav, setShowOnboardingOverride]);
+  }, [busy, canGoBack, clearError, clearSettingsError, setActiveNav, setShowOnboardingOverride]);
 
   useEffect(() => {
     if (!canGoBack) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (isInstalling || saving) return;
+      if (busy) return;
       event.preventDefault();
       handleBack();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canGoBack, handleBack, isInstalling, saving]);
+  }, [busy, canGoBack, handleBack]);
 
   const languageOptions = useMemo<SelectOption<Language>[]>(
     () =>
@@ -184,6 +215,13 @@ export function OnboardingScreen() {
     profile,
     engineStatus,
   );
+  const needsLiveSwap =
+    Boolean(engineStatus && engineStatus.vector_count > 0) &&
+    (activeEngine !== settings.vector_engine || activeModel !== settings.embedding_model_id);
+  const swapPercent =
+    swapProgress && swapProgress.total > 0
+      ? Math.min(100, Math.round((swapProgress.processed / swapProgress.total) * 100))
+      : 0;
 
   const reasonKey = profile?.recommendation.reason_key ?? "onboarding.reason.default";
   const translatedReason = t(reasonKey, {
@@ -210,34 +248,80 @@ export function OnboardingScreen() {
     modelToApply: string,
   ) => {
     clearError();
-    if (isAlreadyInstalled) {
+    clearSettingsError();
+
+    const engineOrModelChanged =
+      engineToApply !== settings.vector_engine || modelToApply !== settings.embedding_model_id;
+    const needsSwap =
+      Boolean(engineStatus && engineStatus.vector_count > 0) && engineOrModelChanged;
+    const targetInstalled = isEngineModelInstalled(
+      engineToApply,
+      modelToApply,
+      engineStatus,
+      profile,
+    );
+
+    if (needsSwap) {
+      if (!targetInstalled) {
+        const installed = await installEngine({
+          engine: engineToApply,
+          model_id: modelToApply,
+        });
+        if (!installed) {
+          return;
+        }
+      }
+
+      const report = await swapEngine({
+        target_engine: engineToApply,
+        target_model_id: modelToApply,
+        external_endpoint: null,
+      });
+      if (!report || report.rolled_back) {
+        return;
+      }
+
+      await loadSettings();
       await patchSettings({
         onboarding_completed: true,
         user_display_name: normalizedDisplayName,
         hardware_tier: tierToApply,
-        vector_engine: engineToApply,
-        embedding_model_id: modelToApply,
         pro_mode: proMode,
       });
+      if (useSettingsStore.getState().error) {
+        return;
+      }
+      await loadGraph();
       setShowOnboardingOverride(false);
       return;
     }
 
-    const result = await installEngine({
-      engine: engineToApply,
-      model_id: modelToApply,
-    });
-    if (result) {
-      await patchSettings({
-        onboarding_completed: true,
-        user_display_name: normalizedDisplayName,
-        hardware_tier: tierToApply,
-        vector_engine: engineToApply,
-        embedding_model_id: modelToApply,
-        pro_mode: proMode,
+    if (!targetInstalled) {
+      const result = await installEngine({
+        engine: engineToApply,
+        model_id: modelToApply,
       });
-      setShowOnboardingOverride(false);
+      if (!result) {
+        return;
+      }
     }
+
+    const patch: Partial<AppSettings> = {
+      onboarding_completed: true,
+      user_display_name: normalizedDisplayName,
+      hardware_tier: tierToApply,
+      pro_mode: proMode,
+    };
+    if (engineOrModelChanged) {
+      patch.vector_engine = engineToApply;
+      patch.embedding_model_id = modelToApply;
+    }
+
+    await patchSettings(patch);
+    if (useSettingsStore.getState().error) {
+      return;
+    }
+    setShowOnboardingOverride(false);
   };
 
   const primaryGpu = profile?.gpus[0] ?? null;
@@ -255,7 +339,7 @@ export function OnboardingScreen() {
               <>
                 <button
                   type="button"
-                  disabled={isInstalling || saving}
+                  disabled={busy}
                   onClick={handleBack}
                   className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-bone transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
                 >
@@ -291,7 +375,7 @@ export function OnboardingScreen() {
             <Select<Language>
               value={currentLanguage}
               options={languageOptions}
-              disabled={isInstalling}
+              disabled={isInstalling || isSwapping}
               size="sm"
               align="right"
               ariaLabelledBy={langLabelId}
@@ -308,7 +392,7 @@ export function OnboardingScreen() {
         >
           <button
             type="button"
-            disabled={isInstalling || saving}
+            disabled={busy}
             onClick={() => setStep("name")}
             className={`inline-flex items-center gap-1.5 transition-colors disabled:opacity-60 ${
               step === "name" ? "font-semibold text-cobalt-ink" : "text-bone-muted hover:text-bone"
@@ -330,7 +414,7 @@ export function OnboardingScreen() {
 
           <button
             type="button"
-            disabled={isInstalling || saving}
+            disabled={busy}
             onClick={() => setStep("hardware")}
             className={`inline-flex items-center gap-1.5 transition-colors disabled:opacity-60 ${
               step === "hardware"
@@ -552,7 +636,7 @@ export function OnboardingScreen() {
                   models={models}
                   profile={profile}
                   engineStatus={engineStatus}
-                  disabled={isInstalling || saving}
+                  disabled={busy}
                   onTierChange={setSelectedTier}
                   onEngineChange={setSelectedEngine}
                   onModelChange={setSelectedModelId}
@@ -561,16 +645,40 @@ export function OnboardingScreen() {
               )}
             </section>
 
-            {/* Live download progress */}
-            {(downloadProgress || isInstalling || error) && (
+            {/* Live download progress & error banner */}
+            {(downloadProgress || isInstalling || displayError) && (
               <div className="border-b border-rule bg-void px-6 py-4">
                 <DownloadProgressBar
                   progress={downloadProgress}
                   isInstalling={isInstalling}
                   isCancelling={isCancelling}
-                  error={error}
+                  error={displayError}
                   onCancel={() => void cancelDownload()}
                 />
+              </div>
+            )}
+
+            {/* Live engine swap progress */}
+            {(isSwapping || swapProgress) && (
+              <div className="border-b border-rule bg-void px-6 py-4">
+                <div className="space-y-2 rounded-[2px] border border-cobalt-rule bg-cobalt-wash/50 p-3">
+                  <div className="flex items-center justify-between font-mono text-[11px]">
+                    <span className="inline-flex items-center gap-1.5 text-cobalt-ink">
+                      {isSwapping && <Loader2 size={12} className="animate-spin" aria-hidden />}
+                      {t(`pro.swapPhase.${swapProgress?.phase ?? "staging"}`)}
+                    </span>
+                    <span className="tabular-nums text-bone">
+                      {swapProgress ? `${swapProgress.processed} / ${swapProgress.total}` : "…"} (
+                      {swapPercent}%)
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-[1px] bg-void">
+                    <div
+                      className="h-full bg-cobalt transition-all duration-200"
+                      style={{ width: `${swapPercent}%` }}
+                    />
+                  </div>
+                </div>
               </div>
             )}
 
@@ -579,7 +687,7 @@ export function OnboardingScreen() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  disabled={isInstalling || saving}
+                  disabled={busy}
                   onClick={() => setStep("name")}
                   className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface px-3 py-2 text-xs font-medium text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 hover:text-bone focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
                 >
@@ -588,7 +696,7 @@ export function OnboardingScreen() {
                 </button>
                 <button
                   type="button"
-                  disabled={isInstalling || saving}
+                  disabled={busy}
                   onClick={() => setCustomizing((v) => !v)}
                   className="inline-flex items-center gap-2 rounded-[2px] border border-rule-strong bg-surface px-4 py-2 text-xs font-medium text-bone transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
                 >
@@ -599,7 +707,7 @@ export function OnboardingScreen() {
 
               <button
                 type="button"
-                disabled={isInstalling || saving || !profile}
+                disabled={busy || !profile}
                 onClick={() => void handlePrimaryAction(activeTier, activeEngine, activeModel)}
                 className="inline-flex items-center gap-2 rounded-[2px] border border-cobalt-rule bg-cobalt px-5 py-2 text-xs font-semibold tracking-wide text-bone transition-colors hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none disabled:opacity-45"
               >
@@ -608,12 +716,27 @@ export function OnboardingScreen() {
                     <Download size={14} aria-hidden />
                     {t("onboarding.installing")}
                   </>
+                ) : isSwapping ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" aria-hidden />
+                    <span>{t("pro.swapping")}</span>
+                  </>
+                ) : needsLiveSwap ? (
+                  <>
+                    <ArrowRightLeft size={14} aria-hidden />
+                    <span>{t("pro.swapButton")}</span>
+                    {!isAlreadyInstalled && exactDownloadBytes > 0 && (
+                      <span className="font-mono tabular-nums opacity-85">
+                        ({formatBytes(exactDownloadBytes)})
+                      </span>
+                    )}
+                  </>
                 ) : isAlreadyInstalled ? (
                   <>
                     <Check size={14} aria-hidden />
                     <span>{t("onboarding.apply")}</span>
                   </>
-                ) : error ? (
+                ) : displayError ? (
                   <>
                     <Download size={14} aria-hidden />
                     {t("onboarding.retry")}
