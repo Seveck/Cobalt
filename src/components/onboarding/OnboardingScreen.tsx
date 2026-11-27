@@ -36,8 +36,9 @@ import {
 } from "@/types/contracts";
 import { DownloadProgressBar } from "./DownloadProgressBar";
 import { HardwareConfigForm } from "./HardwareConfigForm";
+import { WelcomeExplainer } from "./WelcomeExplainer";
 
-type OnboardingStep = "name" | "hardware";
+type OnboardingStep = "welcome" | "name" | "hardware";
 
 export function OnboardingScreen() {
   const { t, i18n } = useTranslation();
@@ -76,7 +77,7 @@ export function OnboardingScreen() {
 
   const canGoBack = settings.onboarding_completed && showOnboardingOverride;
 
-  const [step, setStep] = useState<OnboardingStep>("name");
+  const [step, setStep] = useState<OnboardingStep>("welcome");
   const [displayName, setDisplayName] = useState<string>(settings.user_display_name ?? "");
   const nameEditedRef = useRef(false);
 
@@ -385,24 +386,52 @@ export function OnboardingScreen() {
         {/* Step progress strip */}
         <nav
           aria-label={t("onboarding.stepsLabel")}
-          className="flex items-center gap-2 border-b border-rule bg-surface-2/60 px-6 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em]"
+          className="flex flex-wrap items-center gap-2 border-b border-rule bg-surface-2/60 px-6 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em]"
         >
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setStep("welcome")}
+            className={`inline-flex items-center gap-1.5 transition-colors disabled:opacity-60 ${
+              step === "welcome" ? "font-semibold text-cobalt-ink" : "text-bone-muted hover:text-bone"
+            }`}
+          >
+            <span
+              className={`inline-flex h-4 w-4 items-center justify-center rounded-[2px] border text-[9px] ${
+                step === "welcome"
+                  ? "border-cobalt-rule bg-cobalt-wash text-cobalt-ink"
+                  : "border-verdigris-rule bg-verdigris-wash text-verdigris"
+              }`}
+            >
+              {step !== "welcome" ? <Check size={9} aria-hidden /> : "1"}
+            </span>
+            <span>{t("explainer.stepLabel")}</span>
+          </button>
+
+          <span className="h-px w-6 bg-rule-strong" aria-hidden />
+
           <button
             type="button"
             disabled={busy}
             onClick={() => setStep("name")}
             className={`inline-flex items-center gap-1.5 transition-colors disabled:opacity-60 ${
-              step === "name" ? "font-semibold text-cobalt-ink" : "text-bone-muted hover:text-bone"
+              step === "name"
+                ? "font-semibold text-cobalt-ink"
+                : step === "hardware"
+                  ? "text-bone-muted hover:text-bone"
+                  : "text-bone-subtle hover:text-bone"
             }`}
           >
             <span
               className={`inline-flex h-4 w-4 items-center justify-center rounded-[2px] border text-[9px] ${
                 step === "name"
                   ? "border-cobalt-rule bg-cobalt-wash text-cobalt-ink"
-                  : "border-verdigris-rule bg-verdigris-wash text-verdigris"
+                  : step === "hardware"
+                    ? "border-verdigris-rule bg-verdigris-wash text-verdigris"
+                    : "border-rule bg-void text-bone-subtle"
               }`}
             >
-              {step === "hardware" ? <Check size={9} aria-hidden /> : "1"}
+              {step === "hardware" ? <Check size={9} aria-hidden /> : "2"}
             </span>
             <span>{t("onboarding.nameStep.stepLabel")}</span>
           </button>
@@ -426,19 +455,36 @@ export function OnboardingScreen() {
                   : "border-rule bg-void text-bone-subtle"
               }`}
             >
-              2
+              3
             </span>
             <span>{t("onboarding.hardwareStepLabel")}</span>
           </button>
         </nav>
 
-        {step === "name" ? (
+        {step === "welcome" ? (
+          <div key="step-welcome" className="cobalt-view-enter">
+            <section className="border-b border-rule px-6 py-7 sm:py-8">
+              <WelcomeExplainer />
+            </section>
+
+            <footer className="flex flex-wrap items-center justify-end gap-3 bg-surface-2 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setStep("name")}
+                className="inline-flex items-center gap-2 rounded-[2px] border border-cobalt-rule bg-cobalt px-5 py-2 text-xs font-semibold tracking-wide text-on-accent transition-colors hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
+              >
+                <span>{t("explainer.startButton")}</span>
+                <ArrowRight size={14} aria-hidden />
+              </button>
+            </footer>
+          </div>
+        ) : step === "name" ? (
           <form key="step-name" className="cobalt-view-enter" onSubmit={handleNameStepSubmit}>
             <section className="border-b border-rule px-6 py-8 sm:py-10">
               <div className="max-w-xl">
                 <div className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cobalt-ink">
                   <User size={12} aria-hidden />
-                  <span>01 — {t("onboarding.nameStep.stepLabel")}</span>
+                  <span>02 — {t("onboarding.nameStep.stepLabel")}</span>
                 </div>
 
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight text-bone sm:text-3xl">
@@ -478,17 +524,27 @@ export function OnboardingScreen() {
             </section>
 
             <footer className="flex flex-wrap items-center justify-between gap-3 bg-surface-2 px-6 py-4">
-              <button
-                type="button"
-                onClick={handleSkipName}
-                className="inline-flex items-center gap-2 rounded-[2px] border border-rule-strong bg-surface px-4 py-2 text-xs font-medium text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 hover:text-bone focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
-              >
-                {t("onboarding.nameStep.skip")}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStep("welcome")}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface px-3 py-2 text-xs font-medium text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 hover:text-bone focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
+                >
+                  <ArrowLeft size={13} aria-hidden />
+                  <span>{t("onboarding.back")}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSkipName}
+                  className="inline-flex items-center gap-2 rounded-[2px] border border-rule-strong bg-surface px-4 py-2 text-xs font-medium text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 hover:text-bone focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
+                >
+                  {t("onboarding.nameStep.skip")}
+                </button>
+              </div>
 
               <button
                 type="submit"
-                className="inline-flex items-center gap-2 rounded-[2px] border border-cobalt-rule bg-cobalt px-5 py-2 text-xs font-semibold tracking-wide text-bone transition-colors hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
+                className="inline-flex items-center gap-2 rounded-[2px] border border-cobalt-rule bg-cobalt px-5 py-2 text-xs font-semibold tracking-wide text-on-accent transition-colors hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
               >
                 <span>{t("onboarding.nameStep.continue")}</span>
                 <ArrowRight size={14} aria-hidden />

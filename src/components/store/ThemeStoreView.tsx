@@ -9,15 +9,18 @@ import {
   Loader2,
   Moon,
   Palette,
+  Pencil,
   RefreshCw,
   Search,
+  Share2,
+  SlidersHorizontal,
   Sparkles,
   Sun,
   Trash2,
   Upload,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
-import { pickSinglePath, useFileDrop } from "@/lib/dialogs";
+import { pickSavePath, pickSinglePath, useFileDrop } from "@/lib/dialogs";
 import { formatBytes } from "@/lib/format";
 import { staggerStyle } from "@/lib/motion";
 import { isBuiltinThemeId, resolvePreviewTokens } from "@/lib/themeEngine";
@@ -49,19 +52,24 @@ export function ThemeStoreView() {
   const { t } = useTranslation();
 
   const activeThemeId = useThemeStore((s) => s.activeThemeId);
-  const manifest = useThemeStore((s) => s.manifest);
+  const manifest = useThemeStore((s) => s.committedManifest);
   const installedThemes = useThemeStore((s) => s.installedThemes);
+  const themesVersion = useThemeStore((s) => s.themesVersion);
   const setActiveTheme = useThemeStore((s) => s.setActiveTheme);
   const loadInstalledThemes = useThemeStore((s) => s.loadInstalledThemes);
+  const openThemeEditor = useThemeStore((s) => s.openThemeEditor);
+  const pushThemeToast = useThemeStore((s) => s.pushThemeToast);
   const patchSettings = useSettingsStore((s) => s.patchSettings);
 
   const [builtinManifests, setBuiltinManifests] = useState<ThemeManifest[]>([]);
+  const [userManifests, setUserManifests] = useState<Record<string, ThemeManifest>>({});
   const [loadingBuiltins, setLoadingBuiltins] = useState(true);
   const [query, setQuery] = useState("");
   const [cards, setCards] = useState<ThemeCard[]>([]);
   const [searching, setSearching] = useState(true);
   const [registryError, setRegistryError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [exportingId, setExportingId] = useState<string | null>(null);
   const [installingFile, setInstallingFile] = useState(false);
   const [brokenImages, setBrokenImages] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -112,10 +120,49 @@ export function ThemeStoreView() {
     void searchRegistry("");
   }, [loadBuiltinManifests, loadInstalledThemes, searchRegistry]);
 
-  const communityInstalled = useMemo(
+  // Refresh installed list & search cards when themes change externally (e.g. AI create_theme or editor save)
+  useEffect(() => {
+    if (themesVersion === 0) return;
+    void loadInstalledThemes();
+    void searchRegistry(query);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [themesVersion]);
+
+  const myThemes = useMemo(
     () => installedThemes.filter((item) => !isBuiltinThemeId(item.id)),
     [installedThemes],
   );
+
+  // Load manifests for user/AI themes so cards render live ThemeMiniPreviews and edit smoothly
+  useEffect(() => {
+    let cancelled = false;
+    if (myThemes.length === 0) {
+      setUserManifests({});
+      return;
+    }
+    void Promise.all(
+      myThemes.map(async (theme) => {
+        try {
+          const loaded = await backendCall("get_theme_manifest", { theme_id: theme.id });
+          return [theme.id, loaded] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      const next: Record<string, ThemeManifest> = {};
+      for (const entry of entries) {
+        if (entry) {
+          next[entry[0]] = entry[1];
+        }
+      }
+      setUserManifests(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [myThemes, themesVersion]);
 
   const handleApplyTheme = useCallback(
     async (themeId: string, themeName?: string) => {
@@ -137,6 +184,50 @@ export function ThemeStoreView() {
     },
     [flashNotice, patchSettings, setActiveTheme, t],
   );
+
+  const handleEditUserTheme = async (themeId: string) => {
+    setBusyId(themeId);
+    setError(null);
+    try {
+      const cached = userManifests[themeId];
+      const loaded = cached ?? (await backendCall("get_theme_manifest", { theme_id: themeId }));
+      openThemeEditor({ manifest: loaded, mode: "edit" });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleExportTheme = async (themeId: string, themeName: string) => {
+    if (isBuiltinThemeId(themeId)) return;
+    setError(null);
+    const destPath = await pickSavePath({
+      title: t("store.exportDialogTitle"),
+      defaultPath: `${themeId}.cobalt-theme`,
+      filters: [{ name: "Cobalt Theme", extensions: ["cobalt-theme"] }],
+    });
+    if (!destPath) return;
+
+    setExportingId(themeId);
+    try {
+      const bytes = await backendCall("export_theme", {
+        theme_id: themeId,
+        path: destPath,
+      });
+      pushThemeToast({
+        kind: "exported",
+        message: t("store.exportedToast", {
+          name: themeName,
+          size: formatBytes(bytes),
+        }),
+      });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExportingId(null);
+    }
+  };
 
   const handleInstallFromRegistry = async (themeId: string) => {
     setBusyId(themeId);
@@ -263,9 +354,17 @@ export function ThemeStoreView() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              onClick={() => openThemeEditor()}
+              className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-xs font-semibold text-on-accent hover:bg-cobalt-bright"
+            >
+              <SlidersHorizontal size={12} aria-hidden />
+              {t("store.customizeButton")}
+            </button>
+            <button
+              type="button"
               disabled={installingFile}
               onClick={() => void handlePickThemeFile()}
-              className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-xs font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
+              className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface px-3 py-1.5 font-mono text-xs font-medium text-bone hover:border-cobalt-ink/60 hover:bg-surface-2 disabled:opacity-45"
             >
               {installingFile ? (
                 <Loader2 size={12} className="animate-spin" aria-hidden />
@@ -348,23 +447,207 @@ export function ThemeStoreView() {
               </span>
             </div>
           </div>
+
+          {/* Sharing + AI creation hints */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-rule pt-3 text-xs text-bone-muted">
+            <div className="flex items-center gap-2">
+              <Share2 size={13} className="shrink-0 text-cobalt-ink" aria-hidden />
+              <span>{t("store.shareExplain")}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-cobalt-ink">
+              <Sparkles size={13} className="shrink-0" aria-hidden />
+              <span>{t("store.askAiHint")}</span>
+            </div>
+          </div>
         </section>
 
         {/* Non-blocking runtime warnings from active theme shaders / custom meshes */}
         <ThemeWarningsBanner />
 
-        {/* 01 — Included with Cobalt (5 built-in themes, live mini previews, never uninstallable) */}
+        {/* 01 — My themes (user-created, AI-created, and file-installed themes) */}
         <section className="space-y-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>
               <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
-                01 — {t("store.builtinSection")}
+                01 — {t("store.myThemesSection")}
               </h2>
-              <p className="mt-0.5 text-xs text-bone-muted">{t("store.builtinSectionDesc")}</p>
+              <p className="mt-0.5 text-xs text-bone-muted">{t("store.myThemesDesc")}</p>
             </div>
             <span className="font-mono text-[10px] text-bone-subtle">
               {t("store.dropHintInline")}
             </span>
+          </div>
+
+          {myThemes.length === 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-4 rounded-[2px] border border-dashed border-rule-strong bg-surface/70 px-5 py-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-bone">{t("store.myThemesEmptyTitle")}</p>
+                <p className="text-xs text-bone-muted">{t("store.myThemesEmptyDesc")}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openThemeEditor()}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-xs font-semibold text-on-accent hover:bg-cobalt-bright"
+                >
+                  <SlidersHorizontal size={12} aria-hidden />
+                  {t("store.customizeButton")}
+                </button>
+                <button
+                  type="button"
+                  disabled={installingFile}
+                  onClick={() => void handlePickThemeFile()}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-1.5 font-mono text-xs text-bone hover:border-cobalt-ink/60 disabled:opacity-45"
+                >
+                  <Upload size={12} aria-hidden />
+                  {t("store.installLocalButton")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {myThemes.map((theme, idx) => {
+                const isActive = activeThemeId === theme.id;
+                const isBusy = busyId === theme.id;
+                const isExporting = exportingId === theme.id;
+                const themeManifest = userManifests[theme.id];
+                const previewTokens = themeManifest ? resolvePreviewTokens(themeManifest) : null;
+                const swatches = previewTokens
+                  ? [
+                      previewTokens.void,
+                      previewTokens.surface2,
+                      previewTokens.bone,
+                      previewTokens.cobalt,
+                    ]
+                  : [];
+
+                return (
+                  <article
+                    key={theme.id}
+                    style={staggerStyle(idx, 24, 6)}
+                    className={`cobalt-stagger-item flex flex-col overflow-hidden rounded-[2px] border transition-colors ${
+                      isActive
+                        ? "border-cobalt-rule bg-cobalt-wash/35 ring-1 ring-cobalt/40"
+                        : "border-rule bg-surface hover:border-rule-strong"
+                    }`}
+                  >
+                    {themeManifest ? (
+                      <ThemeMiniPreview manifest={themeManifest} />
+                    ) : (
+                      <div className="cobalt-grid-bg flex h-36 w-full items-center justify-center border-b border-rule text-bone-subtle">
+                        <Palette size={20} aria-hidden />
+                      </div>
+                    )}
+
+                    <div className="flex flex-1 flex-col justify-between gap-3 p-4">
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h3 className="truncate text-base font-semibold tracking-tight text-bone">
+                              {theme.name}
+                            </h3>
+                            <p className="mt-0.5 truncate font-mono text-[10px] text-bone-subtle">
+                              {theme.author} · v{theme.version} · {formatBytes(theme.size_bytes)}
+                            </p>
+                          </div>
+
+                          {swatches.length > 0 && (
+                            <div className="flex shrink-0 items-center gap-1 pt-0.5">
+                              {swatches.map((color, sIdx) => (
+                                <span
+                                  key={`${theme.id}-sw-${sIdx}`}
+                                  className="h-4 w-4 rounded-[2px] border border-rule-strong"
+                                  style={{ backgroundColor: color }}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {themeManifest?.description && (
+                          <p className="line-clamp-2 text-xs leading-relaxed text-bone-muted">
+                            {themeManifest.description}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-rule pt-3">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {isActive ? (
+                            <span className="inline-flex items-center gap-1 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2 py-1 font-mono text-[10px] font-semibold text-verdigris">
+                              <Check size={11} aria-hidden />
+                              {t("store.inUse")}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => void handleApplyTheme(theme.id, theme.name)}
+                              className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[10px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
+                            >
+                              {isBusy ? (
+                                <Loader2 size={10} className="animate-spin" aria-hidden />
+                              ) : (
+                                <Sparkles size={10} aria-hidden />
+                              )}
+                              {t("store.applyShort")}
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => void handleEditUserTheme(theme.id)}
+                            className="inline-flex items-center gap-1 rounded-[2px] border border-rule-strong bg-surface-2 px-2 py-1 font-mono text-[10px] text-bone hover:border-cobalt-ink/60 disabled:opacity-45"
+                          >
+                            <Pencil size={10} aria-hidden />
+                            {t("store.editButton")}
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isBusy || isExporting}
+                            onClick={() => void handleExportTheme(theme.id, theme.name)}
+                            className="inline-flex items-center gap-1 rounded-[2px] border border-rule-strong bg-surface-2 px-2 py-1 font-mono text-[10px] text-bone hover:border-cobalt-ink/60 disabled:opacity-45"
+                          >
+                            {isExporting ? (
+                              <Loader2 size={10} className="animate-spin" aria-hidden />
+                            ) : (
+                              <Share2 size={10} aria-hidden />
+                            )}
+                            {t("store.exportButton")}
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => void handleUninstallTheme(theme.id)}
+                          aria-label={t("store.deleteButton")}
+                          title={t("store.deleteButton")}
+                          className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2 py-1 font-mono text-[10px] text-cinnabar hover:bg-cinnabar hover:text-on-accent disabled:opacity-45"
+                        >
+                          <Trash2 size={10} aria-hidden />
+                          {t("store.deleteButton")}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* 02 — Included with Cobalt (5 built-in themes: Apply + Customize, never Export/Delete) */}
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
+                02 — {t("store.builtinSection")}
+              </h2>
+              <p className="mt-0.5 text-xs text-bone-muted">{t("store.builtinSectionDesc")}</p>
+            </div>
           </div>
 
           {loadingBuiltins && builtinManifests.length === 0 ? (
@@ -445,9 +728,9 @@ export function ThemeStoreView() {
                           </div>
 
                           <div className="flex items-center gap-1 pt-0.5">
-                            {swatches.map((color, idx) => (
+                            {swatches.map((color, sIdx) => (
                               <span
-                                key={`${theme.id}-sw-${idx}`}
+                                key={`${theme.id}-sw-${sIdx}`}
                                 className="h-4 w-4 rounded-[2px] border border-rule-strong"
                                 style={{ backgroundColor: color }}
                               />
@@ -461,9 +744,14 @@ export function ThemeStoreView() {
                       </div>
 
                       <div className="flex items-center justify-between gap-2 border-t border-rule pt-3">
-                        <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-bone-subtle">
-                          {t("store.builtin")}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => openThemeEditor({ manifest: theme, mode: "create" })}
+                          className="inline-flex items-center gap-1 rounded-[2px] border border-rule-strong bg-surface-2 px-2.5 py-1 font-mono text-[10px] text-bone hover:border-cobalt-ink/60"
+                        >
+                          <SlidersHorizontal size={10} aria-hidden />
+                          {t("store.customizeButton")}
+                        </button>
 
                         {isActive ? (
                           <span className="inline-flex items-center gap-1 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2.5 py-1 font-mono text-[11px] font-semibold text-verdigris">
@@ -494,86 +782,12 @@ export function ThemeStoreView() {
           )}
         </section>
 
-        {/* 02 — Installed community / local themes (only shown if any non-builtin themes exist) */}
-        {communityInstalled.length > 0 && (
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
-                02 — {t("store.installedSection")}
-              </h2>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {communityInstalled.map((theme) => {
-                const isActive = activeThemeId === theme.id;
-                const isBusy = busyId === theme.id;
-                return (
-                  <div
-                    key={theme.id}
-                    className={`flex flex-col justify-between gap-3 rounded-[2px] border p-4 ${
-                      isActive
-                        ? "border-cobalt-rule bg-cobalt-wash/40"
-                        : "border-rule bg-surface"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-bone">{theme.name}</span>
-                        <span className="font-mono text-[10px] text-bone-subtle">
-                          v{theme.version}
-                        </span>
-                      </div>
-                      <div className="mt-1 font-mono text-[10px] text-bone-muted">
-                        {theme.author} · {t(`tiers.${theme.hardware_tier}`)} ·{" "}
-                        {formatBytes(theme.size_bytes)}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2 border-t border-rule pt-2.5">
-                      {isActive ? (
-                        <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold uppercase text-verdigris">
-                          <Check size={11} aria-hidden />
-                          {t("store.inUse")}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={isBusy}
-                          onClick={() => void handleApplyTheme(theme.id, theme.name)}
-                          className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[10px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
-                        >
-                          {isBusy ? (
-                            <Loader2 size={10} className="animate-spin" aria-hidden />
-                          ) : (
-                            <Sparkles size={10} aria-hidden />
-                          )}
-                          {t("store.applyShort")}
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        disabled={isBusy}
-                        onClick={() => void handleUninstallTheme(theme.id)}
-                        className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2 py-1 font-mono text-[10px] text-cinnabar hover:bg-cinnabar hover:text-on-accent disabled:opacity-45"
-                      >
-                        <Trash2 size={10} aria-hidden />
-                        {t("store.uninstallButton")}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* Community registry search & catalog */}
+        {/* 03 — Community registry search & catalog */}
         <section className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
-                {communityInstalled.length > 0 ? "03" : "02"} — {t("store.registrySection")}
+                03 — {t("store.registrySection")}
               </h2>
               <p className="mt-0.5 text-xs text-bone-muted">{t("store.zeroHiddenDownloads")}</p>
             </div>

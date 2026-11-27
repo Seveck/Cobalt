@@ -449,7 +449,16 @@
     "readOnlyTitle": "Read-Only Mode",
     "readOnlyDesc": "Prevents AI tools from writing or modifying your memories.",
     "appearanceTitle": "Appearance",
-    "appearanceSubtitle": "Control how installed 3D themes render on this device.",
+    "appearanceSubtitle": "Customize colors, interface scale, and 3D rendering on this device.",
+    "customizeThemeTitle": "Customize theme",
+    "customizeThemeDesc": "Edit colors, contrast, density, and 3D brain styling with live preview (active: {{name}}).",
+    "uiSizeTitle": "Interface size",
+    "uiSizeDesc": "Adjust the overall text and control scale across the entire app. Saved on this device.",
+    "uiSizes": {
+      "small": "Small",
+      "normal": "Normal",
+      "large": "Large"
+    },
     "disableThemeShadersTitle": "Disable theme shaders",
     "disableThemeShadersDesc": "Use Cobalt's built-in renderer instead of custom GLSL shaders from installed themes. Saved on this device only.",
     "shaderWatchdogActive": "Custom shaders were paused for this session because frame times stayed above 100 ms.",
@@ -820,7 +829,20 @@
       "abisal": "Deep petrol blue with a turquoise accent that lets the 3D brain stand out.",
       "niebla": "Low-contrast soft lavender neutrals — minimal and gentle on the eyes."
     },
-    "installLocalButton": "Install .cobalt-theme",
+    "installLocalButton": "Install from file",
+    "customizeButton": "Customize",
+    "shareExplain": "To share a theme, export it and send the file; anyone who receives it can install it here.",
+    "askAiHint": "You can also ask your AI: \"create a theme for me…\"",
+    "myThemesSection": "My themes",
+    "myThemesDesc": "Themes created by you, made by your AIs, or installed from a file.",
+    "myThemesEmptyTitle": "You don't have any custom themes yet",
+    "myThemesEmptyDesc": "Customize any style live, install a .cobalt-theme file, or ask your AI to design one for you.",
+    "editButton": "Edit",
+    "exportButton": "Export",
+    "exportDialogTitle": "Export Cobalt theme",
+    "exportedToast": "Exported theme \"{{name}}\" ({{size}}).",
+    "deleteButton": "Delete",
+    "aiThemeCreatedToast": "Theme \"{{name}}\" created by {{client}}",
     "installFileDialogTitle": "Choose a .cobalt-theme package",
     "dropOverlayTitle": "Drop a .cobalt-theme package to install",
     "dropOverlayHint": "Verified in sandbox — zero executable code allowed.",
@@ -850,6 +872,90 @@
       "compatible": "Compatible",
       "degraded": "Reduced FX",
       "incompatible": "Too heavy"
+    }
+  },
+  "themeEditor": {
+    "title": "Theme editor",
+    "customizingSubtitle": "Starting from {{name}}",
+    "editingUserSubtitle": "Editing \"{{name}}\"",
+    "closeAndRevert": "Close and discard unsaved changes",
+    "livePreviewBadge": "Live preview",
+    "unsavedBadge": "Unsaved",
+    "sections": {
+      "theme": "Theme & colors",
+      "layout": "Spacing, shape & text",
+      "brain": "3D brain colors"
+    },
+    "modeLabel": "Mode",
+    "modes": {
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "accentLabel": "Accent",
+    "accentSwatchAria": "Use accent {{color}}",
+    "customAccentAria": "Pick a custom accent color",
+    "baseHueLabel": "Base hue",
+    "baseTintLabel": "Base tint",
+    "contrastLabel": "Contrast",
+    "densityLabel": "Density",
+    "densities": {
+      "compact": "Compact",
+      "comfortable": "Comfortable",
+      "spacious": "Spacious"
+    },
+    "radiusLabel": "Corners",
+    "deviceLocalHint": "This device only",
+    "brainBgLabel": "Brain background",
+    "brainBgSwatchAria": "Brain background {{color}}",
+    "brainBgCustomAria": "Pick a custom brain background color",
+    "categoryColorsLabel": "Category colors",
+    "categoryColorAria": "Color for {{category}}",
+    "saveAsTheme": "Save as theme",
+    "reset": "Reset",
+    "discard": "Discard",
+    "themeNameLabel": "Theme name",
+    "themeNamePlaceholder": "e.g. Warm Night, Soft Paper…",
+    "suggestedName": "My {{name}}",
+    "slugPreview": "ID: {{id}}",
+    "overwriteHint": "Will update \"{{id}}\"",
+    "nameRequired": "Enter a name to save your theme.",
+    "builtinIdError": "Built-in themes cannot be overwritten; choose another name.",
+    "defaultAuthor": "You",
+    "customThemeDescription": "Custom theme based on {{base}}.",
+    "saving": "Saving…",
+    "confirmSave": "Save theme",
+    "savedNotice": "Saved and applied theme \"{{name}}\"."
+  },
+  "explainer": {
+    "stepLabel": "How it works",
+    "title": "One shared memory for all your AIs",
+    "subtitle": "Cobalt keeps what matters on your computer so every assistant stays in sync without starting from scratch.",
+    "startButton": "Get started",
+    "stages": {
+      "save": {
+        "title": "Save",
+        "desc": "You and your AIs save decisions, notes, and files"
+      },
+      "connect": {
+        "title": "Connect",
+        "desc": "All your AIs share the same memory"
+      },
+      "remember": {
+        "title": "Remember",
+        "desc": "Instantly find what matters, along with its source"
+      },
+      "saveTokens": {
+        "title": "Save tokens",
+        "desc": "Fewer tokens and less repeating context"
+      }
+    },
+    "principlesTitle": "Principles",
+    "principles": {
+      "yours": "Your memory is yours",
+      "local": "100% on your device",
+      "noTelemetry": "No cloud telemetry",
+      "noDelete": "No AI deletes anything without your permission",
+      "openSource": "Open source (MIT)"
     }
   },
   "themes": {

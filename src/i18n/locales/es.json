@@ -449,7 +449,16 @@
     "readOnlyTitle": "Modo Solo Lectura",
     "readOnlyDesc": "Impide que las herramientas de IA escriban o modifiquen tus memorias.",
     "appearanceTitle": "Apariencia",
-    "appearanceSubtitle": "Controla cómo se renderizan los temas 3D instalados en este equipo.",
+    "appearanceSubtitle": "Personaliza colores, tamaño de la interfaz y el renderizado 3D en este equipo.",
+    "customizeThemeTitle": "Personalizar tema",
+    "customizeThemeDesc": "Edita colores, contraste, densidad y el cerebro 3D con vista previa en vivo (activo: {{name}}).",
+    "uiSizeTitle": "Tamaño de interfaz",
+    "uiSizeDesc": "Ajusta la escala general del texto y los controles en toda la aplicación. Se guarda en este equipo.",
+    "uiSizes": {
+      "small": "Pequeño",
+      "normal": "Normal",
+      "large": "Grande"
+    },
     "disableThemeShadersTitle": "Desactivar shaders de temas",
     "disableThemeShadersDesc": "Usa el renderizador integrado de Cobalt en lugar de los shaders GLSL personalizados de los temas instalados. Se guarda solo en este equipo.",
     "shaderWatchdogActive": "Los shaders personalizados se pausaron en esta sesión porque el tiempo por fotograma superó 100 ms.",
@@ -820,7 +829,20 @@
       "abisal": "Azul petróleo profundo con acento turquesa; hace brillar el cerebro 3D.",
       "niebla": "Bajo contraste y tonos lavanda suaves; minimalista y descansado para la vista."
     },
-    "installLocalButton": "Instalar .cobalt-theme",
+    "installLocalButton": "Instalar desde archivo",
+    "customizeButton": "Personalizar",
+    "shareExplain": "Para compartir un tema, expórtalo y envía el archivo; quien lo reciba lo instala aquí.",
+    "askAiHint": "También puedes pedirle a tu IA: «créame un tema …»",
+    "myThemesSection": "Mis temas",
+    "myThemesDesc": "Temas creados por ti, generados por tus IAs o instalados desde un archivo.",
+    "myThemesEmptyTitle": "Todavía no tienes temas propios",
+    "myThemesEmptyDesc": "Personaliza cualquier estilo en vivo, instala un archivo .cobalt-theme o pídele a tu IA que diseñe uno para ti.",
+    "editButton": "Editar",
+    "exportButton": "Exportar",
+    "exportDialogTitle": "Exportar tema de Cobalt",
+    "exportedToast": "Tema «{{name}}» exportado ({{size}}).",
+    "deleteButton": "Eliminar",
+    "aiThemeCreatedToast": "Tema «{{name}}» creado por {{client}}",
     "installFileDialogTitle": "Elige un paquete .cobalt-theme",
     "dropOverlayTitle": "Suelta un paquete .cobalt-theme para instalarlo",
     "dropOverlayHint": "Verificado en sandbox — sin código ejecutable.",
@@ -850,6 +872,90 @@
       "compatible": "Compatible",
       "degraded": "FX reducidos",
       "incompatible": "Muy pesado"
+    }
+  },
+  "themeEditor": {
+    "title": "Editor de temas",
+    "customizingSubtitle": "A partir de {{name}}",
+    "editingUserSubtitle": "Editando «{{name}}»",
+    "closeAndRevert": "Cerrar y descartar cambios sin guardar",
+    "livePreviewBadge": "Vista previa en vivo",
+    "unsavedBadge": "Sin guardar",
+    "sections": {
+      "theme": "Tema y colores",
+      "layout": "Espaciado, forma y texto",
+      "brain": "Colores del cerebro 3D"
+    },
+    "modeLabel": "Modo",
+    "modes": {
+      "light": "Claro",
+      "dark": "Oscuro"
+    },
+    "accentLabel": "Acento",
+    "accentSwatchAria": "Usar acento {{color}}",
+    "customAccentAria": "Elegir color de acento personalizado",
+    "baseHueLabel": "Tono de base",
+    "baseTintLabel": "Color de base",
+    "contrastLabel": "Contraste",
+    "densityLabel": "Densidad",
+    "densities": {
+      "compact": "Compacto",
+      "comfortable": "Cómodo",
+      "spacious": "Amplio"
+    },
+    "radiusLabel": "Esquinas",
+    "deviceLocalHint": "Solo en este equipo",
+    "brainBgLabel": "Fondo del cerebro",
+    "brainBgSwatchAria": "Fondo del cerebro {{color}}",
+    "brainBgCustomAria": "Elegir color de fondo del cerebro",
+    "categoryColorsLabel": "Colores por categoría",
+    "categoryColorAria": "Color para {{category}}",
+    "saveAsTheme": "Guardar como tema",
+    "reset": "Restablecer",
+    "discard": "Descartar",
+    "themeNameLabel": "Nombre del tema",
+    "themeNamePlaceholder": "Ej. Noche cálida, Papel claro…",
+    "suggestedName": "{{name}} personal",
+    "slugPreview": "ID: {{id}}",
+    "overwriteHint": "Se actualizará «{{id}}»",
+    "nameRequired": "Escribe un nombre para guardar el tema.",
+    "builtinIdError": "No se puede sobrescribir un tema integrado; elige otro nombre.",
+    "defaultAuthor": "Tú",
+    "customThemeDescription": "Tema personalizado a partir de {{base}}.",
+    "saving": "Guardando…",
+    "confirmSave": "Guardar tema",
+    "savedNotice": "Tema «{{name}}» guardado y aplicado."
+  },
+  "explainer": {
+    "stepLabel": "Cómo funciona",
+    "title": "Tu memoria compartida para todas tus IAs",
+    "subtitle": "Cobalt guarda lo que importa en tu equipo para que tus asistentes te entiendan a la primera, sin empezar de cero.",
+    "startButton": "Empezar",
+    "stages": {
+      "save": {
+        "title": "Guarda",
+        "desc": "Tú y tus IAs guardan decisiones, notas y archivos"
+      },
+      "connect": {
+        "title": "Conecta",
+        "desc": "Todas tus IAs comparten la misma memoria"
+      },
+      "remember": {
+        "title": "Recuerda",
+        "desc": "Encuentra al instante lo que importa, con su fuente"
+      },
+      "saveTokens": {
+        "title": "Ahorra",
+        "desc": "Menos tokens y menos repetir contexto"
+      }
+    },
+    "principlesTitle": "Principios",
+    "principles": {
+      "yours": "Tu memoria es tuya",
+      "local": "100 % en tu equipo",
+      "noTelemetry": "Sin telemetría en la nube",
+      "noDelete": "Ninguna IA borra nada sin tu permiso",
+      "openSource": "Código abierto (MIT)"
     }
   },
   "themes": {

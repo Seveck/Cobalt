@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Save,
   Shield,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   User,
@@ -26,6 +27,7 @@ import {
   formatRamGb,
   isEngineModelInstalled,
 } from "@/lib/format";
+import { UI_SIZE_OPTIONS, type UiSize } from "@/lib/themeEngine";
 import {
   useHardwareStore,
   useMemoryStore,
@@ -33,7 +35,11 @@ import {
   useThemeStore,
   useUiStore,
 } from "@/stores";
-import { DownloadProgressBar, HardwareConfigForm } from "@/components/onboarding";
+import {
+  DownloadProgressBar,
+  HardwareConfigForm,
+  WelcomeExplainer,
+} from "@/components/onboarding";
 import { OcrSettingsSection } from "@/components/settings/OcrSettingsSection";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
 import {
@@ -85,9 +91,13 @@ export function SettingsView() {
   const appInfo = useUiStore((s) => s.appInfo);
   const setShowOnboardingOverride = useUiStore((s) => s.setShowOnboardingOverride);
 
+  const activeManifest = useThemeStore((s) => s.committedManifest);
+  const uiSize = useThemeStore((s) => s.uiSize);
   const disableThemeShaders = useThemeStore((s) => s.disableThemeShaders);
   const reducedMotion = useThemeStore((s) => s.reducedMotion);
   const shadersDisabledForSession = useThemeStore((s) => s.shadersDisabledForSession);
+  const setUiSize = useThemeStore((s) => s.setUiSize);
+  const openThemeEditor = useThemeStore((s) => s.openThemeEditor);
   const setDisableThemeShaders = useThemeStore((s) => s.setDisableThemeShaders);
   const setReducedMotion = useThemeStore((s) => s.setReducedMotion);
   const resetSessionShaderWatchdog = useThemeStore((s) => s.resetSessionShaderWatchdog);
@@ -382,6 +392,59 @@ export function SettingsView() {
           </div>
 
           <div className="divide-y divide-rule px-5">
+            <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-bone">
+                  {t("settings.customizeThemeTitle")}
+                </div>
+                <div className="mt-0.5 text-xs text-bone-muted">
+                  {t("settings.customizeThemeDesc", { name: activeManifest.name })}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => openThemeEditor()}
+                className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-xs font-semibold text-on-accent hover:bg-cobalt-bright focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
+              >
+                <SlidersHorizontal size={12} aria-hidden />
+                {t("store.customizeButton")}
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-bone">{t("settings.uiSizeTitle")}</div>
+                <div className="mt-0.5 text-xs text-bone-muted">{t("settings.uiSizeDesc")}</div>
+              </div>
+              <div
+                role="group"
+                aria-label={t("settings.uiSizeTitle")}
+                className="grid w-56 grid-cols-3 overflow-hidden rounded-[2px] border border-rule-strong bg-void"
+              >
+                {UI_SIZE_OPTIONS.map((size: UiSize) => {
+                  const active = uiSize === size;
+                  return (
+                    <button
+                      key={size}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        setUiSize(size);
+                        showSavedFlash();
+                      }}
+                      className={`py-1.5 text-xs font-medium transition-colors focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none ${
+                        active
+                          ? "bg-cobalt text-on-accent"
+                          : "text-bone-muted hover:bg-surface-2 hover:text-bone"
+                      }`}
+                    >
+                      {t(`settings.uiSizes.${size}`)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="flex flex-wrap items-center justify-between gap-4 py-4">
               <div className="min-w-0 flex-1">
                 <div
@@ -714,6 +777,10 @@ export function SettingsView() {
               <Info size={13} className="text-cobalt-ink" aria-hidden />
               07 — {t("settings.aboutTitle")}
             </h2>
+          </div>
+
+          <div className="border-b border-rule p-5">
+            <WelcomeExplainer compact />
           </div>
 
           <div className="divide-y divide-rule px-5 font-mono text-xs">
