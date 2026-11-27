@@ -6,6 +6,7 @@ export type NavSection =
   | "brain"
   | "library"
   | "telemetry"
+  | "stats"
   | "connectors"
   | "tools"
   | "store"

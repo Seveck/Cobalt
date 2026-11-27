@@ -26,6 +26,7 @@ import { DesktopOnlyNotice } from "@/components/shell/DesktopOnlyNotice";
 import { IngestShellIndicator } from "@/components/shell/IngestShellIndicator";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { WelcomeGreeting } from "@/components/shell/WelcomeGreeting";
+import { StatsView } from "@/components/stats/StatsView";
 import { ThemeStoreView } from "@/components/store/ThemeStoreView";
 import { TelemetryView } from "@/components/telemetry/TelemetryView";
 import { ToolsView } from "@/components/tools/ToolsView";
@@ -207,6 +208,7 @@ function DesktopApp() {
           {activeNav === "brain" && <BrainCanvas />}
           {activeNav === "library" && <LibraryView />}
           {activeNav === "telemetry" && <TelemetryView />}
+          {activeNav === "stats" && <StatsView />}
           {activeNav === "connectors" && <ConnectorsView />}
           {activeNav === "tools" && <ToolsView />}
           {activeNav === "store" && <ThemeStoreView />}
