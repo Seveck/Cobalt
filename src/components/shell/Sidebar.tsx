@@ -10,6 +10,7 @@ import {
   FolderPlus,
   Gauge,
   Globe,
+  Info,
   Leaf,
   Library,
   Network,
@@ -22,7 +23,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { SUPPORTED_LANGUAGES } from "@/i18n";
-import { GENERAL_FOLDER_COLOR, isCodeProject, splitProjects } from "@/lib/projects";
+import { formatCount } from "@/lib/format";
+import {
+  countActiveMemoriesByFolder,
+  GENERAL_FOLDER_COLOR,
+  isCodeProject,
+  splitProjects,
+} from "@/lib/projects";
 import {
   useFiltersStore,
   useMemoryStore,
@@ -69,6 +76,7 @@ function isEditableEventTarget(target: EventTarget | null): boolean {
 export function Sidebar() {
   const { t, i18n } = useTranslation();
   const langLabelId = useId();
+  const generalInfoId = useId();
   const activeNav = useUiStore((s) => s.activeNav);
   const setActiveNav = useUiStore((s) => s.setActiveNav);
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
@@ -84,6 +92,7 @@ export function Sidebar() {
 
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectStats | null>(null);
+  const [generalInfoOpen, setGeneralInfoOpen] = useState(false);
 
   const { regular: regularFolders } = useMemo(
     () => splitProjects(graph?.projects ?? []),
@@ -95,18 +104,10 @@ export function Sidebar() {
     [regularFolders],
   );
 
-  const { folderCounts, generalCount } = useMemo(() => {
-    const counts = new Map<string, number>();
-    let general = 0;
-    for (const node of graph?.nodes ?? []) {
-      if (node.project_id === null) {
-        general += 1;
-      } else {
-        counts.set(node.project_id, (counts.get(node.project_id) ?? 0) + 1);
-      }
-    }
-    return { folderCounts: counts, generalCount: general };
-  }, [graph?.nodes]);
+  const { byProjectId: folderCounts, general: generalCount } = useMemo(
+    () => countActiveMemoriesByFolder(graph?.nodes),
+    [graph?.nodes],
+  );
 
   const handleSelectFolderInBrain = (value: string) => {
     setActiveNav("brain");
@@ -307,42 +308,88 @@ export function Sidebar() {
             </div>
 
             <div className="space-y-0.5">
-              {/* General bucket */}
+              {/* General bucket (shared space; cannot be deleted) */}
               {(() => {
                 const isActiveGeneral =
                   activeNav === "brain" &&
                   soloFilter?.dimension === "project" &&
                   soloFilter.value === "global";
+                const formattedGeneralCount = formatCount(generalCount, currentLanguage);
+                const generalCountTooltip = t("folders.memoriesCountTooltip", {
+                  count: generalCount,
+                  formattedCount: formattedGeneralCount,
+                });
+                const generalTooltip = t("folders.generalRowTooltip");
                 return (
-                  <button
-                    type="button"
-                    onClick={() => handleSelectFolderInBrain("global")}
-                    className={`flex w-full items-center justify-between gap-2 rounded-[2px] border px-2 py-1 text-left text-[12px] transition-colors ${
-                      isActiveGeneral
-                        ? "border-cobalt-rule/70 bg-cobalt-wash text-bone"
-                        : "border-transparent text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
-                    }`}
-                  >
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-[1px]"
-                        style={{ backgroundColor: GENERAL_FOLDER_COLOR }}
-                        aria-hidden
-                      />
-                      <Globe size={12} className="shrink-0 text-bone-subtle" aria-hidden />
-                      <span className="truncate">{t("brain.globalScope")}</span>
-                    </span>
-                    <span className="shrink-0 font-mono text-[10px] tabular-nums text-bone-subtle">
-                      {generalCount}
-                    </span>
-                  </button>
+                  <div>
+                    <div
+                      className={`group flex w-full items-center gap-0.5 rounded-[2px] border pr-0.5 transition-colors ${
+                        isActiveGeneral
+                          ? "border-cobalt-rule/70 bg-cobalt-wash text-bone"
+                          : "border-transparent text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleSelectFolderInBrain("global")}
+                        title={generalTooltip}
+                        className="flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1 text-left text-[12px]"
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-[1px]"
+                            style={{ backgroundColor: GENERAL_FOLDER_COLOR }}
+                            aria-hidden
+                          />
+                          <Globe size={12} className="shrink-0 text-bone-subtle" aria-hidden />
+                          <span className="truncate">{t("brain.globalScope")}</span>
+                        </span>
+                        <span
+                          title={generalCountTooltip}
+                          aria-label={generalCountTooltip}
+                          className="shrink-0 font-mono text-[10px] tabular-nums text-bone-subtle"
+                        >
+                          {formattedGeneralCount}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGeneralInfoOpen((v) => !v)}
+                        aria-expanded={generalInfoOpen}
+                        aria-controls={generalInfoId}
+                        aria-label={t("folders.generalInfoAria")}
+                        title={generalTooltip}
+                        className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[2px] transition-colors hover:bg-surface-2 hover:text-bone focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none ${
+                          generalInfoOpen
+                            ? "bg-surface-2 text-cobalt-ink"
+                            : "text-bone-subtle/75 group-hover:text-bone-muted"
+                        }`}
+                      >
+                        <Info size={11} aria-hidden />
+                      </button>
+                    </div>
+                    {generalInfoOpen && (
+                      <p
+                        id={generalInfoId}
+                        role="note"
+                        className="mt-1 rounded-[2px] border border-rule bg-void/70 px-2 py-1.5 text-[11px] leading-snug text-bone-muted"
+                      >
+                        {t("folders.generalInfoHint")}
+                      </p>
+                    )}
+                  </div>
                 );
               })()}
 
               {/* Existing folders & code projects */}
               {activeRegularFolders.map((stat) => {
-                const { project, vector_count } = stat;
-                const count = folderCounts.get(project.id) ?? vector_count;
+                const { project } = stat;
+                const count = folderCounts.get(project.id) ?? 0;
+                const formattedCount = formatCount(count, currentLanguage);
+                const countTooltip = t("folders.memoriesCountTooltip", {
+                  count,
+                  formattedCount,
+                });
                 const isCode = isCodeProject(project);
                 const isActiveFolder =
                   activeNav === "brain" &&
@@ -377,8 +424,12 @@ export function Sidebar() {
                         )}
                         <span className="truncate">{project.name}</span>
                       </span>
-                      <span className="shrink-0 font-mono text-[10px] tabular-nums text-bone-subtle">
-                        {count}
+                      <span
+                        title={countTooltip}
+                        aria-label={countTooltip}
+                        className="shrink-0 font-mono text-[10px] tabular-nums text-bone-subtle"
+                      >
+                        {formattedCount}
                       </span>
                     </button>
                     <FolderRowMenu

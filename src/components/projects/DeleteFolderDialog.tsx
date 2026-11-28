@@ -13,8 +13,10 @@ import {
   X,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { formatCount } from "@/lib/format";
 import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import {
+  countActiveMemoriesByFolder,
   countProjectDocuments,
   formatDeleteProjectReportToast,
   GLOBAL_PROJECT_SENTINEL,
@@ -54,7 +56,8 @@ export function DeleteFolderDialog({
   onClose,
   onDeleted,
 }: DeleteFolderDialogProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const currentLanguage = i18n.resolvedLanguage ?? i18n.language;
 
   const graph = useMemoryStore((s) => s.graph);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
@@ -116,6 +119,11 @@ export function DeleteFolderDialog({
       .sort((a, b) => a.project.name.localeCompare(b.project.name));
   }, [availableProjects, fetchedProjects, graph?.projects, target.project.id]);
 
+  const activeFolderCounts = useMemo(
+    () => (graph?.nodes ? countActiveMemoriesByFolder(graph.nodes) : null),
+    [graph?.nodes],
+  );
+
   const destinationOptions = useMemo<SelectOption<string>[]>(
     () => [
       {
@@ -123,13 +131,23 @@ export function DeleteFolderDialog({
         label: t("folders.generalOption"),
         detail: t("folders.generalHint"),
       },
-      ...otherFolders.map((stat) => ({
-        value: stat.project.id,
-        label: stat.project.name,
-        detail: stat.project.root_path ?? t("folders.plainFolderCount", { count: stat.vector_count }),
-      })),
+      ...otherFolders.map((stat) => {
+        const activeCount = activeFolderCounts
+          ? (activeFolderCounts.byProjectId.get(stat.project.id) ?? 0)
+          : stat.vector_count;
+        return {
+          value: stat.project.id,
+          label: stat.project.name,
+          detail:
+            stat.project.root_path ??
+            t("folders.plainFolderCount", {
+              count: activeCount,
+              formattedCount: formatCount(activeCount, currentLanguage),
+            }),
+        };
+      }),
     ],
-    [otherFolders, t],
+    [activeFolderCounts, currentLanguage, otherFolders, t],
   );
 
   // Ensure live counts stay fresh even if graph has newer data than the prop

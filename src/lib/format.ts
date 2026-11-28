@@ -358,3 +358,21 @@ export function formatTokenCount(count: number, language?: string): string {
     return String(safe);
   }
 }
+
+/**
+ * Format an integer count with locale thousands separators (e.g. `2.634` in ES, `2,634` in EN).
+ * Forces grouping so 4-digit numbers in `es-ES` also display a thousands separator.
+ */
+export function formatCount(count: number, language?: string): string {
+  const safe = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
+  const locale = language?.startsWith("es") ? "es-ES" : "en-US";
+  try {
+    return new Intl.NumberFormat(locale, { useGrouping: "always" }).format(safe);
+  } catch {
+    try {
+      return safe.toLocaleString(locale);
+    } catch {
+      return String(safe);
+    }
+  }
+}
