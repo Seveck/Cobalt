@@ -80,6 +80,9 @@ pub fn search_memory(o: &SearchMemoryOutput) -> String {
     if o.results.iter().any(|m| m.excerpt) {
         s.push_str("(… = excerpt around your query; open the file for the rest)\n");
     }
+    if let Some(h) = &o.hint {
+        let _ = writeln!(s, "ℹ {h}");
+    }
     if o.results.is_empty() && o.core_rules.is_empty() {
         s.push_str(
             "No relevant memories. Proceed normally and save_memory any durable decision.\n",
@@ -136,6 +139,9 @@ pub fn save_memory(o: &SaveMemoryOutput) -> String {
     }
     if o.truncated {
         s.push_str(" · trimmed to the token limit (keep memories atomic)");
+    }
+    if let Some(h) = &o.hint {
+        let _ = write!(s, "\nℹ {h}");
     }
     for c in &o.possible_conflicts {
         let _ = write!(

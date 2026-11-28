@@ -19,6 +19,10 @@ pub const TOOL_ARCHIVE_MEMORY: &str = "archive_memory";
 /// v1.12.0: an AI designs a whole theme for the user (data only, validated by Cobalt).
 pub const TOOL_CREATE_THEME: &str = "create_theme";
 
+/// Project that receives memories saved without a known project (v1.16.0). It is never part of
+/// another project's searches, so an AI without context cannot contaminate the user's projects.
+pub const UNSORTED_PROJECT_NAME: &str = "Sin clasificar";
+
 /// The 9 tools, in the order they are advertised by `tools/list`.
 pub const ALL_TOOLS: [&str; 9] = [
     TOOL_SEARCH_MEMORY,
@@ -200,6 +204,9 @@ pub struct SearchMemoryOutput {
     pub core_rules: Vec<CompactMemory>,
     pub results: Vec<CompactMemory>,
     pub savings: TokenSavings,
+    /// Guidance for the AI, e.g. when no project could be detected (v1.16.0).
+    #[serde(default)]
+    pub hint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -219,6 +226,9 @@ pub struct SaveMemoryOutput {
     /// Existing memories the new one may contradict (v1.15.0): check them or ask the user.
     #[serde(default)]
     pub possible_conflicts: Vec<crate::model::ConflictHint>,
+    /// Guidance for the AI, e.g. "saved to Sin clasificar: pass project next time" (v1.16.0).
+    #[serde(default)]
+    pub hint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

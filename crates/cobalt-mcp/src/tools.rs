@@ -564,11 +564,17 @@ impl Daemon {
             .into_iter()
             .filter(|i| kept.contains(&i.memory_id))
             .collect();
+        let hint = (matches!(resolved, Resolved::Global) && args.project.is_none()).then(|| {
+            "no project detected: only global memories were searched. Pass project=<project \
+             name or absolute path> to search the user's project."
+                .to_owned()
+        });
         let mut output = SearchMemoryOutput {
             project: resolved.to_output(),
             core_rules,
             results,
             savings: TokenSavings::default(),
+            hint,
         };
         // Clients may read the text or the structured JSON: count the larger one.
         let injected = self
@@ -669,6 +675,32 @@ impl Daemon {
         structured(text, &out)
     }
 
+    /// The project that collects memories saved without a known project (created on demand).
+    async fn unsorted_project(&self) -> Result<Resolved> {
+        if let Some(project) = self
+            .store()
+            .find_project_by_name(UNSORTED_PROJECT_NAME)
+            .await?
+        {
+            return Ok(Resolved::Project {
+                project,
+                created: false,
+            });
+        }
+        let project = self
+            .store()
+            .create_project(cobalt_core::model::NewProject {
+                name: UNSORTED_PROJECT_NAME.to_owned(),
+                root_path: None,
+                color_hex: Some("#6B7280".to_owned()),
+            })
+            .await?;
+        Ok(Resolved::Project {
+            project,
+            created: true,
+        })
+    }
+
     /// Instruction-like text from an AI is never saved directly (v1.15.0): it goes to the
     /// user's proposals inbox as `suspicious` and the AI gets a firewall error.
     async fn hold_if_instructions(
@@ -723,7 +755,22 @@ impl Daemon {
             redacted += out.count();
             out.text
         });
-        let resolved = self.resolve_project(args.project.as_deref(), ctx).await?;
+        let mut resolved = self.resolve_project(args.project.as_deref(), ctx).await?;
+        // Never "global by accident" (v1.16.0): without a known project, facts go to
+        // Sin clasificar; only preferences or an explicit project="global" are global.
+        let mut hint = None;
+        if matches!(resolved, Resolved::Global)
+            && args.project.is_none()
+            && args.category != cobalt_core::enums::MemoryCategory::Preference
+        {
+            resolved = self.unsorted_project().await?;
+            hint = Some(
+                "no project detected, so it was saved to 'Sin clasificar' (never shown in other \
+                 projects). Next time pass project=<project name or absolute path>; use \
+                 project='global' only for facts that are true everywhere."
+                    .to_owned(),
+            );
+        }
         let source_doc_id = match args.original_file_path.as_deref() {
             Some(path) => Some(
                 self.link_source_document(path, &resolved, args.source_type)
@@ -765,6 +812,7 @@ impl Daemon {
             redacted_secrets: outcome.redacted_secrets.max(redacted),
             truncated: truncated || outcome.truncated,
             possible_conflicts: outcome.possible_conflicts.clone(),
+            hint,
         };
         let text = render::save_memory(&output);
         let injected = self.count(&text);

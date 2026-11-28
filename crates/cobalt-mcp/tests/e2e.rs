@@ -845,6 +845,31 @@ async fn per_ai_permissions_and_injection_hold() {
         .await;
     assert_eq!(r["structuredContent"]["kind"], "permission_denied", "{r}");
 
+    // v1.16.0: without a known project a fact goes to "Sin clasificar", never global, so it
+    // cannot leak into the user's projects; preferences stay global.
+    let mut no_ctx = client("no-context-ai").await;
+    let saved = no_ctx
+        .call("save_memory", json!({ "content": "The database for the billing service is PostgreSQL 16.", "category": "decision" }))
+        .await;
+    assert_eq!(saved["isError"], false, "{saved}");
+    assert_eq!(saved["structuredContent"]["project"]["name"], "Sin clasificar", "{saved}");
+    assert!(saved["content"][0]["text"].as_str().unwrap().contains("Sin clasificar"));
+    let pref = no_ctx
+        .call("save_memory", json!({ "content": "The user prefers short answers in Spanish.", "category": "preference" }))
+        .await;
+    assert!(pref["structuredContent"]["project"].is_null(), "{pref}");
+    let other = no_ctx
+        .call("search_memory", json!({ "query": "billing database PostgreSQL", "project": "shop" }))
+        .await;
+    assert!(
+        other["structuredContent"]["results"].as_array().unwrap().iter().all(|r| !r["content"].as_str().unwrap_or("").contains("PostgreSQL")),
+        "unsorted leaked into another project: {other}"
+    );
+    let blind = no_ctx
+        .call("search_memory", json!({ "query": "short answers" }))
+        .await;
+    assert!(blind["structuredContent"]["hint"].as_str().unwrap().contains("no project detected"), "{blind}");
+
     // A normal AI cannot plant instructions in memory: the write is held, never stored.
     let mut writer = client("writer-ai").await;
     let r = writer
