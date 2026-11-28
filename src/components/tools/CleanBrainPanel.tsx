@@ -17,7 +17,7 @@ import { isUnsupportedError } from "@/lib/ipc";
 import { staggerStyle } from "@/lib/motion";
 import { resolveProjectColor } from "@/lib/projects";
 import { conflictReasonI18nKey } from "@/lib/savings";
-import { useMemoryStore, useSettingsStore } from "@/stores";
+import { useBranchesStore, useMemoryStore, useSettingsStore } from "@/stores";
 import { ErrorAlert, Skeleton } from "@/components/ui";
 import type { ConflictPair, DuplicateCluster, Memory, Project, Uuid } from "@/types/contracts";
 
@@ -26,7 +26,48 @@ type CleanTab = "duplicates" | "contradictions";
 const DISMISSED_CONFLICTS_STORAGE_KEY = "cobalt.dismissedConflictPairs";
 /** Cap passive 3D highlights so large scan results never cause GPU sprite overdraw lag. */
 const MAX_PASSIVE_HIGHLIGHT_NODES = 18;
-const CONFLICTS_YIELD_MS = 80;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const SKELETON_DELAY_MS = 250;
+const EXTERNAL_CHANGE_DEBOUNCE_MS = 220;
+
+interface CachedTabData<T> {
+  data: T;
+  fetchedAt: number;
+  branchId: Uuid;
+  memoryVersion: number;
+}
+
+interface CleanBrainCache {
+  duplicates: CachedTabData<DuplicateCluster[]> | null;
+  conflicts: CachedTabData<ConflictPair[]> | null;
+  extraProjects: Project[] | null;
+}
+
+const cleanBrainCache: CleanBrainCache = {
+  duplicates: null,
+  conflicts: null,
+  extraProjects: null,
+};
+
+function isCacheEntryValid<T>(
+  entry: CachedTabData<T> | null,
+  branchId: Uuid,
+  memoryVersion: number,
+  now = Date.now(),
+): entry is CachedTabData<T> {
+  if (!entry) return false;
+  if (entry.branchId !== branchId) return false;
+  if (entry.memoryVersion !== memoryVersion) return false;
+  return now - entry.fetchedAt < CACHE_TTL_MS;
+}
+
+function buildKeepChoices(clusters: readonly DuplicateCluster[]): Record<number, Uuid> {
+  const defaults: Record<number, Uuid> = {};
+  clusters.forEach((c, idx) => {
+    defaults[idx] = c.suggested_keep_id;
+  });
+  return defaults;
+}
 
 function conflictPairKey(aId: Uuid, bId: Uuid): string {
   return aId < bId ? `${aId}:${bId}` : `${bId}:${aId}`;
@@ -77,31 +118,93 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
   const graph = useMemoryStore((s) => s.graph);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const setHighlightedNodeIds = useMemoryStore((s) => s.setHighlightedNodeIds);
+  const memoryChangeVersion = useMemoryStore((s) => s.memoryChangeVersion);
+  const lastMemoryChange = useMemoryStore((s) => s.lastMemoryChange);
+  const activeBranchId = useBranchesStore((s) => s.activeBranchId);
   const readOnly = useSettingsStore((s) => s.settings.read_only);
 
+  const currentBranchId = graph?.branch.id ?? activeBranchId;
+
+  const initialCacheSnapshot = useMemo(() => {
+    const initialVersion = useMemoryStore.getState().memoryChangeVersion;
+    const duplicatesEntry = isCacheEntryValid(
+      cleanBrainCache.duplicates,
+      currentBranchId,
+      initialVersion,
+    )
+      ? cleanBrainCache.duplicates
+      : null;
+    const conflictsEntry = isCacheEntryValid(
+      cleanBrainCache.conflicts,
+      currentBranchId,
+      initialVersion,
+    )
+      ? cleanBrainCache.conflicts
+      : null;
+    return { duplicatesEntry, conflictsEntry };
+    // Intentionally evaluated once on mount to hydrate synchronously from cache.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [activeTab, setActiveTab] = useState<CleanTab>("duplicates");
-  const [clusters, setClusters] = useState<DuplicateCluster[]>([]);
-  const [conflicts, setConflicts] = useState<ConflictPair[]>([]);
+  const [clusters, setClusters] = useState<DuplicateCluster[]>(
+    () => initialCacheSnapshot.duplicatesEntry?.data ?? [],
+  );
+  const [conflicts, setConflicts] = useState<ConflictPair[]>(
+    () => initialCacheSnapshot.conflictsEntry?.data ?? [],
+  );
+  const [duplicatesLoaded, setDuplicatesLoaded] = useState<boolean>(
+    () => initialCacheSnapshot.duplicatesEntry !== null,
+  );
+  const [conflictsLoaded, setConflictsLoaded] = useState<boolean>(
+    () => initialCacheSnapshot.conflictsEntry !== null,
+  );
   const [dismissedConflictKeys, setDismissedConflictKeys] = useState<ReadonlySet<string>>(() =>
     loadDismissedConflictKeys(),
   );
-  const [keepChoices, setKeepChoices] = useState<Record<number, Uuid>>({});
-  const [extraProjects, setExtraProjects] = useState<Project[]>([]);
-  const [loadingDuplicates, setLoadingDuplicates] = useState(true);
-  const [loadingConflicts, setLoadingConflicts] = useState(true);
+  const [keepChoices, setKeepChoices] = useState<Record<number, Uuid>>(() =>
+    initialCacheSnapshot.duplicatesEntry
+      ? buildKeepChoices(initialCacheSnapshot.duplicatesEntry.data)
+      : {},
+  );
+  const [extraProjects, setExtraProjects] = useState<Project[]>(
+    () => cleanBrainCache.extraProjects ?? [],
+  );
+  const [loadingDuplicates, setLoadingDuplicates] = useState<boolean>(
+    () => initialCacheSnapshot.duplicatesEntry === null,
+  );
+  const [loadingConflicts, setLoadingConflicts] = useState<boolean>(false);
+  const [showSkeleton, setShowSkeleton] = useState<boolean>(false);
   const [hoveredHighlightIds, setHoveredHighlightIds] = useState<readonly Uuid[] | null>(null);
   const [mergingIdx, setMergingIdx] = useState<number | null>(null);
   const [resolvingPairKey, setResolvingPairKey] = useState<string | null>(null);
-  const [error, setError] = useState<DisplayError | null>(null);
+  const [errorByTab, setErrorByTab] = useState<Record<CleanTab, DisplayError | null>>({
+    duplicates: null,
+    contradictions: null,
+  });
   const [mergedCount, setMergedCount] = useState(0);
   const [resolvedConflictsCount, setResolvedConflictsCount] = useState(0);
 
-  const scanSeqRef = useRef(0);
+  const duplicatesSeqRef = useRef(0);
+  const conflictsSeqRef = useRef(0);
   const mountedRef = useRef(true);
-  const conflictYieldTimerRef = useRef<number | null>(null);
-  const loading = loadingDuplicates || loadingConflicts;
+  const activeTabRef = useRef<CleanTab>(activeTab);
+  activeTabRef.current = activeTab;
+  const loadingStartedAtRef = useRef<Record<CleanTab, number | null>>({
+    duplicates: initialCacheSnapshot.duplicatesEntry === null ? Date.now() : null,
+    contradictions: null,
+  });
+  const seenMemoryVersionRef = useRef(memoryChangeVersion);
+  const externalReloadTimerRef = useRef<number | null>(null);
+  const selfArchivedIdsRef = useRef<Set<Uuid>>(new Set());
+  const selfMergedIdsRef = useRef<Set<Uuid>>(new Set());
+  const selfMutatingRef = useRef(false);
+
   const activeTabLoading =
     activeTab === "duplicates" ? loadingDuplicates : loadingConflicts;
+  const activeTabLoaded =
+    activeTab === "duplicates" ? duplicatesLoaded : conflictsLoaded;
+  const activeError = errorByTab[activeTab];
 
   const nodeMap = useMemo(() => {
     return new Map(graph?.nodes.map((n) => [n.id, n]) ?? []);
@@ -128,93 +231,294 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
 
   const hiddenDismissedCount = conflicts.length - visibleConflicts.length;
 
-  const scan = useCallback(async () => {
-    const seq = ++scanSeqRef.current;
-    if (conflictYieldTimerRef.current !== null) {
-      window.clearTimeout(conflictYieldTimerRef.current);
-      conflictYieldTimerRef.current = null;
-    }
+  const loadTab = useCallback(
+    async (tab: CleanTab, options?: { force?: boolean }) => {
+      const latestVersion = useMemoryStore.getState().memoryChangeVersion;
 
-    setLoadingDuplicates(true);
-    setLoadingConflicts(true);
-    setHoveredHighlightIds(null);
-    setError(null);
+      if (tab === "duplicates") {
+        if (
+          !options?.force &&
+          isCacheEntryValid(cleanBrainCache.duplicates, currentBranchId, latestVersion)
+        ) {
+          const cached = cleanBrainCache.duplicates.data;
+          setClusters(cached);
+          setKeepChoices(buildKeepChoices(cached));
+          setDuplicatesLoaded(true);
+          setLoadingDuplicates(false);
+          loadingStartedAtRef.current.duplicates = null;
+          setErrorByTab((prev) => (prev.duplicates ? { ...prev, duplicates: null } : prev));
+          return;
+        }
 
-    // Stage 1: run duplicate scan first so we never run two heavy O(N^2) backend scans in parallel
-    try {
-      const dupClusters = await backendCall("find_duplicates");
-      if (!mountedRef.current || scanSeqRef.current !== seq) return;
-      setClusters(dupClusters);
-      const defaults: Record<number, Uuid> = {};
-      dupClusters.forEach((c, idx) => {
-        defaults[idx] = c.suggested_keep_id;
-      });
-      setKeepChoices(defaults);
-    } catch (err: unknown) {
-      if (!mountedRef.current || scanSeqRef.current !== seq) return;
-      setError(toDisplayError(err, t, "find_duplicates"));
-    } finally {
-      if (mountedRef.current && scanSeqRef.current === seq) {
-        setLoadingDuplicates(false);
+        const seq = ++duplicatesSeqRef.current;
+        if (loadingStartedAtRef.current.duplicates === null || options?.force) {
+          loadingStartedAtRef.current.duplicates = Date.now();
+        }
+        setLoadingDuplicates(true);
+        setHoveredHighlightIds(null);
+        setErrorByTab((prev) => (prev.duplicates ? { ...prev, duplicates: null } : prev));
+
+        try {
+          const dupClusters = await backendCall("find_duplicates");
+          if (duplicatesSeqRef.current !== seq) return;
+          cleanBrainCache.duplicates = {
+            data: dupClusters,
+            fetchedAt: Date.now(),
+            branchId: currentBranchId,
+            memoryVersion: latestVersion,
+          };
+          if (!mountedRef.current) return;
+          setClusters(dupClusters);
+          setKeepChoices(buildKeepChoices(dupClusters));
+          setDuplicatesLoaded(true);
+        } catch (err: unknown) {
+          if (!mountedRef.current || duplicatesSeqRef.current !== seq) return;
+          setErrorByTab((prev) => ({
+            ...prev,
+            duplicates: toDisplayError(err, t, "find_duplicates"),
+          }));
+        } finally {
+          if (mountedRef.current && duplicatesSeqRef.current === seq) {
+            loadingStartedAtRef.current.duplicates = null;
+            setLoadingDuplicates(false);
+          }
+        }
+        return;
       }
-    }
 
-    if (!mountedRef.current || scanSeqRef.current !== seq) return;
-
-    // Brief yield so UI & 3D frame loop stay responsive between the two heavy backend scans
-    await new Promise<void>((resolve) => {
-      conflictYieldTimerRef.current = window.setTimeout(() => {
-        conflictYieldTimerRef.current = null;
-        resolve();
-      }, CONFLICTS_YIELD_MS);
-    });
-    if (!mountedRef.current || scanSeqRef.current !== seq) return;
-
-    // Stage 2: run contradiction scan sequentially after duplicates finish
-    try {
-      const conflictPairs = await backendCall("find_conflicts");
-      if (!mountedRef.current || scanSeqRef.current !== seq) return;
-      setConflicts(conflictPairs);
-    } catch (err: unknown) {
-      if (!mountedRef.current || scanSeqRef.current !== seq) return;
-      if (isUnsupportedError(err)) {
-        setConflicts([]);
-      } else {
-        setError(toDisplayError(err, t, "find_conflicts"));
-      }
-    } finally {
-      if (mountedRef.current && scanSeqRef.current === seq) {
+      if (
+        !options?.force &&
+        isCacheEntryValid(cleanBrainCache.conflicts, currentBranchId, latestVersion)
+      ) {
+        const cached = cleanBrainCache.conflicts.data;
+        setConflicts(cached);
+        setConflictsLoaded(true);
         setLoadingConflicts(false);
+        loadingStartedAtRef.current.contradictions = null;
+        setErrorByTab((prev) => (prev.contradictions ? { ...prev, contradictions: null } : prev));
+        return;
       }
-    }
 
-    if (!mountedRef.current || scanSeqRef.current !== seq) return;
+      const seq = ++conflictsSeqRef.current;
+      if (loadingStartedAtRef.current.contradictions === null || options?.force) {
+        loadingStartedAtRef.current.contradictions = Date.now();
+      }
+      setLoadingConflicts(true);
+      setHoveredHighlightIds(null);
+      setErrorByTab((prev) => (prev.contradictions ? { ...prev, contradictions: null } : prev));
 
-    // Only load archived projects if we don't already have them populated
-    void backendCall("list_projects", { include_archived: true })
-      .then((list) => {
-        if (!mountedRef.current || scanSeqRef.current !== seq) return;
-        setExtraProjects(list.map((s) => s.project));
-      })
-      .catch(() => {});
-  }, [t]);
+      try {
+        const conflictPairs = await backendCall("find_conflicts");
+        if (conflictsSeqRef.current !== seq) return;
+        cleanBrainCache.conflicts = {
+          data: conflictPairs,
+          fetchedAt: Date.now(),
+          branchId: currentBranchId,
+          memoryVersion: latestVersion,
+        };
+        if (!mountedRef.current) return;
+        setConflicts(conflictPairs);
+        setConflictsLoaded(true);
+      } catch (err: unknown) {
+        if (!mountedRef.current || conflictsSeqRef.current !== seq) return;
+        if (isUnsupportedError(err)) {
+          cleanBrainCache.conflicts = {
+            data: [],
+            fetchedAt: Date.now(),
+            branchId: currentBranchId,
+            memoryVersion: latestVersion,
+          };
+          setConflicts([]);
+          setConflictsLoaded(true);
+        } else {
+          setErrorByTab((prev) => ({
+            ...prev,
+            contradictions: toDisplayError(err, t, "find_conflicts"),
+          }));
+        }
+      } finally {
+        if (mountedRef.current && conflictsSeqRef.current === seq) {
+          loadingStartedAtRef.current.contradictions = null;
+          setLoadingConflicts(false);
+        }
+      }
+
+      if (!mountedRef.current || conflictsSeqRef.current !== seq) return;
+
+      if (!cleanBrainCache.extraProjects || options?.force) {
+        void backendCall("list_projects", { include_archived: true })
+          .then((list) => {
+            const projects = list.map((s) => s.project);
+            cleanBrainCache.extraProjects = projects;
+            if (!mountedRef.current) return;
+            setExtraProjects(projects);
+          })
+          .catch(() => {});
+      }
+    },
+    [currentBranchId, t],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
-    // Defer heavy IPC by one animation frame so the drawer and loading skeleton paint smoothly first
-    const rafId = window.requestAnimationFrame(() => {
-      void scan();
-    });
     return () => {
       mountedRef.current = false;
-      window.cancelAnimationFrame(rafId);
-      if (conflictYieldTimerRef.current !== null) {
-        window.clearTimeout(conflictYieldTimerRef.current);
-        conflictYieldTimerRef.current = null;
+      if (externalReloadTimerRef.current !== null) {
+        window.clearTimeout(externalReloadTimerRef.current);
+        externalReloadTimerRef.current = null;
       }
       setHighlightedNodeIds([]);
     };
-  }, [scan, setHighlightedNodeIds]);
+  }, [setHighlightedNodeIds]);
+
+  // Load ONLY the active tab when opened, switched, or when the active branch changes.
+  useEffect(() => {
+    if (externalReloadTimerRef.current !== null) {
+      window.clearTimeout(externalReloadTimerRef.current);
+      externalReloadTimerRef.current = null;
+    }
+
+    const latestVersion = useMemoryStore.getState().memoryChangeVersion;
+
+    if (activeTab === "duplicates") {
+      if (isCacheEntryValid(cleanBrainCache.duplicates, currentBranchId, latestVersion)) {
+        const cached = cleanBrainCache.duplicates.data;
+        setClusters(cached);
+        setKeepChoices(buildKeepChoices(cached));
+        setDuplicatesLoaded(true);
+        setLoadingDuplicates(false);
+        loadingStartedAtRef.current.duplicates = null;
+        return;
+      }
+      if (loadingStartedAtRef.current.duplicates === null) {
+        loadingStartedAtRef.current.duplicates = Date.now();
+      }
+      setLoadingDuplicates(true);
+    } else {
+      if (isCacheEntryValid(cleanBrainCache.conflicts, currentBranchId, latestVersion)) {
+        setConflicts(cleanBrainCache.conflicts.data);
+        setConflictsLoaded(true);
+        setLoadingConflicts(false);
+        loadingStartedAtRef.current.contradictions = null;
+        return;
+      }
+      if (loadingStartedAtRef.current.contradictions === null) {
+        loadingStartedAtRef.current.contradictions = Date.now();
+      }
+      setLoadingConflicts(true);
+    }
+
+    // Defer heavy IPC by one animation frame so the drawer/tab switch paints smoothly first.
+    const rafId = window.requestAnimationFrame(() => {
+      if (!mountedRef.current) return;
+      void loadTab(activeTab);
+    });
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [activeTab, currentBranchId, loadTab]);
+
+  // Invalidate cache when `cobalt://memory-changed` arrives while the panel is open.
+  useEffect(() => {
+    if (memoryChangeVersion === seenMemoryVersionRef.current) return;
+    seenMemoryVersionRef.current = memoryChangeVersion;
+
+    if (
+      lastMemoryChange &&
+      lastMemoryChange.kind === "archived" &&
+      lastMemoryChange.memory_ids.length > 0 &&
+      lastMemoryChange.memory_ids.every((id) => selfArchivedIdsRef.current.has(id))
+    ) {
+      for (const id of lastMemoryChange.memory_ids) {
+        selfArchivedIdsRef.current.delete(id);
+      }
+      cleanBrainCache.duplicates = null;
+      setClusters([]);
+      setDuplicatesLoaded(false);
+      if (cleanBrainCache.conflicts) {
+        cleanBrainCache.conflicts = {
+          ...cleanBrainCache.conflicts,
+          memoryVersion: memoryChangeVersion,
+        };
+      }
+      return;
+    }
+
+    if (
+      selfMutatingRef.current ||
+      (lastMemoryChange &&
+        lastMemoryChange.memory_ids.length > 0 &&
+        lastMemoryChange.memory_ids.every((id) => selfMergedIdsRef.current.has(id)))
+    ) {
+      if (lastMemoryChange) {
+        for (const id of lastMemoryChange.memory_ids) {
+          selfMergedIdsRef.current.delete(id);
+        }
+      }
+      if (!selfMutatingRef.current && cleanBrainCache.duplicates) {
+        cleanBrainCache.duplicates = {
+          ...cleanBrainCache.duplicates,
+          memoryVersion: memoryChangeVersion,
+        };
+      }
+      return;
+    }
+
+    cleanBrainCache.duplicates = null;
+    cleanBrainCache.conflicts = null;
+    if (activeTabRef.current === "duplicates") {
+      setConflicts([]);
+      setConflictsLoaded(false);
+    } else {
+      setClusters([]);
+      setDuplicatesLoaded(false);
+    }
+
+    if (externalReloadTimerRef.current !== null) {
+      window.clearTimeout(externalReloadTimerRef.current);
+    }
+    externalReloadTimerRef.current = window.setTimeout(() => {
+      externalReloadTimerRef.current = null;
+      if (!mountedRef.current) return;
+      void loadTab(activeTabRef.current, { force: true });
+    }, EXTERNAL_CHANGE_DEBOUNCE_MS);
+  }, [lastMemoryChange, loadTab, memoryChangeVersion]);
+
+  // Show the loading skeleton only if the active tab takes > 250 ms.
+  useEffect(() => {
+    if (!activeTabLoading) {
+      setShowSkeleton(false);
+      return;
+    }
+    const startedAt = loadingStartedAtRef.current[activeTab] ?? Date.now();
+    const remaining = SKELETON_DELAY_MS - (Date.now() - startedAt);
+    if (remaining <= 0) {
+      setShowSkeleton(true);
+      return;
+    }
+    setShowSkeleton(false);
+    const timer = window.setTimeout(() => {
+      setShowSkeleton(true);
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, activeTabLoading]);
+
+  const handleRefresh = () => {
+    if (externalReloadTimerRef.current !== null) {
+      window.clearTimeout(externalReloadTimerRef.current);
+      externalReloadTimerRef.current = null;
+    }
+    cleanBrainCache.duplicates = null;
+    cleanBrainCache.conflicts = null;
+    if (activeTab === "duplicates") {
+      setConflicts([]);
+      setConflictsLoaded(false);
+    } else {
+      setClusters([]);
+      setDuplicatesLoaded(false);
+    }
+    void loadTab(activeTab, { force: true });
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -233,7 +537,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
   }, [mergingIdx, onClose, resolvingPairKey]);
 
   useEffect(() => {
-    if (activeTabLoading) {
+    if (activeTabLoading || !activeTabLoaded) {
       setHighlightedNodeIds([]);
       return;
     }
@@ -259,6 +563,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
     setHighlightedNodeIds(passive);
   }, [
     activeTab,
+    activeTabLoaded,
     activeTabLoading,
     clusters,
     hoveredHighlightIds,
@@ -275,17 +580,39 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
     const mergeIds = cluster.memory_ids.filter((id) => id !== keepId);
     if (mergeIds.length === 0) return;
 
+    const involvedIds = [keepId, ...mergeIds];
+    for (const id of involvedIds) {
+      selfMergedIdsRef.current.add(id);
+    }
+    selfMutatingRef.current = true;
     setMergingIdx(clusterIdx);
-    setError(null);
+    setErrorByTab((prev) => ({ ...prev, duplicates: null }));
     try {
       await backendCall("merge_duplicates", { keep_id: keepId, merge_ids: mergeIds });
       setMergedCount((c) => c + 1);
+      cleanBrainCache.duplicates = null;
+      cleanBrainCache.conflicts = null;
+      setConflicts([]);
+      setConflictsLoaded(false);
       await loadGraph();
-      await scan();
+      selfMutatingRef.current = false;
+      await loadTab("duplicates", { force: true });
     } catch (err: unknown) {
-      setError(toDisplayError(err, t, "merge_duplicates"));
+      for (const id of involvedIds) {
+        selfMergedIdsRef.current.delete(id);
+      }
+      setErrorByTab((prev) => ({
+        ...prev,
+        duplicates: toDisplayError(err, t, "merge_duplicates"),
+      }));
     } finally {
+      selfMutatingRef.current = false;
       setMergingIdx(null);
+      window.setTimeout(() => {
+        for (const id of involvedIds) {
+          selfMergedIdsRef.current.delete(id);
+        }
+      }, 4000);
     }
   };
 
@@ -294,19 +621,37 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
     const key = conflictPairKey(pair.a.id, pair.b.id);
     const archiveId = keep === "a" ? pair.b.id : pair.a.id;
 
+    selfArchivedIdsRef.current.add(archiveId);
     setResolvingPairKey(key);
-    setError(null);
+    setErrorByTab((prev) => ({ ...prev, contradictions: null }));
     try {
       await backendCall("archive_memories", { ids: [archiveId] });
       setResolvedConflictsCount((c) => c + 1);
-      setConflicts((prev) =>
-        prev.filter((item) => item.a.id !== archiveId && item.b.id !== archiveId),
-      );
+      setConflicts((prev) => {
+        const next = prev.filter((item) => item.a.id !== archiveId && item.b.id !== archiveId);
+        cleanBrainCache.conflicts = {
+          data: next,
+          fetchedAt: cleanBrainCache.conflicts?.fetchedAt ?? Date.now(),
+          branchId: currentBranchId,
+          memoryVersion: useMemoryStore.getState().memoryChangeVersion,
+        };
+        return next;
+      });
+      cleanBrainCache.duplicates = null;
+      setClusters([]);
+      setDuplicatesLoaded(false);
       await loadGraph();
     } catch (err: unknown) {
-      setError(toDisplayError(err, t, "archive_memories"));
+      selfArchivedIdsRef.current.delete(archiveId);
+      setErrorByTab((prev) => ({
+        ...prev,
+        contradictions: toDisplayError(err, t, "archive_memories"),
+      }));
     } finally {
       setResolvingPairKey(null);
+      window.setTimeout(() => {
+        selfArchivedIdsRef.current.delete(archiveId);
+      }, 4000);
     }
   };
 
@@ -386,12 +731,12 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
         <div className="flex items-center gap-1">
           <button
             type="button"
-            disabled={loading}
-            onClick={() => void scan()}
+            disabled={activeTabLoading}
+            onClick={handleRefresh}
             title={t("cleanBrain.rescan")}
             className="rounded-[2px] p-1.5 text-bone-muted hover:bg-surface-2 hover:text-bone disabled:opacity-45"
           >
-            <RefreshCw size={13} className={loading ? "animate-spin" : ""} aria-hidden />
+            <RefreshCw size={13} className={activeTabLoading ? "animate-spin" : ""} aria-hidden />
           </button>
           <button
             type="button"
@@ -449,9 +794,9 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
         </button>
       </div>
 
-      {error && (
+      {activeError && (
         <div className="border-b border-cinnabar-rule">
-          <ErrorAlert error={error} compact className="rounded-none border-0" />
+          <ErrorAlert error={activeError} compact className="rounded-none border-0" />
         </div>
       )}
 
@@ -470,7 +815,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
       )}
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
-        {activeTabLoading ? (
+        {activeTabLoading && showSkeleton ? (
           <div className="space-y-3" aria-busy="true" aria-label={t("cleanBrain.scanning")}>
             {[0, 1, 2].map((idx) => (
               <div
@@ -486,7 +831,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
               </div>
             ))}
           </div>
-        ) : activeTab === "duplicates" ? (
+        ) : !activeTabLoaded ? null : activeTab === "duplicates" ? (
           clusters.length === 0 ? (
             <div className="rounded-[2px] border border-rule bg-void p-6 text-center">
               <p className="font-mono text-xs font-medium text-verdigris">

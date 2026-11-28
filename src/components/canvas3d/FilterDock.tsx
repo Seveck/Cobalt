@@ -8,7 +8,6 @@ import {
   Folder,
   FolderCode,
   FolderInput,
-  FolderPlus,
   Globe,
   Inbox,
   Repeat,
@@ -23,10 +22,7 @@ import {
   UNSORTED_PROJECT_COLOR,
   UNSORTED_PROJECT_NAME,
 } from "@/lib/projects";
-import { matchesVisualFilters, useFiltersStore, useSettingsStore, useUiStore } from "@/stores";
-import { CreateFolderDialog } from "@/components/projects/CreateFolderDialog";
-import { DeleteFolderDialog } from "@/components/projects/DeleteFolderDialog";
-import { FolderRowMenu } from "@/components/projects/FolderRowMenu";
+import { matchesVisualFilters, useFiltersStore, useUiStore } from "@/stores";
 import {
   MEMORY_CATEGORIES,
   MEMORY_STATUSES,
@@ -46,12 +42,9 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
-  const [createFolderOpen, setCreateFolderOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<ProjectStats | null>(null);
-  const readOnly = useSettingsStore((s) => s.settings.read_only);
 
   useEffect(() => {
-    if (!expanded || createFolderOpen || deleteTarget) return;
+    if (!expanded) return;
     const handlePointerDown = (e: PointerEvent) => {
       if (!containerRef.current?.contains(e.target as Node)) {
         setExpanded(false);
@@ -69,7 +62,7 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
       document.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [createFolderOpen, deleteTarget, expanded]);
+  }, [expanded]);
 
   const filters = useFiltersStore((s) => s.filters);
   const searchQuery = useFiltersStore((s) => s.searchQuery);
@@ -220,13 +213,6 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                       >
                         <Crosshair size={10} aria-hidden />
                       </button>
-                      <FolderRowMenu
-                        folderName={project.name}
-                        compact
-                        disabled={readOnly}
-                        triggerClassName="rounded-none border-l border-rule hover:bg-transparent"
-                        onDelete={() => setDeleteTarget(stat)}
-                      />
                     </div>
                   );
                 })}
@@ -345,16 +331,6 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                       </div>
                     );
                   })()}
-                {/* "+ Nueva carpeta" button */}
-                <button
-                  type="button"
-                  disabled={readOnly}
-                  onClick={() => setCreateFolderOpen(true)}
-                  className="inline-flex items-center gap-1 rounded-[2px] border border-dashed border-cobalt-rule/70 bg-cobalt-wash/40 px-2 py-0.5 font-mono text-[10px] font-medium text-cobalt-ink transition-colors hover:border-cobalt-rule hover:bg-cobalt-wash disabled:opacity-45"
-                >
-                  <FolderPlus size={10} aria-hidden />
-                  <span>{t("folders.newFolder")}</span>
-                </button>
               </div>
             </div>
 
@@ -651,21 +627,6 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
           </button>
         )}
       </div>
-
-      {createFolderOpen && (
-        <CreateFolderDialog
-          onClose={() => setCreateFolderOpen(false)}
-          onSelectExisting={(proj) => setSolo({ dimension: "project", value: proj.id })}
-        />
-      )}
-
-      {deleteTarget && (
-        <DeleteFolderDialog
-          target={deleteTarget}
-          availableProjects={projects}
-          onClose={() => setDeleteTarget(null)}
-        />
-      )}
     </div>
   );
 }
