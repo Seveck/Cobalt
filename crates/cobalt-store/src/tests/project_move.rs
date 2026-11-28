@@ -1,6 +1,9 @@
 use cobalt_core::enums::MemoryStatus;
 use cobalt_core::ids::Id;
-use cobalt_core::model::{MoveReport, MoveToProjectRequest, NewBranch, UpdateMemoryRequest};
+use cobalt_core::model::{
+    DeleteProjectContents, DeleteProjectReport, DeleteProjectRequest, MoveReport,
+    MoveToProjectRequest, NewBranch, UpdateMemoryRequest,
+};
 use cobalt_core::traits::BranchRepository;
 
 use super::*;
@@ -358,5 +361,395 @@ async fn unknown_move_ids_leave_the_document_and_memories_in_place() {
                 Some(origin)
             );
         }
+    }
+}
+
+#[tokio::test]
+async fn deleting_project_moves_all_memories_and_documents_to_global_or_another_project() {
+    for to_project in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = sqlite_store(&dir).await;
+        let origin = create_project(&store, "Origin").await;
+        let target = if to_project {
+            Some(create_project(&store, "Target").await)
+        } else {
+            None
+        };
+        let (doc, chunks) = ingest_chunks(&store, origin).await;
+        store.archive_memory(chunks[2], "old chunk").await.unwrap();
+        let existing = store
+            .save_memory(NewMemory {
+                project_id: target,
+                ..new_memory("alpha orchard")
+            })
+            .await
+            .unwrap()
+            .memory
+            .id;
+        let side = store
+            .create_branch(NewBranch {
+                name: "Side".into(),
+                parent_branch_id: None,
+            })
+            .await
+            .unwrap()
+            .id;
+        let side_chunk = store
+            .save_memory(NewMemory {
+                source_doc_id: Some(doc),
+                project_id: Some(origin),
+                branch_id: Some(side),
+                ..new_memory("alpha persimmon")
+            })
+            .await
+            .unwrap()
+            .memory
+            .id;
+
+        let report = store
+            .delete_project(DeleteProjectRequest {
+                id: origin,
+                contents: DeleteProjectContents::Move,
+                move_to: target,
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            report,
+            DeleteProjectReport {
+                moved: MoveReport {
+                    memories: 4,
+                    documents: 1,
+                    merged: 1,
+                },
+                ..Default::default()
+            }
+        );
+        assert!(store.get_project(origin).await.unwrap().is_none());
+        let document = store.get_source_document(doc).await.unwrap().unwrap();
+        assert_eq!(document.project_id, target);
+        for (id, status) in [
+            (chunks[0], MemoryStatus::Superseded),
+            (chunks[1], MemoryStatus::Active),
+            (chunks[2], MemoryStatus::Archived),
+            (side_chunk, MemoryStatus::Active),
+        ] {
+            let memory = store.get_memory(id).await.unwrap().unwrap();
+            assert_eq!(memory.project_id, target);
+            assert_eq!(memory.source_doc_id, Some(doc));
+            assert_eq!(memory.status, status);
+        }
+        assert_eq!(
+            store
+                .get_memory(chunks[0])
+                .await
+                .unwrap()
+                .unwrap()
+                .superseded_by,
+            Some(existing)
+        );
+
+        let scope = target.map_or(ProjectScope::Global, ProjectScope::Project);
+        for (branch, query, expected) in [
+            (MAIN_BRANCH_ID, "orchard", vec![existing, chunks[1]]),
+            (side, "persimmon", vec![side_chunk]),
+        ] {
+            let hits = store
+                .search(SearchRequest {
+                    scope,
+                    branch_id: Some(branch),
+                    ..search_request(query)
+                })
+                .await
+                .unwrap()
+                .hits;
+            assert_eq!(hits.len(), expected.len());
+            assert!(hits.iter().all(|hit| expected.contains(&hit.memory.id)));
+        }
+    }
+}
+
+#[tokio::test]
+async fn deleting_project_removes_rows_and_indexes_and_preserves_other_projects() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(&dir).await;
+    let origin = create_project(&store, "Origin").await;
+    let other = create_project(&store, "Other").await;
+    let (doc, chunks) = ingest_chunks(&store, origin).await;
+    store.archive_memory(chunks[2], "old chunk").await.unwrap();
+    let side = store
+        .create_branch(NewBranch {
+            name: "Side".into(),
+            parent_branch_id: None,
+        })
+        .await
+        .unwrap()
+        .id;
+    let side_chunk = store
+        .save_memory(NewMemory {
+            source_doc_id: Some(doc),
+            project_id: Some(origin),
+            branch_id: Some(side),
+            ..new_memory("alpha orchard side")
+        })
+        .await
+        .unwrap()
+        .memory
+        .id;
+    let other_memory = store
+        .save_memory(NewMemory {
+            project_id: Some(other),
+            ..new_memory("alpha cherry")
+        })
+        .await
+        .unwrap()
+        .memory
+        .id;
+    let deleted_ids = [chunks[0], chunks[1], chunks[2], side_chunk];
+    let [active, historical, _, _] = deleted_ids;
+    let other_doc = new_id();
+    store
+        .db
+        .write(move |conn| {
+            let active = active.to_string();
+            let historical = historical.to_string();
+            let other_memory = other_memory.to_string();
+            conn.execute(
+                "UPDATE memories SET status = 'superseded', superseded_by = ?1
+                 WHERE id IN (?2, ?3)",
+                params![active, historical, other_memory],
+            ).unwrap();
+            conn.execute(
+                "INSERT OR IGNORE INTO memory_edges (source_id, target_id, edge_type)
+                 VALUES (?1, ?2, 'semantic'), (?2, ?1, 'semantic')",
+                params![active, other_memory],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO source_documents (id, project_id, file_path, updated_at)
+                 VALUES (?1, ?2, 'keep.md', '2026-11-28T01:00:00Z')",
+                params![other_doc.to_string(), other.to_string()],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO handoffs (id, project_id, source_client, summary, created_at, expires_at)
+                 VALUES ('remove', ?1, 'test', 'remove', '2026-11-28', '2026-11-29'),
+                        ('keep', ?2, 'test', 'keep', '2026-11-28', '2026-11-29')",
+                params![origin.to_string(), other.to_string()],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO memory_proposals (id, project_id, client_name, kind, content, content_key, created_at)
+                 VALUES ('remove', ?1, 'test', 'fix', 'remove', 'remove', '2026-11-28'),
+                        ('keep', ?2, 'test', 'fix', 'keep', 'keep', '2026-11-28')",
+                params![origin.to_string(), other.to_string()],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO telemetry_logs (id, project_id, timestamp, client_name, operation, saved_tokens)
+                 VALUES ('remove-project', ?1, '2026-11-28T01:00:00Z', 'test', 'read', 10),
+                        ('keep-project', ?2, '2026-11-28T01:00:00Z', 'test', 'read', 20),
+                        ('global', NULL, '2026-11-28T01:00:00Z', 'test', 'read', 30)",
+                params![origin.to_string(), other.to_string()],
+            ).unwrap();
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    let search = SearchRequest {
+        scope: ProjectScope::All,
+        rrf_override: Some(RrfWeights {
+            vector_weight: 0.0,
+            ..Default::default()
+        }),
+        ..search_request("orchard")
+    };
+    let request = DeleteProjectRequest {
+        id: origin,
+        contents: DeleteProjectContents::Delete,
+        move_to: None,
+    };
+    assert!(!store.search(search.clone()).await.unwrap().hits.is_empty());
+    store
+        .db
+        .write(|conn| {
+            conn.execute_batch(
+                "CREATE TRIGGER reject_project_delete BEFORE DELETE ON projects
+             BEGIN SELECT RAISE(ABORT, 'project deletion rejected'); END;",
+            )
+            .unwrap();
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(store.delete_project(request.clone()).await.is_err());
+    assert!(store.get_project(origin).await.unwrap().is_some());
+    assert!(store.get_source_document(doc).await.unwrap().is_some());
+    assert!(!store.search(search.clone()).await.unwrap().hits.is_empty());
+    store
+        .db
+        .write(move |conn| {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM vec_memories WHERE memory_id = ?1",
+                    [active.to_string()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1);
+            conn.execute_batch("DROP TRIGGER reject_project_delete;")
+                .unwrap();
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        store.delete_project(request).await.unwrap(),
+        DeleteProjectReport {
+            memories_deleted: 4,
+            documents_deleted: 1,
+            ..Default::default()
+        }
+    );
+    assert!(store.get_project(origin).await.unwrap().is_none());
+    assert!(store.get_source_document(doc).await.unwrap().is_none());
+    assert!(store.search(search).await.unwrap().hits.is_empty());
+    assert!(store.get_project(other).await.unwrap().is_some());
+    assert_eq!(
+        store
+            .get_source_document(other_doc)
+            .await
+            .unwrap()
+            .unwrap()
+            .project_id,
+        Some(other)
+    );
+    let survivor = store.get_memory(other_memory).await.unwrap().unwrap();
+    assert_eq!(survivor.project_id, Some(other));
+    assert_eq!(survivor.superseded_by, None);
+    for id in deleted_ids {
+        assert!(store.get_memory(id).await.unwrap().is_none());
+    }
+
+    store
+        .db
+        .read(move |conn| {
+            for (query, expected) in [
+                ("SELECT count(*) FROM vec_memories", 1),
+                (
+                    "SELECT count(*) FROM memories_fts WHERE memories_fts MATCH 'orchard'",
+                    0,
+                ),
+                ("SELECT count(*) FROM memory_edges", 0),
+                ("SELECT count(*) FROM handoffs", 1),
+                ("SELECT count(*) FROM memory_proposals", 1),
+                ("SELECT count(*) FROM telemetry_logs", 3),
+                (
+                    "SELECT count(*) FROM telemetry_logs WHERE project_id IS NULL",
+                    2,
+                ),
+                ("SELECT requests FROM usage_hourly WHERE project_id = ''", 2),
+                (
+                    "SELECT saved_tokens FROM usage_hourly WHERE project_id = ''",
+                    40,
+                ),
+            ] {
+                assert_eq!(
+                    conn.query_row(query, [], |row| row.get::<_, i64>(0))
+                        .unwrap(),
+                    expected,
+                    "{query}"
+                );
+            }
+            let retained_id: String = conn
+                .query_row("SELECT memory_id FROM vec_memories", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(retained_id, other_memory.to_string());
+            let (requests, saved): (i64, i64) = conn
+                .query_row(
+                    "SELECT requests, saved_tokens FROM usage_hourly WHERE project_id = ?1",
+                    [other.to_string()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!((requests, saved), (1, 20));
+            let count: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM usage_hourly WHERE project_id = ?1",
+                    [origin.to_string()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 0);
+            Ok(())
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn invalid_project_deletion_leaves_contents_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(&dir).await;
+    let origin = create_project(&store, "Origin").await;
+    let (doc, chunks) = ingest_chunks(&store, origin).await;
+    let missing = new_id();
+    let request = DeleteProjectRequest {
+        id: origin,
+        contents: DeleteProjectContents::Move,
+        move_to: None,
+    };
+    for invalid in [
+        DeleteProjectRequest {
+            id: missing,
+            ..request.clone()
+        },
+        DeleteProjectRequest {
+            move_to: Some(missing),
+            ..request.clone()
+        },
+    ] {
+        assert!(
+            matches!(store.delete_project(invalid).await, Err(CobaltError::NotFound(message))
+            if message.contains(&missing.to_string()))
+        );
+    }
+    assert!(matches!(
+        store
+            .delete_project(DeleteProjectRequest {
+                move_to: Some(origin),
+                ..request.clone()
+            })
+            .await,
+        Err(CobaltError::InvalidInput(_))
+    ));
+    let settings = AppSettings {
+        read_only: true,
+        ..store.load_settings().await.unwrap()
+    };
+    store.save_settings(&settings).await.unwrap();
+    for contents in [DeleteProjectContents::Move, DeleteProjectContents::Delete] {
+        assert!(matches!(
+            store
+                .delete_project(DeleteProjectRequest {
+                    contents,
+                    ..request.clone()
+                })
+                .await,
+            Err(CobaltError::ReadOnly)
+        ));
+    }
+    assert!(store.get_project(origin).await.unwrap().is_some());
+    assert_eq!(
+        store
+            .get_source_document(doc)
+            .await
+            .unwrap()
+            .unwrap()
+            .project_id,
+        Some(origin)
+    );
+    for id in chunks {
+        assert_eq!(
+            store.get_memory(id).await.unwrap().unwrap().project_id,
+            Some(origin)
+        );
     }
 }
