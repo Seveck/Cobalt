@@ -119,6 +119,7 @@ mod tests {
             already_sent: false,
             suspicious: false,
             related_to: None,
+            outranked_by: None,
         }
     }
     fn words(t: &str) -> usize {

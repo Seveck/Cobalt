@@ -196,6 +196,9 @@ pub struct CompactMemory {
     /// Brought in by graph expansion as a neighbor of this direct result (v1.15.0).
     #[serde(default)]
     pub related_to: Option<Id>,
+    /// Contradicted by a more authoritative result in this answer: possibly outdated (v1.16.0).
+    #[serde(default)]
+    pub outranked_by: Option<Id>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

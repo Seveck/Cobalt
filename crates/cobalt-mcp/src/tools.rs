@@ -426,6 +426,7 @@ impl Daemon {
                 already_sent: false,
                 suspicious: false,
                 related_to: None,
+                outranked_by: None,
             });
         }
         for m in &mut out {
@@ -532,6 +533,11 @@ impl Daemon {
             .iter()
             .filter_map(|h| h.related_to.map(|p| (h.memory.id, p)))
             .collect();
+        let outranked: HashMap<Id, Id> = response
+            .hits
+            .iter()
+            .filter_map(|h| h.outranked_by.map(|w| (h.memory.id, w)))
+            .collect();
         let results = self
             .compact(
                 response
@@ -549,6 +555,7 @@ impl Daemon {
         let mut results = results;
         for r in &mut results {
             r.related_to = related.get(&r.id).copied();
+            r.outranked_by = outranked.get(&r.id).copied();
         }
         let budget = args
             .max_tokens
