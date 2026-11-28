@@ -425,6 +425,7 @@ impl Daemon {
                 excerpt: false,
                 already_sent: false,
                 suspicious: false,
+                related_to: None,
             });
         }
         for m in &mut out {
@@ -526,6 +527,11 @@ impl Daemon {
                 &names,
             )
             .await?;
+        let related: HashMap<Id, Id> = response
+            .hits
+            .iter()
+            .filter_map(|h| h.related_to.map(|p| (h.memory.id, p)))
+            .collect();
         let results = self
             .compact(
                 response
@@ -540,6 +546,10 @@ impl Daemon {
                 &names,
             )
             .await?;
+        let mut results = results;
+        for r in &mut results {
+            r.related_to = related.get(&r.id).copied();
+        }
         let budget = args
             .max_tokens
             .unwrap_or(self.config.get().search.response_token_budget)
@@ -754,6 +764,7 @@ impl Daemon {
             project: resolved.to_output(),
             redacted_secrets: outcome.redacted_secrets.max(redacted),
             truncated: truncated || outcome.truncated,
+            possible_conflicts: outcome.possible_conflicts.clone(),
         };
         let text = render::save_memory(&output);
         let injected = self.count(&text);

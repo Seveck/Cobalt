@@ -118,6 +118,7 @@ mod tests {
             excerpt: false,
             already_sent: false,
             suspicious: false,
+            related_to: None,
         }
     }
     fn words(t: &str) -> usize {

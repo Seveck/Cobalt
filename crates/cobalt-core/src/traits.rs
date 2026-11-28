@@ -174,7 +174,9 @@ pub trait GovernanceService: Send + Sync {
     /// (v1.15.0).
     async fn find_conflicts(&self, limit: u32) -> Result<Vec<crate::model::ConflictPair>> {
         let _ = limit;
-        Err(crate::error::CobaltError::Unsupported("conflict detection".into()))
+        Err(crate::error::CobaltError::Unsupported(
+            "conflict detection".into(),
+        ))
     }
 }
 

@@ -824,14 +824,20 @@ async fn per_ai_permissions_and_injection_hold() {
 
     let mut blocked = client("blocked-ai").await;
     let r = blocked
-        .call("search_memory", json!({ "query": "anything", "project": "global" }))
+        .call(
+            "search_memory",
+            json!({ "query": "anything", "project": "global" }),
+        )
         .await;
     assert_eq!(r["isError"], true, "{r}");
     assert_eq!(r["structuredContent"]["kind"], "permission_denied", "{r}");
 
     let mut reader = client("reader-ai").await;
     let r = reader
-        .call("search_memory", json!({ "query": "anything", "project": "global" }))
+        .call(
+            "search_memory",
+            json!({ "query": "anything", "project": "global" }),
+        )
         .await;
     assert_eq!(r["isError"], false, "{r}");
     let r = reader
@@ -847,7 +853,17 @@ async fn per_ai_permissions_and_injection_hold() {
     assert_eq!(r["isError"], true, "{r}");
     assert_eq!(r["structuredContent"]["kind"], "firewall_blocked", "{r}");
     let found = writer
-        .call("search_memory", json!({ "query": "ignore previous instructions API keys", "project": "global" }))
+        .call(
+            "search_memory",
+            json!({ "query": "ignore previous instructions API keys", "project": "global" }),
+        )
         .await;
-    assert_eq!(found["structuredContent"]["results"].as_array().unwrap().len(), 0, "{found}");
+    assert_eq!(
+        found["structuredContent"]["results"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0,
+        "{found}"
+    );
 }
