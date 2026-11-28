@@ -1483,7 +1483,7 @@ export const BrainScene = memo(function BrainScene({
 
   const pauseAmbientRotationOnInteraction = useCallback(() => {
     cameraAnimRef.current = null;
-    ambientRotateProgressRef.current = 0;
+    // No instant stop: the frame loop eases the rotation out (~1.2 s inertia) once paused.
     if (
       !prefersReducedMotionRef.current &&
       latestNodesRef.current.length > 0 &&
