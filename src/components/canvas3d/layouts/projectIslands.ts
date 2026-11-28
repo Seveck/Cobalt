@@ -1,3 +1,4 @@
+import { resolveProjectColor } from "@/lib/projects";
 import {
   MEMORY_CATEGORIES,
   type GraphNode,
@@ -42,7 +43,7 @@ export const projectIslandsLayout: LayoutFn = ({ nodes, projects, params }) => {
       stat.project.id,
       {
         label: stat.project.name,
-        color: stat.project.color_hex,
+        color: resolveProjectColor(stat.project),
       },
     ]),
   );

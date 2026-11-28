@@ -1,6 +1,7 @@
-import { useMemo, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Activity, ChevronDown, ChevronUp, Crosshair, Search, X } from "lucide-react";
+import { backendCall } from "@/lib/backend";
 import { formatAiClientName, formatTokenCount } from "@/lib/format";
 import { hexToRgba, resolveOperationPulseColor, toLuminousPulseHex } from "@/lib/pulseColors";
 import {
@@ -12,7 +13,10 @@ import {
   useSynapticStore,
   useThemeStore,
 } from "@/stores";
-import type { GraphNode, McpActivity, Uuid } from "@/types/contracts";
+import { OutdatedHitBanner } from "@/components/ui";
+import type { GraphNode, MatchedNode, McpActivity, ProjectScope, Uuid } from "@/types/contracts";
+
+type MatchedNodeWithPrecedence = MatchedNode & { outranked_by?: Uuid | null };
 
 const MAX_PREVIEW_MATCHES = 3;
 
@@ -60,6 +64,99 @@ export function SynapticHud() {
     }
     return map;
   }, [graph?.nodes]);
+
+  const [outrankedMap, setOutrankedMap] = useState<
+    Record<Uuid, { winnerId: Uuid; winnerPreview: string | null }>
+  >({});
+
+  // Resolve `SearchHit.outranked_by` markers for matched memories of a live read/reuse activity
+  useEffect(() => {
+    if (!latestActivity) {
+      setOutrankedMap({});
+      return;
+    }
+
+    const matchedWithWire = latestActivity.matched_nodes as readonly MatchedNodeWithPrecedence[];
+    const wireEntries: Record<Uuid, { winnerId: Uuid; winnerPreview: string | null }> = {};
+    for (const m of matchedWithWire) {
+      if (m.outranked_by) {
+        const winnerNode = nodeById.get(m.outranked_by);
+        wireEntries[m.memory_id] = {
+          winnerId: m.outranked_by,
+          winnerPreview: winnerNode ? extractMemoryHeadline(winnerNode.preview) : null,
+        };
+      }
+    }
+    if (Object.keys(wireEntries).length > 0) {
+      setOutrankedMap(wireEntries);
+      return;
+    }
+
+    const queryText = latestActivity.query_text?.trim() ?? "";
+    const isSearchOp =
+      latestActivity.operation === "read" || latestActivity.operation === "reuse";
+    if (!isSearchOp || !queryText || latestActivity.matched_nodes.length < 2) {
+      setOutrankedMap({});
+      return;
+    }
+
+    const matchedProjectIds = new Set<Uuid>();
+    for (const m of latestActivity.matched_nodes) {
+      const node = nodeById.get(m.memory_id);
+      if (node?.project_id) matchedProjectIds.add(node.project_id);
+    }
+    const scope: ProjectScope =
+      matchedProjectIds.size === 1
+        ? { kind: "project_and_global", project_id: [...matchedProjectIds][0]! }
+        : matchedProjectIds.size === 0
+          ? { kind: "global" }
+          : { kind: "all" };
+
+    let cancelled = false;
+    void backendCall("search_memories", {
+      query: queryText,
+      scope,
+      branch_id: null,
+      top_k: Math.max(latestActivity.matched_nodes.length + 4, 12),
+      include_archived: false,
+      filter: {
+        source_types: [],
+        categories: [],
+        only_reusable: latestActivity.operation === "reuse",
+        min_confidence: null,
+      },
+      rrf_override: null,
+      record_hits: false,
+      expand_graph: false,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        const contentById = new Map<Uuid, string>();
+        for (const hit of res.hits) {
+          contentById.set(hit.memory.id, extractMemoryHeadline(hit.memory.content));
+        }
+        const next: Record<Uuid, { winnerId: Uuid; winnerPreview: string | null }> = {};
+        for (const hit of res.hits) {
+          if (hit.outranked_by) {
+            const winnerNode = nodeById.get(hit.outranked_by);
+            next[hit.memory.id] = {
+              winnerId: hit.outranked_by,
+              winnerPreview:
+                contentById.get(hit.outranked_by) ??
+                (winnerNode ? extractMemoryHeadline(winnerNode.preview) : null),
+            };
+          }
+        }
+        setOutrankedMap(next);
+      })
+      .catch(() => {
+        if (!cancelled) setOutrankedMap({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [latestActivity, nodeById]);
 
   if (!hudVisible || !latestActivity) {
     return null;
@@ -218,41 +315,66 @@ export function SynapticHud() {
                   Number.isFinite(matched.similarity_score) && matched.similarity_score > 0
                     ? Math.round(matched.similarity_score * 100)
                     : null;
+                const wireOutrankedBy =
+                  (matched as MatchedNodeWithPrecedence).outranked_by ?? null;
+                const resolvedOutranked = outrankedMap[matched.memory_id] ?? null;
+                const outrankedById = wireOutrankedBy ?? resolvedOutranked?.winnerId ?? null;
+                const winnerPreview = outrankedById
+                  ? (resolvedOutranked?.winnerPreview ??
+                    (nodeById.get(outrankedById)
+                      ? extractMemoryHeadline(nodeById.get(outrankedById)!.preview)
+                      : null))
+                  : null;
 
                 return (
-                  <button
+                  <div
                     key={matched.memory_id}
-                    type="button"
-                    onClick={() => handleSelectAndFocusNode(matched.memory_id, opColor)}
-                    title={`${headline}\n${t("synaptic.focusNodeHint")}`}
-                    className={`group flex w-full items-center justify-between gap-2 rounded-[2px] border px-2 py-1.5 text-left transition-colors ${
+                    className={`rounded-[2px] border px-2 py-1.5 transition-colors ${
                       isSelected
                         ? "border-cobalt-rule bg-cobalt-wash/80 text-bone"
-                        : "border-rule bg-void/60 text-bone-muted hover:border-rule-strong hover:bg-surface-2 hover:text-bone"
+                        : outrankedById
+                          ? "border-ochre-rule/75 bg-void/65 text-bone-muted hover:border-ochre"
+                          : "border-rule bg-void/60 text-bone-muted hover:border-rule-strong hover:bg-surface-2 hover:text-bone"
                     }`}
                   >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{
-                          backgroundColor: luminousColor,
-                          boxShadow: `0 0 6px ${hexToRgba(luminousColor, 0.7)}`,
-                        }}
-                        aria-hidden
+                    <button
+                      type="button"
+                      onClick={() => handleSelectAndFocusNode(matched.memory_id, opColor)}
+                      title={`${headline}\n${t("synaptic.focusNodeHint")}`}
+                      className="group flex w-full items-center justify-between gap-2 text-left"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{
+                            backgroundColor: luminousColor,
+                            boxShadow: `0 0 6px ${hexToRgba(luminousColor, 0.7)}`,
+                          }}
+                          aria-hidden
+                        />
+                        <span className="truncate text-xs leading-snug text-bone">
+                          {headline}
+                        </span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-bone-subtle">
+                        {similarityPct !== null && <span>{similarityPct}%</span>}
+                        <Crosshair
+                          size={11}
+                          className="text-bone-subtle transition-colors group-hover:text-cobalt-ink"
+                          aria-hidden
+                        />
+                      </div>
+                    </button>
+
+                    {outrankedById && (
+                      <OutdatedHitBanner
+                        compact
+                        outrankedById={outrankedById}
+                        winnerPreview={winnerPreview}
+                        onOpenWinner={(winnerId) => handleSelectAndFocusNode(winnerId, opColor)}
                       />
-                      <span className="truncate text-xs leading-snug text-bone">
-                        {headline}
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-bone-subtle">
-                      {similarityPct !== null && <span>{similarityPct}%</span>}
-                      <Crosshair
-                        size={11}
-                        className="text-bone-subtle transition-colors group-hover:text-cobalt-ink"
-                        aria-hidden
-                      />
-                    </div>
-                  </button>
+                    )}
+                  </div>
                 );
               })}
             </div>

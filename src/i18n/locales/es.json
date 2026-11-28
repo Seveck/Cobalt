@@ -1505,5 +1505,29 @@
       "accepted": "Todavía no has aceptado ninguna propuesta.",
       "rejected": "No hay propuestas descartadas."
     }
+  },
+  "unsorted": {
+    "explanation": "Lo que una IA guardó sin saber en qué proyecto estaba; no aparece en tus proyectos",
+    "shortDetail": "Guardado sin proyecto conocido · aislado de tus proyectos",
+    "reviewAndMove": "Revisar y mover",
+    "hideList": "Ocultar lista",
+    "empty": "No hay memorias pendientes en Sin clasificar.",
+    "selectAll": "Seleccionar todas",
+    "deselectAll": "Deseleccionar",
+    "selectMemoryAria": "Seleccionar memoria para mover",
+    "selectedCount": "{{selected}} de {{total}} seleccionadas",
+    "moveAction": "Mover a proyecto…",
+    "moveDestination": "Destino",
+    "chooseDestination": "Elegir proyecto…",
+    "moveSelected": "Mover ({{count}})",
+    "moving": "Moviendo…",
+    "movedOneNotice": "Memoria movida a «{{project}}».",
+    "movedManyNotice": "{{count}} memorias movidas a «{{project}}»."
+  },
+  "outdated": {
+    "badge": "Posiblemente desactualizada",
+    "viewWinner": "Ver vigente: «{{target}}»",
+    "viewWinnerShort": "Vigente: {{target}}",
+    "tooltip": "Contradicha por una memoria con mayor prioridad (proyecto sobre global o más reciente)."
   }
 }

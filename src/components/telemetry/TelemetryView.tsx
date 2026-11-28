@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { staggerStyle } from "@/lib/motion";
+import { splitProjects, UNSORTED_PROJECT_NAME } from "@/lib/projects";
 import { formatSavingsEstimate } from "@/lib/savings";
 import {
   useFiltersStore,
@@ -252,13 +253,25 @@ export function TelemetryView() {
     ];
   }, [historyPage.items, summary?.by_client, t]);
 
-  const projectFilterOptions = useMemo<SelectOption<string>[]>(
-    () => [
+  const projectFilterOptions = useMemo<SelectOption<string>[]>(() => {
+    const { regular, unsorted } = splitProjects(projects);
+    return [
       { value: "__all__", label: t("telemetry.allProjects") },
-      ...projects.map((p) => ({ value: p.project.id, label: p.project.name })),
-    ],
-    [projects, t],
-  );
+      ...regular.map((p) => ({ value: p.project.id, label: p.project.name })),
+      ...(unsorted
+        ? [
+            {
+              value: unsorted.project.id,
+              label:
+                unsorted.vector_count > 0
+                  ? `${UNSORTED_PROJECT_NAME} (${unsorted.vector_count})`
+                  : UNSORTED_PROJECT_NAME,
+              detail: t("unsorted.shortDetail"),
+            },
+          ]
+        : []),
+    ];
+  }, [projects, t]);
 
   const totalPages = Math.max(1, Math.ceil(historyPage.total / HISTORY_PAGE_SIZE));
   const currentPage = Math.floor(offset / HISTORY_PAGE_SIZE) + 1;

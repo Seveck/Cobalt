@@ -3,20 +3,19 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, Link2, Loader2, Pin, Search, SlidersHorizontal, X } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { staggerStyle } from "@/lib/motion";
+import {
+  splitProjects,
+  truncateMemoryPreview,
+  UNSORTED_PROJECT_NAME,
+} from "@/lib/projects";
 import { formatSavingsEstimate } from "@/lib/savings";
 import {
   useBranchesStore,
   useMemoryStore,
   useSettingsStore,
 } from "@/stores";
-import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
+import { OutdatedHitBanner, Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import type { FileAvailability, ProjectScope, SearchResponse, Uuid } from "@/types/contracts";
-
-function truncatePreview(text: string, maxLen = 58): string {
-  const collapsed = text.replace(/\s+/g, " ").trim();
-  if (collapsed.length <= maxLen) return collapsed;
-  return `${collapsed.slice(0, maxLen - 1).trimEnd()}…`;
-}
 
 interface RagDebuggerProps {
   onClose: () => void;
@@ -58,11 +57,12 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
   }, [setHighlightedNodeIds]);
 
   const scopeOptions = useMemo<SelectOption<string>[]>(() => {
+    const { regular, unsorted } = splitProjects(graph?.projects ?? []);
     const base: SelectOption<string>[] = [
       { value: "all", label: t("rag.scopeAll") },
       { value: "global", label: t("brain.globalScope") },
     ];
-    for (const stat of graph?.projects ?? []) {
+    for (const stat of regular) {
       base.push({
         value: `project:${stat.project.id}`,
         label: stat.project.name,
@@ -71,6 +71,16 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
       base.push({
         value: `project_and_global:${stat.project.id}`,
         label: `${stat.project.name} + ${t("brain.globalScope")}`,
+      });
+    }
+    if (unsorted) {
+      base.push({
+        value: `project:${unsorted.project.id}`,
+        label:
+          unsorted.vector_count > 0
+            ? `${UNSORTED_PROJECT_NAME} (${unsorted.vector_count})`
+            : UNSORTED_PROJECT_NAME,
+        detail: t("unsorted.shortDetail"),
       });
     }
     return base;
@@ -432,22 +442,35 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
                     docAvailability[hit.memory.source_doc_id] === "modified";
                   const relatedId = hit.related_to ?? null;
                   const relatedTarget = relatedId
-                    ? truncatePreview(
+                    ? truncateMemoryPreview(
                         hitsById.get(relatedId) ??
                           graphNodesById.get(relatedId) ??
                           relatedId.slice(0, 8),
                       )
                     : null;
+                  const outrankedById = hit.outranked_by ?? null;
+                  const outrankedWinnerPreview = outrankedById
+                    ? (hitsById.get(outrankedById) ?? graphNodesById.get(outrankedById) ?? null)
+                    : null;
                   return (
-                    <button
+                    <div
                       key={hit.memory.id}
-                      type="button"
+                      role="button"
+                      tabIndex={0}
                       onClick={() => onInspectMemory(hit.memory.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onInspectMemory(hit.memory.id);
+                        }
+                      }}
                       style={staggerStyle(idx, 22, 8)}
-                      className={`cobalt-stagger-item w-full space-y-2 rounded-[2px] border p-3 text-left transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 ${
-                        relatedId
-                          ? "border-cobalt-rule/55 bg-surface-2/65"
-                          : "border-rule bg-surface-2"
+                      className={`cobalt-stagger-item w-full cursor-pointer space-y-2 rounded-[2px] border p-3 text-left transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none ${
+                        outrankedById
+                          ? "border-ochre-rule/75 bg-surface-2/60"
+                          : relatedId
+                            ? "border-cobalt-rule/55 bg-surface-2/65"
+                            : "border-rule bg-surface-2"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2 font-mono text-[10px] tabular-nums">
@@ -458,6 +481,14 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
                           {t("brain.tokens", { count: hit.memory.chunk_tokens })}
                         </span>
                       </div>
+
+                      {outrankedById && (
+                        <OutdatedHitBanner
+                          outrankedById={outrankedById}
+                          winnerPreview={outrankedWinnerPreview}
+                          onOpenWinner={onInspectMemory}
+                        />
+                      )}
 
                       {relatedTarget && (
                         <div className="inline-flex max-w-full items-center gap-1.5 rounded-[2px] border border-cobalt-rule/70 bg-cobalt-wash/70 px-2 py-0.5 font-mono text-[10px] text-cobalt-ink">
@@ -500,7 +531,7 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
                           {hit.bm25 !== null ? ` (${hit.bm25.toFixed(2)})` : ""}
                         </span>
                       </div>
-                    </button>
+                    </div>
                   );
                 });
               })()}

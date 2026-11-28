@@ -20,6 +20,7 @@ import {
   formatTokenCount,
   getDayPeriod,
 } from "@/lib/format";
+import { isUnsortedProject } from "@/lib/projects";
 import { formatSavingsEstimate } from "@/lib/savings";
 import { useMemoryStore, useSettingsStore, useUiStore } from "@/stores";
 import type {
@@ -224,7 +225,9 @@ export function WelcomeGreeting() {
   const memoriesCount = graph
     ? graph.nodes.length
     : snapshot.projectsFallback.reduce((sum, p) => sum + p.vector_count, 0);
-  const projectsCount = graph ? graph.projects.length : snapshot.projectsFallback.length;
+  const projectsCount = (graph ? graph.projects : snapshot.projectsFallback).filter(
+    (stat) => !isUnsortedProject(stat.project),
+  ).length;
 
   const PeriodIcon = period === "morning" ? Sun : period === "afternoon" ? Sunset : Moon;
   const greetingText = firstName

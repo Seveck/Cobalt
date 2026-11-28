@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Pin, Repeat } from "lucide-react";
+import { isUnsortedProject, resolveProjectColor } from "@/lib/projects";
 import type { GraphNode, Project } from "@/types/contracts";
 
 export interface TooltipPointer {
@@ -49,9 +50,13 @@ export function NodeTooltip({
         <div className="flex min-w-0 items-center gap-1.5">
           <span
             className="h-2 w-2 shrink-0 rounded-[1px]"
-            style={{ backgroundColor: project?.color_hex ?? "#A4A096" }}
+            style={{ backgroundColor: resolveProjectColor(project) }}
           />
-          <span className="truncate font-mono text-[11px] font-medium text-bone-muted">
+          <span
+            className={`truncate font-mono text-[11px] font-medium ${
+              isUnsortedProject(project) ? "text-bone-subtle italic" : "text-bone-muted"
+            }`}
+          >
             {project ? project.name : t("brain.globalScope")}
           </span>
         </div>

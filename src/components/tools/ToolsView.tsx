@@ -3,17 +3,21 @@ import { useTranslation } from "react-i18next";
 import {
   Archive,
   Check,
+  ChevronDown,
+  ChevronUp,
   Copy,
   Download,
   Edit3,
   FileText,
   FileUp,
+  FolderInput,
   FolderKanban,
   FolderOpen,
   FolderSync,
   Globe,
   HardDriveDownload,
   History,
+  Inbox,
   Loader2,
   Lock,
   Package,
@@ -36,6 +40,12 @@ import {
 } from "@/lib/ingest";
 import { staggerStyle } from "@/lib/motion";
 import {
+  splitProjects,
+  UNSORTED_PROJECT_COLOR,
+  UNSORTED_PROJECT_NAME,
+} from "@/lib/projects";
+import {
+  useFiltersStore,
   useHardwareStore,
   useIngestStore,
   useMemoryStore,
@@ -43,6 +53,7 @@ import {
   useUiStore,
   type ToolsTab,
 } from "@/stores";
+import { UnsortedMemoriesPanel } from "@/components/projects/UnsortedMemoriesPanel";
 import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import type {
   BackupManifest,
@@ -159,8 +170,13 @@ export function ToolsView() {
   const readOnly = useSettingsStore((s) => s.settings.read_only);
   const autoWatchProjects = useSettingsStore((s) => s.settings.capture.auto_watch_projects);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
+  const setSelectedNodeId = useMemoryStore((s) => s.setSelectedNodeId);
+  const resetVisualFilters = useFiltersStore((s) => s.resetFilters);
   const activeTab = useUiStore((s) => s.toolsTab);
   const setActiveTab = useUiStore((s) => s.setToolsTab);
+  const setActiveNav = useUiStore((s) => s.setActiveNav);
+  const unsortedViewOpen = useUiStore((s) => s.unsortedViewOpen);
+  const setUnsortedViewOpen = useUiStore((s) => s.setUnsortedViewOpen);
   const openSettingsSection = useUiStore((s) => s.openSettingsSection);
   const ocrStatus = useHardwareStore((s) => s.ocrStatus);
 
@@ -254,24 +270,50 @@ export function ToolsView() {
     setIngestPathsList((prev) => [...new Set([...prev, ...paths])]);
   }, activeTab === "importer" && !readOnly);
 
+  const { regular: regularProjects, unsorted: unsortedProject } = useMemo(
+    () => splitProjects(projects),
+    [projects],
+  );
+
   const projectOptionsGlobal = useMemo<SelectOption<string>[]>(
     () => [
       { value: "__global__", label: t("brain.globalScope") },
-      ...projects
+      ...regularProjects
         .filter((p) => !p.project.is_archived)
         .map((p) => ({ value: p.project.id, label: p.project.name })),
     ],
-    [projects, t],
+    [regularProjects, t],
   );
 
   const projectOptionsAll = useMemo<SelectOption<string>[]>(
     () => [
       { value: "__all__", label: t("tools.allProjects") },
-      ...projects
+      ...regularProjects
         .filter((p) => !p.project.is_archived)
         .map((p) => ({ value: p.project.id, label: p.project.name })),
+      ...(unsortedProject && !unsortedProject.project.is_archived
+        ? [
+            {
+              value: unsortedProject.project.id,
+              label:
+                unsortedProject.vector_count > 0
+                  ? `${UNSORTED_PROJECT_NAME} (${unsortedProject.vector_count})`
+                  : UNSORTED_PROJECT_NAME,
+              detail: t("unsorted.shortDetail"),
+            },
+          ]
+        : []),
     ],
-    [projects, t],
+    [regularProjects, t, unsortedProject],
+  );
+
+  const handleLocateUnsortedMemory = useCallback(
+    (memoryId: Uuid) => {
+      resetVisualFilters();
+      setSelectedNodeId(memoryId);
+      setActiveNav("brain");
+    },
+    [resetVisualFilters, setActiveNav, setSelectedNodeId],
   );
 
   const pastLifeOptions = useMemo<SelectOption<PastLifeSource>[]>(
@@ -771,11 +813,85 @@ export function ToolsView() {
               </div>
             </form>
 
+            {/* Distinct "Sin clasificar" isolation bucket */}
+            {unsortedProject && (
+              <div className="space-y-3">
+                <section className="rounded-[2px] border border-dashed border-rule-strong bg-surface-2/55 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div
+                        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[2px] border border-rule-strong bg-void"
+                        aria-hidden
+                      >
+                        <Inbox size={15} style={{ color: UNSORTED_PROJECT_COLOR }} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-[1px]"
+                            style={{ backgroundColor: UNSORTED_PROJECT_COLOR }}
+                            aria-hidden
+                          />
+                          <span className="text-sm font-semibold text-bone-muted">
+                            {UNSORTED_PROJECT_NAME}
+                          </span>
+                          {unsortedProject.vector_count > 0 && (
+                            <span className="inline-flex min-w-[1.35rem] items-center justify-center rounded-[2px] border border-rule-strong bg-void px-1.5 py-0.5 font-mono text-[10px] leading-none font-semibold tabular-nums text-bone-muted">
+                              {unsortedProject.vector_count}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs leading-relaxed text-bone-subtle">
+                          {t("unsorted.explanation")}
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap gap-3 font-mono text-[10px] tabular-nums text-bone-subtle">
+                          <span>
+                            {t("brain.nodesCount", { count: unsortedProject.vector_count })}
+                          </span>
+                          <span>
+                            {t("brain.tokens", { count: unsortedProject.total_tokens })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setUnsortedViewOpen(!unsortedViewOpen)}
+                      aria-expanded={unsortedViewOpen}
+                      className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface px-3 py-1.5 font-mono text-[11px] font-medium text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:text-bone"
+                    >
+                      <FolderInput size={12} aria-hidden />
+                      <span>
+                        {unsortedViewOpen ? t("unsorted.hideList") : t("unsorted.reviewAndMove")}
+                      </span>
+                      {unsortedViewOpen ? (
+                        <ChevronUp size={12} aria-hidden />
+                      ) : (
+                        <ChevronDown size={12} aria-hidden />
+                      )}
+                    </button>
+                  </div>
+                </section>
+
+                {unsortedViewOpen && (
+                  <UnsortedMemoriesPanel
+                    unsortedProject={unsortedProject}
+                    regularProjects={regularProjects}
+                    readOnly={readOnly}
+                    onMoved={loadProjects}
+                    onInspectMemory={handleLocateUnsortedMemory}
+                    onClose={() => setUnsortedViewOpen(false)}
+                  />
+                )}
+              </div>
+            )}
+
             {/* Project list */}
             <section className="rounded-[2px] border border-rule bg-surface p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-rule pb-3">
                 <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-bone-subtle">
-                  {t("tools.projects.listTitle")} ({projects.length})
+                  {t("tools.projects.listTitle")} ({regularProjects.length})
                 </h2>
                 <label className="flex items-center gap-2 text-xs text-bone-muted">
                   <Toggle
@@ -787,7 +903,7 @@ export function ToolsView() {
                 </label>
               </div>
 
-              {loadingProjects && projects.length === 0 ? (
+              {loadingProjects && regularProjects.length === 0 ? (
                 <div className="divide-y divide-rule" aria-busy="true" aria-label={t("shell.loading")}>
                   {[0, 1, 2].map((idx) => (
                     <div key={idx} className="flex items-center justify-between gap-4 py-3.5">
@@ -799,13 +915,13 @@ export function ToolsView() {
                     </div>
                   ))}
                 </div>
-              ) : projects.length === 0 ? (
+              ) : regularProjects.length === 0 ? (
                 <p className="py-6 text-center text-xs text-bone-subtle">
                   {t("tools.projects.empty")}
                 </p>
               ) : (
                 <div className="divide-y divide-rule">
-                  {projects.map(({ project, vector_count, total_tokens, reusable_count }, idx) => {
+                  {regularProjects.map(({ project, vector_count, total_tokens, reusable_count }, idx) => {
                     const isEditing = editingProjId === project.id;
                     return (
                       <div

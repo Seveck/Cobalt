@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AlertTriangle, ArrowUpRight, Check, Loader2, X } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { isTauri } from "@/lib/ipc";
+import { isUnsortedProject } from "@/lib/projects";
 import {
   conflictReasonI18nKey,
   QUICKNOTE_CONFLICTS_STORAGE_KEY,
@@ -57,7 +58,7 @@ function QuickNoteWindow() {
       .catch(() => {});
 
     void backendCall("list_projects", { include_archived: false })
-      .then(setProjects)
+      .then((list) => setProjects(list.filter((stat) => !isUnsortedProject(stat.project))))
       .catch(() => {});
 
     const onFocus = () => {

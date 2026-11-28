@@ -1505,5 +1505,29 @@
       "accepted": "You haven't accepted any proposals yet.",
       "rejected": "No discarded proposals yet."
     }
+  },
+  "unsorted": {
+    "explanation": "What an AI saved without knowing which project it was in; it doesn't appear in your projects",
+    "shortDetail": "Saved without a known project · isolated from your projects",
+    "reviewAndMove": "Review & move",
+    "hideList": "Hide list",
+    "empty": "No memories waiting in Sin clasificar.",
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all",
+    "selectMemoryAria": "Select memory to move",
+    "selectedCount": "{{selected}} of {{total}} selected",
+    "moveAction": "Move to project…",
+    "moveDestination": "Destination",
+    "chooseDestination": "Choose project…",
+    "moveSelected": "Move ({{count}})",
+    "moving": "Moving…",
+    "movedOneNotice": "Memory moved to \"{{project}}\".",
+    "movedManyNotice": "{{count}} memories moved to \"{{project}}\"."
+  },
+  "outdated": {
+    "badge": "Possibly outdated",
+    "viewWinner": "See winning: \"{{target}}\"",
+    "viewWinnerShort": "Winning: {{target}}",
+    "tooltip": "Contradicted by a more authoritative memory (project over global, or newer)."
   }
 }

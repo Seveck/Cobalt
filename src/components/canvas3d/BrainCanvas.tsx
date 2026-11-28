@@ -15,6 +15,7 @@ import {
   Clock,
   Crosshair,
   FolderKanban,
+  Inbox,
   Pause,
   Play,
   Plug,
@@ -27,6 +28,11 @@ import {
   Upload,
 } from "lucide-react";
 import { useFileDrop } from "@/lib/dialogs";
+import {
+  splitProjects,
+  UNSORTED_PROJECT_COLOR,
+  UNSORTED_PROJECT_NAME,
+} from "@/lib/projects";
 import { isBuiltinThemeId } from "@/lib/themeEngine";
 import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 import {
@@ -119,6 +125,7 @@ export function BrainCanvas() {
   const appInfo = useUiStore((s) => s.appInfo);
   const setActiveNav = useUiStore((s) => s.setActiveNav);
   const openToolsTab = useUiStore((s) => s.openToolsTab);
+  const openUnsortedView = useUiStore((s) => s.openUnsortedView);
 
   const themeBasePath = useMemo(() => {
     if (isBuiltinThemeId(manifest.id)) return null;
@@ -267,6 +274,19 @@ export function BrainCanvas() {
     return new Map(graph?.projects.map((p) => [p.project.id, p.project]) ?? []);
   }, [graph]);
 
+  const { regular: regularProjects, unsorted: unsortedProject } = useMemo(
+    () => splitProjects(graph?.projects ?? []),
+    [graph?.projects],
+  );
+
+  const unsortedCount = useMemo(() => {
+    if (!unsortedProject || !graph) return unsortedProject?.vector_count ?? 0;
+    const nodeCount = graph.nodes.filter(
+      (n) => n.project_id === unsortedProject.project.id && n.status !== "superseded",
+    ).length;
+    return Math.max(unsortedProject.vector_count, nodeCount);
+  }, [graph, unsortedProject]);
+
   const handleHoverNode = useCallback(
     (node: GraphNode | null) => {
       setHoveredNode(node);
@@ -380,9 +400,24 @@ export function BrainCanvas() {
                   {t("brain.nodesCount", { count: graph.nodes.length })}
                 </span>
                 <span className="px-2.5 py-1 tabular-nums text-bone-subtle">
-                  {t("brain.projectsCount", { count: graph.projects.length })}
+                  {t("brain.projectsCount", { count: regularProjects.length })}
                 </span>
               </div>
+            )}
+
+            {unsortedProject && unsortedCount > 0 && (
+              <button
+                type="button"
+                onClick={openUnsortedView}
+                title={t("unsorted.explanation")}
+                className="pointer-events-auto inline-flex items-center gap-1.5 rounded-[2px] border border-dashed border-rule-strong bg-surface/95 px-2 py-1 font-mono text-[10px] text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:text-bone"
+              >
+                <Inbox size={11} style={{ color: UNSORTED_PROJECT_COLOR }} aria-hidden />
+                <span>{UNSORTED_PROJECT_NAME}</span>
+                <span className="inline-flex min-w-[1.2rem] items-center justify-center rounded-[2px] border border-rule-strong bg-void px-1 py-0.25 text-[9px] font-semibold tabular-nums text-bone">
+                  {unsortedCount}
+                </span>
+              </button>
             )}
 
             <span className="rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-2 py-1 font-mono text-[10px] font-medium text-cobalt-ink">

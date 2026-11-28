@@ -14,6 +14,7 @@ import {
 import { backendCall } from "@/lib/backend";
 import { isUnsupportedError } from "@/lib/ipc";
 import { staggerStyle } from "@/lib/motion";
+import { resolveProjectColor } from "@/lib/projects";
 import { conflictReasonI18nKey } from "@/lib/savings";
 import { useMemoryStore, useSettingsStore } from "@/stores";
 import { Skeleton } from "@/components/ui";
@@ -250,7 +251,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
                 <>
                   <span
                     className="h-1.5 w-1.5 shrink-0 rounded-[1px]"
-                    style={{ backgroundColor: project.color_hex }}
+                    style={{ backgroundColor: resolveProjectColor(project) }}
                     aria-hidden
                   />
                   <span className="truncate text-bone" title={project.name}>
