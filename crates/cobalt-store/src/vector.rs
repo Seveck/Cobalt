@@ -118,6 +118,18 @@ pub(crate) fn vector_bytes(vector: &[f32]) -> Vec<u8> {
     vector.iter().flat_map(|v| v.to_ne_bytes()).collect()
 }
 
+type StoredVectors = Vec<Option<Vec<f32>>>;
+
+fn decode_vector(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .copied()
+        .map(f32::from_ne_bytes)
+        .collect()
+}
+
 fn check_dimensions(dimensions: usize) -> Result<()> {
     if dimensions == 0 {
         return Err(CobaltError::InvalidInput(
@@ -211,6 +223,64 @@ impl SqliteVec {
         )
         .map_err(sql_error)?;
         Ok(())
+    }
+
+    // The vec0 point lookup opens the same blob once per ID. For large batches,
+    // read each vector chunk once. Fall back to the virtual table if its private
+    // layout differs from the sqlite-vec layout supported here.
+    fn bulk_vectors(&self, conn: &Connection, ids: &[Id]) -> Result<Option<StoredVectors>> {
+        let Ok(mut locations) = conn.prepare(
+            "SELECT want.key, v.chunk_id, v.chunk_offset
+             FROM json_each(?1) want JOIN vec_memories_rowids v ON v.id = want.value
+             ORDER BY v.chunk_id",
+        ) else {
+            return Ok(None);
+        };
+        let Ok(mut chunks) =
+            conn.prepare("SELECT vectors FROM vec_memories_vector_chunks00 WHERE _rowid_ = ?1")
+        else {
+            return Ok(None);
+        };
+        let wanted: Vec<_> = ids.iter().map(Id::to_string).collect();
+        let wanted = serde_json::to_string(&wanted)
+            .map_err(|error| CobaltError::Internal(error.to_string()))?;
+        let mut rows = locations.query([wanted]).map_err(sql_error)?;
+        let mut vectors = vec![None; ids.len()];
+        let width = self.dimensions * size_of::<f32>();
+        let mut chunk_id = None;
+        let mut chunk = Vec::new();
+        while let Some(row) = rows.next().map_err(sql_error)? {
+            let (position, id, offset): (i64, Option<i64>, Option<i64>) = (
+                row.get(0).map_err(sql_error)?,
+                row.get(1).map_err(sql_error)?,
+                row.get(2).map_err(sql_error)?,
+            );
+            let (Some(id), Some(offset), Some(dst)) = (
+                id,
+                offset.and_then(|offset| usize::try_from(offset).ok()),
+                usize::try_from(position)
+                    .ok()
+                    .and_then(|i| vectors.get_mut(i)),
+            ) else {
+                return Ok(None);
+            };
+            if chunk_id != Some(id) {
+                let Some(bytes) = chunks
+                    .query_row([id], |row| row.get(0))
+                    .optional()
+                    .map_err(sql_error)?
+                else {
+                    return Ok(None);
+                };
+                chunk = bytes;
+                chunk_id = Some(id);
+            }
+            let Some(bytes) = chunk.chunks_exact(width).nth(offset) else {
+                return Ok(None);
+            };
+            *dst = Some(decode_vector(bytes));
+        }
+        Ok(Some(vectors))
     }
 
     fn scoped(
@@ -572,9 +642,14 @@ impl Index {
         }
     }
 
-    pub(crate) fn vectors(&self, conn: &Connection, ids: &[Id]) -> Result<Vec<Option<Vec<f32>>>> {
+    pub(crate) fn vectors(&self, conn: &Connection, ids: &[Id]) -> Result<StoredVectors> {
         match self {
-            Self::SqliteVec(_) => {
+            Self::SqliteVec(index) => {
+                if ids.len() >= 128
+                    && let Some(vectors) = index.bulk_vectors(conn, ids)?
+                {
+                    return Ok(vectors);
+                }
                 let mut stmt = conn
                     .prepare("SELECT embedding FROM vec_memories WHERE memory_id = ?1")
                     .map_err(sql_error)?;
@@ -584,15 +659,7 @@ impl Index {
                             .query_row([id.to_string()], |row| row.get::<_, Vec<u8>>(0))
                             .optional()
                             .map_err(sql_error)?;
-                        Ok(bytes.map(|bytes| {
-                            bytes
-                                .as_chunks::<4>()
-                                .0
-                                .iter()
-                                .copied()
-                                .map(f32::from_ne_bytes)
-                                .collect()
-                        }))
+                        Ok(bytes.as_deref().map(decode_vector))
                     })
                     .collect()
             }

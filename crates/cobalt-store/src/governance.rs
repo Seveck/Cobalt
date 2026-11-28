@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use async_trait::async_trait;
 use chrono::TimeDelta;
@@ -14,6 +14,7 @@ use crate::memory::{
     clear_semantic_edges, exact_match, mark_superseded, memory, refresh_edges, required_memory,
 };
 use crate::repositories::{branch, load_settings, stamp};
+use crate::similarity_scan::{UnitVector, raw_floor, rounding_margin};
 use crate::{SimilarityKind, SqliteStore, calibrated_similarity};
 
 pub(crate) fn branch_memories(conn: &Connection, branch_id: Id) -> Result<Vec<Memory>> {
@@ -33,6 +34,48 @@ fn root(parents: &mut [usize], mut index: usize) -> usize {
         index = parents[index];
     }
     index
+}
+
+fn join(parents: &mut [usize], scores: &mut [f64], a: usize, b: usize, score: f64) -> usize {
+    let a = root(parents, a);
+    let b = root(parents, b);
+    let parent = a.min(b);
+    parents[a.max(b)] = parent;
+    scores[parent] = scores[a].max(scores[b]).max(score);
+    parent
+}
+
+// Any qualifying pair has a bounded difference on every coordinate. Index the
+// coordinates used by many anchors so those anchors can skip whole ranges.
+fn projections(vectors: &[UnitVector], radius: f64) -> HashMap<usize, Vec<(f32, usize)>> {
+    let mut uses = HashMap::new();
+    for vector in vectors {
+        *uses.entry(vector.strongest()).or_insert(0) += 1;
+    }
+    uses.into_iter()
+        .filter(|&(_, count)| count >= (vectors.len() / 100).max(8))
+        .filter_map(|(dimension, _)| {
+            let mut values = vectors
+                .iter()
+                .enumerate()
+                .map(|(i, v)| v.coordinate(dimension).map(|value| (value, i)))
+                .collect::<Option<Vec<_>>>()?;
+            let mut min = f32::INFINITY;
+            let mut max = f32::NEG_INFINITY;
+            for &(value, _) in &values {
+                if !value.is_finite() {
+                    return None;
+                }
+                min = min.min(value);
+                max = max.max(value);
+            }
+            if f64::from(max) - f64::from(min) <= radius {
+                return None;
+            }
+            values.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+            Some((dimension, values))
+        })
+        .collect()
 }
 
 pub(crate) fn cosine(a: &[f32], b: &[f32]) -> f64 {
@@ -139,46 +182,104 @@ impl GovernanceService for SqliteStore {
             .read(move |conn| {
                 let tx = conn.unchecked_transaction().map_err(sql_error)?;
                 let settings = load_settings(&tx)?.search;
-                let rows: Vec<_> = branch_memories(&tx, branch(&tx, None)?.id)?
-                    .into_iter()
-                    .filter(|row| row.status == MemoryStatus::Active && !row.is_encrypted)
-                    .collect();
+                let rows = {
+                    let mut stmt = tx
+                        .prepare(
+                            "SELECT * FROM memories WHERE branch_id = ?1 AND status = 'active'
+                         AND is_encrypted = 0 ORDER BY created_at, id",
+                        )
+                        .map_err(sql_error)?;
+                    stmt.query_map([branch(&tx, None)?.id.to_string()], memory)
+                        .map_err(sql_error)?
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                        .map_err(sql_error)?
+                };
                 let vectors = match &retrieval {
                     Some(retrieval) => retrieval
                         .index
                         .vectors(&tx, &rows.iter().map(|row| row.id).collect::<Vec<_>>())?,
                     None => vec![None; rows.len()],
                 };
-                let mut by_project: BTreeMap<_, Vec<usize>> = BTreeMap::new();
-                for (i, row) in rows.iter().enumerate() {
-                    by_project.entry(row.project_id).or_default().push(i);
-                }
                 let mut parents: Vec<_> = (0..rows.len()).collect();
                 let mut scores = vec![0.0_f64; rows.len()];
-                for scope in by_project.values() {
-                    for (offset, &a) in scope.iter().enumerate() {
-                        for &b in &scope[offset + 1..] {
-                            let exact = rows[a].content_hash == rows[b].content_hash;
-                            let score = if exact {
-                                1.0
-                            } else if let (Some(a), Some(b), Some(retrieval)) =
-                                (&vectors[a], &vectors[b], &retrieval)
-                            {
-                                calibrated_similarity(
-                                    &retrieval.embedder.spec().id,
-                                    SimilarityKind::Document,
-                                    cosine(a, b),
-                                )
+                let mut hashes = HashMap::new();
+                let mut by_project: BTreeMap<_, Vec<_>> = BTreeMap::new();
+                for (i, row) in rows.iter().enumerate() {
+                    if let Some(previous) = hashes.insert((row.project_id, &row.content_hash), i) {
+                        join(&mut parents, &mut scores, previous, i, 1.0);
+                    }
+                    if let Some(vector) = &vectors[i] {
+                        by_project
+                            .entry(row.project_id)
+                            .or_default()
+                            .push((i, vector));
+                    }
+                }
+                if let Some(retrieval) = &retrieval {
+                    let model = &retrieval.embedder.spec().id;
+                    let floor = raw_floor(model, settings.duplicate_threshold)
+                        - rounding_margin(retrieval.index.dimensions());
+                    for scope in by_project.values() {
+                        let normalized: Vec<_> = scope
+                            .iter()
+                            .map(|(_, vector)| UnitVector::new(vector))
+                            .collect();
+                        let radius = (2.0 * (1.0 - floor)).sqrt();
+                        let projections =
+                            if settings.duplicate_threshold > 0.0 && scope.len() >= 128 {
+                                projections(&normalized, radius)
                             } else {
-                                continue;
+                                HashMap::new()
                             };
-                            if !exact && score < settings.duplicate_threshold {
-                                continue;
+                        for (offset, &(a, vector_a)) in scope.iter().enumerate() {
+                            let vector = &normalized[offset];
+                            let dimension = vector.strongest();
+                            let window = projections
+                                .get(&dimension)
+                                .zip(vector.coordinate(dimension))
+                                .map(|(values, coordinate)| {
+                                    let coordinate = f64::from(coordinate);
+                                    let start = values.partition_point(|&(value, _)| {
+                                        f64::from(value) < coordinate - radius
+                                    });
+                                    let end = values.partition_point(|&(value, _)| {
+                                        f64::from(value) <= coordinate + radius
+                                    });
+                                    &values[start..end]
+                                });
+                            let remaining = if window.is_some() {
+                                0..0
+                            } else {
+                                offset + 1..scope.len()
+                            };
+                            let candidate_indices = remaining.chain(
+                                window
+                                    .unwrap_or_default()
+                                    .iter()
+                                    .map(|&(_, i)| i)
+                                    .filter(|&i| i > offset),
+                            );
+                            let mut parent_a = root(&mut parents, a);
+                            for i in candidate_indices {
+                                let (b, vector_b) = scope[i];
+                                // Even a perfect score cannot improve this connected component.
+                                if scores[parent_a] == 1.0 && parent_a == root(&mut parents, b) {
+                                    continue;
+                                }
+                                if settings.duplicate_threshold > 0.0
+                                    && !normalized[offset].could_reach(&normalized[i], floor)
+                                {
+                                    continue;
+                                }
+                                let score = calibrated_similarity(
+                                    model,
+                                    SimilarityKind::Document,
+                                    cosine(vector_a, vector_b),
+                                );
+                                if score >= settings.duplicate_threshold {
+                                    parent_a = join(&mut parents, &mut scores, parent_a, b, score);
+                                }
                             }
-                            let parent_a = root(&mut parents, a);
-                            let parent_b = root(&mut parents, b);
-                            parents[parent_b] = parent_a;
-                            scores[parent_a] = scores[parent_a].max(scores[parent_b]).max(score);
                         }
                     }
                 }

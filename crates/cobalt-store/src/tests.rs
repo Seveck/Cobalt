@@ -1031,4 +1031,40 @@ async fn pruning_removes_archived_ingest_vectors_and_keeps_linked_vectors() {
 mod proposals;
 mod similarity;
 
+mod governance_timing;
+mod project_move;
 mod stage4;
+
+#[tokio::test]
+async fn sqlite_vec_bulk_reads_match_point_reads_across_chunks() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(&dir).await;
+    let index = store.retrieval().unwrap().index.clone();
+
+    store
+        .db
+        .write(move |conn| {
+            let tx = conn.transaction().unwrap();
+            let mut ids = Vec::new();
+            for i in 0..1_030 {
+                let id = new_id();
+                SqliteVec::replace(&tx, id, &[i as f32, 1.0, 2.0])?;
+                ids.push(id);
+            }
+            ids.reverse();
+            SqliteVec::remove(&tx, ids[500])?;
+            ids.extend([new_id(), ids[0]]);
+            let expected: Vec<_> = ids
+                .chunks(127)
+                .map(|batch| index.vectors(&tx, batch))
+                .collect::<Result<Vec<_>>>()?
+                .into_iter()
+                .flatten()
+                .collect();
+            assert_eq!(index.vectors(&tx, &ids)?, expected);
+            tx.commit().unwrap();
+            Ok(())
+        })
+        .await
+        .unwrap();
+}
