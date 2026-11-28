@@ -83,6 +83,10 @@ pub struct SearchHit {
     /// Added by graph expansion as a 1-hop neighbor of this direct hit (v1.15.0).
     #[serde(default)]
     pub related_to: Option<Id>,
+    /// Contradicted by a more authoritative hit in the same answer — project-specific beats
+    /// global, newer beats older (v1.16.0). Ranked after it; treat as possibly outdated.
+    #[serde(default)]
+    pub outranked_by: Option<Id>,
 }
 
 /// Honest token accounting (deduplicated by unique `source_doc_id`).
