@@ -2,11 +2,16 @@ import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { backendOn } from "@/lib/backend";
 import { isTauri } from "@/lib/ipc";
+import {
+  QUICKNOTE_CONFLICTS_STORAGE_KEY,
+  QUICKNOTE_INSPECT_STORAGE_KEY,
+} from "@/lib/savings";
 import { applyThemeToRoot } from "@/lib/themeEngine";
 import { Skeleton } from "@/components/ui";
 import {
   useBranchesStore,
   useCliActivityStore,
+  useFiltersStore,
   useHardwareStore,
   useIngestStore,
   useMemoryStore,
@@ -36,7 +41,7 @@ import { ThemeStoreView } from "@/components/store/ThemeStoreView";
 import { ThemeToastHost } from "@/components/store/ThemeToastHost";
 import { TelemetryView } from "@/components/telemetry/TelemetryView";
 import { ToolsView } from "@/components/tools/ToolsView";
-import { BUILTIN_THEME_ID } from "@/types/contracts";
+import { BUILTIN_THEME_ID, type ConflictHint } from "@/types/contracts";
 
 export default function App() {
   if (!isTauri()) {
@@ -199,8 +204,41 @@ function DesktopApp() {
       }),
     );
 
+    const onStorage = (event: StorageEvent) => {
+      if (!event.newValue) return;
+      if (event.key === QUICKNOTE_CONFLICTS_STORAGE_KEY) {
+        try {
+          const parsed = JSON.parse(event.newValue) as { conflicts?: ConflictHint[] };
+          if (Array.isArray(parsed.conflicts) && parsed.conflicts.length > 0) {
+            useThemeStore.getState().pushThemeToast({
+              kind: "warning",
+              message: tRef.current("conflicts.possibleToast", {
+                count: parsed.conflicts.length,
+              }),
+              conflicts: parsed.conflicts,
+            });
+          }
+        } catch {
+          // Ignore malformed payload.
+        }
+      } else if (event.key === QUICKNOTE_INSPECT_STORAGE_KEY) {
+        try {
+          const parsed = JSON.parse(event.newValue) as { memoryId?: string };
+          if (typeof parsed.memoryId === "string" && parsed.memoryId.length > 0) {
+            useFiltersStore.getState().resetFilters();
+            useMemoryStore.getState().setSelectedNodeId(parsed.memoryId);
+            useUiStore.getState().setActiveNav("brain");
+          }
+        } catch {
+          // Ignore malformed payload.
+        }
+      }
+    };
+    window.addEventListener("storage", onStorage);
+
     return () => {
       active = false;
+      window.removeEventListener("storage", onStorage);
       if (refreshTimer !== null) {
         window.clearTimeout(refreshTimer);
       }

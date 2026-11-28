@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
+  Bot,
   Check,
   CheckCircle2,
   Copy,
@@ -9,6 +10,7 @@ import {
   Loader2,
   Plug,
   RefreshCw,
+  Shield,
   ShieldCheck,
   Stethoscope,
   Terminal,
@@ -19,12 +21,19 @@ import { backendCall } from "@/lib/backend";
 import { copyToClipboard } from "@/lib/dialogs";
 import { AI_CLIENT_LABELS, formatAiClientName } from "@/lib/format";
 import { staggerStyle } from "@/lib/motion";
+import {
+  isInternalClient,
+  normalizeClientKey,
+  resolveClientPermission,
+} from "@/lib/savings";
 import { useSettingsStore } from "@/stores";
 import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import {
   AI_CLIENTS,
   type AiClient,
   type CheckStatus,
+  type ClientPermission,
+  type ClientStats,
   type ConnectorStatus,
   type DoctorReport,
 } from "@/types/contracts";
@@ -32,8 +41,20 @@ import { AutoCaptureSection } from "./AutoCaptureSection";
 import { ProModePanel } from "./ProModePanel";
 
 const CLIENT_LABELS = AI_CLIENT_LABELS;
+const CLIENT_PERMISSIONS: readonly ClientPermission[] = ["read_write", "read", "none"] as const;
 
 type CopyFeedback = "idle" | "copied" | "failed";
+
+function permissionAccentClass(perm: ClientPermission): string {
+  switch (perm) {
+    case "none":
+      return "text-cinnabar";
+    case "read":
+      return "text-ochre";
+    default:
+      return "text-verdigris";
+  }
+}
 
 function checkStatusIcon(status: CheckStatus) {
   switch (status) {
@@ -51,10 +72,14 @@ function checkStatusIcon(status: CheckStatus) {
 export function ConnectorsView() {
   const { t } = useTranslation();
   const settings = useSettingsStore((s) => s.settings);
+  const savingSettings = useSettingsStore((s) => s.saving);
+  const patchSettings = useSettingsStore((s) => s.patchSettings);
 
   const [connectors, setConnectors] = useState<ConnectorStatus[]>([]);
+  const [telemetryClients, setTelemetryClients] = useState<ClientStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [togglingClient, setTogglingClient] = useState<AiClient | null>(null);
+  const [savingPermClient, setSavingPermClient] = useState<string | null>(null);
   const [manualClient, setManualClient] = useState<AiClient>("claude_desktop");
   const [snippetCopyState, setSnippetCopyState] = useState<CopyFeedback>("idle");
   const [pathCopyState, setPathCopyState] = useState<CopyFeedback>("idle");
@@ -91,8 +116,18 @@ export function ConnectorsView() {
     setLoading(true);
     setError(null);
     try {
-      const list = await backendCall("list_connectors");
-      setConnectors(list);
+      const [list, telemetryRes] = await Promise.allSettled([
+        backendCall("list_connectors"),
+        backendCall("get_telemetry_summary", { from: null, to: null, session_only: false }),
+      ]);
+      if (list.status === "fulfilled") {
+        setConnectors(list.value);
+      } else {
+        throw list.reason;
+      }
+      if (telemetryRes.status === "fulfilled") {
+        setTelemetryClients(telemetryRes.value.by_client ?? []);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -103,6 +138,93 @@ export function ConnectorsView() {
   useEffect(() => {
     void loadConnectors();
   }, [loadConnectors]);
+
+  const permissionOptions = useMemo<SelectOption<ClientPermission>[]>(
+    () =>
+      CLIENT_PERMISSIONS.map((perm) => ({
+        value: perm,
+        label: t(`connectors.permissions.levels.${perm}`),
+        detail: t(`connectors.permissions.explanations.${perm}`),
+      })),
+    [t],
+  );
+
+  // Clients seen in telemetry or already configured in permissions that are outside AI_CLIENTS
+  const extraClients = useMemo<Array<{ key: string; label: string; stats: ClientStats | null }>>(
+    () => {
+      const connectorNorms = new Set<string>(AI_CLIENTS.map((c) => normalizeClientKey(c)));
+      const seenNorms = new Set<string>(connectorNorms);
+      const result: Array<{ key: string; label: string; stats: ClientStats | null }> = [];
+
+      for (const client of telemetryClients) {
+        if (isInternalClient(client.client_name)) continue;
+        const norm = normalizeClientKey(client.client_name);
+        if (seenNorms.has(norm)) continue;
+        seenNorms.add(norm);
+        result.push({
+          key: client.client_name,
+          label: formatAiClientName(client.client_name),
+          stats: client,
+        });
+      }
+
+      for (const key of Object.keys(settings.mcp.client_permissions ?? {})) {
+        if (isInternalClient(key)) continue;
+        const norm = normalizeClientKey(key);
+        if (seenNorms.has(norm)) continue;
+        seenNorms.add(norm);
+        result.push({
+          key,
+          label: formatAiClientName(key),
+          stats: null,
+        });
+      }
+
+      return result.sort((a, b) => a.label.localeCompare(b.label));
+    },
+    [settings.mcp.client_permissions, telemetryClients],
+  );
+
+  const handleChangePermission = useCallback(
+    async (clientKey: string, nextPermission: ClientPermission) => {
+      setSavingPermClient(clientKey);
+      setError(null);
+      try {
+        const currentPerms = { ...(settings.mcp.client_permissions ?? {}) };
+        const targetNorm = normalizeClientKey(clientKey);
+        // Remove stale alias keys that normalize to the same client before writing the canonical key.
+        for (const existingKey of Object.keys(currentPerms)) {
+          if (existingKey !== clientKey && normalizeClientKey(existingKey) === targetNorm) {
+            delete currentPerms[existingKey];
+          }
+        }
+        currentPerms[clientKey] = nextPermission;
+
+        await patchSettings({
+          mcp: {
+            ...settings.mcp,
+            client_permissions: currentPerms,
+          },
+        });
+        const storeErr = useSettingsStore.getState().error;
+        if (storeErr) {
+          setError(storeErr);
+        } else {
+          flashNotice(
+            t("connectors.permissions.updatedNotice", {
+              client: formatAiClientName(clientKey),
+              level: t(`connectors.permissions.levels.${nextPermission}`),
+            }),
+          );
+        }
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSavingPermClient(null);
+      }
+    },
+    [flashNotice, patchSettings, settings.mcp, t],
+  );
 
   // Always show all 7 clients in canonical order
   const orderedConnectors = useMemo<ConnectorStatus[]>(() => {
@@ -313,13 +435,34 @@ export function ConnectorsView() {
 
         {/* 01 — 1-Click Connectors for all 7 AI clients */}
         <section className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
               01 — {t("connectors.clientsTitle")}
             </h2>
             <span className="font-mono text-[10px] text-bone-subtle">
               {t("connectors.backupSafetyNote")}
             </span>
+          </div>
+
+          {/* Per-AI access level explanations */}
+          <div className="grid grid-cols-1 gap-2 rounded-[2px] border border-rule bg-surface/70 px-3.5 py-2.5 text-[11px] sm:grid-cols-3">
+            {CLIENT_PERMISSIONS.map((perm) => (
+              <div key={perm} className="flex items-start gap-1.5">
+                <Shield
+                  size={12}
+                  className={`mt-0.5 shrink-0 ${permissionAccentClass(perm)}`}
+                  aria-hidden
+                />
+                <div className="min-w-0">
+                  <span className={`font-medium ${permissionAccentClass(perm)}`}>
+                    {t(`connectors.permissions.levels.${perm}`)}:
+                  </span>{" "}
+                  <span className="text-bone-muted">
+                    {t(`connectors.permissions.explanations.${perm}`)}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
 
           {loading && connectors.length === 0 ? (
@@ -348,97 +491,224 @@ export function ConnectorsView() {
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {orderedConnectors.map((connector, idx) => {
-                const busy = togglingClient === connector.client;
-                const label = CLIENT_LABELS[connector.client];
-                return (
-                  <div
-                    key={connector.client}
-                    style={staggerStyle(idx, 24, 7)}
-                    className={`cobalt-stagger-item flex flex-col justify-between gap-3 rounded-[2px] border p-4 transition-colors ${
-                      connector.broken
-                        ? "border-cinnabar-rule bg-surface"
-                        : connector.connected
-                          ? "border-cobalt-rule/70 bg-surface"
-                          : "border-rule bg-surface"
-                    }`}
-                  >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Plug size={14} className="shrink-0 text-cobalt-ink" aria-hidden />
-                        <span className="text-sm font-semibold text-bone">{label}</span>
-                        <span className="rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase text-bone-muted">
-                          {connector.config_format}
-                        </span>
-                      </div>
-                      <div className="mt-1 truncate font-mono text-[11px] text-bone-subtle">
-                        {connector.config_path ?? t("connectors.notDetected")}
-                      </div>
-                    </div>
-
-                    <div className="flex shrink-0 items-center gap-2.5">
-                      {busy && (
-                        <Loader2 size={13} className="animate-spin text-cobalt-ink" aria-hidden />
-                      )}
-                      <Toggle
-                        checked={connector.connected}
-                        disabled={busy}
-                        ariaLabel={label}
-                        onChange={(enable) => void handleToggleConnector(connector.client, enable)}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Status + Backup path + Errors */}
-                  <div className="space-y-1.5 border-t border-rule pt-2.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span
-                        className={`rounded-[2px] border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] ${
-                          connector.broken
-                            ? "border-cinnabar-rule bg-cinnabar-wash text-cinnabar"
-                            : connector.connected
-                              ? "border-verdigris-rule bg-verdigris-wash text-verdigris"
-                              : connector.detected
-                                ? "border-rule-strong bg-surface-2 text-bone-muted"
-                                : "border-rule bg-void text-bone-subtle"
-                        }`}
-                      >
-                        {connector.broken
-                          ? t("connectors.broken")
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {orderedConnectors.map((connector, idx) => {
+                  const busy = togglingClient === connector.client;
+                  const permBusy = savingPermClient === connector.client;
+                  const label = CLIENT_LABELS[connector.client];
+                  const permission = resolveClientPermission(
+                    settings.mcp.client_permissions,
+                    connector.client,
+                  );
+                  return (
+                    <div
+                      key={connector.client}
+                      style={staggerStyle(idx, 24, 7)}
+                      className={`cobalt-stagger-item flex flex-col justify-between gap-3 rounded-[2px] border p-4 transition-colors ${
+                        connector.broken
+                          ? "border-cinnabar-rule bg-surface"
                           : connector.connected
-                            ? t("connectors.connected")
-                            : connector.detected
-                              ? t("connectors.detected")
-                              : t("connectors.notDetected")}
-                      </span>
+                            ? "border-cobalt-rule/70 bg-surface"
+                            : "border-rule bg-surface"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Plug size={14} className="shrink-0 text-cobalt-ink" aria-hidden />
+                            <span className="text-sm font-semibold text-bone">{label}</span>
+                            <span className="rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase text-bone-muted">
+                              {connector.config_format}
+                            </span>
+                          </div>
+                          <div className="mt-1 truncate font-mono text-[11px] text-bone-subtle">
+                            {connector.config_path ?? t("connectors.notDetected")}
+                          </div>
+                        </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleOpenManualForClient(connector.client)}
-                        className="font-mono text-[10px] text-cobalt-ink hover:underline"
-                      >
-                        {t("connectors.viewManualSnippet")}
-                      </button>
+                        <div className="flex shrink-0 items-center gap-2.5">
+                          {busy && (
+                            <Loader2 size={13} className="animate-spin text-cobalt-ink" aria-hidden />
+                          )}
+                          <Toggle
+                            checked={connector.connected}
+                            disabled={busy}
+                            ariaLabel={label}
+                            onChange={(enable) => void handleToggleConnector(connector.client, enable)}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Per-AI memory access selector */}
+                      <div className="space-y-1.5 border-t border-rule pt-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-bone-subtle">
+                            <Shield
+                              size={11}
+                              className={permissionAccentClass(permission)}
+                              aria-hidden
+                            />
+                            {t("connectors.permissions.accessLabel")}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {permBusy && (
+                              <Loader2
+                                size={11}
+                                className="animate-spin text-cobalt-ink"
+                                aria-hidden
+                              />
+                            )}
+                            <Select<ClientPermission>
+                              value={permission}
+                              options={permissionOptions}
+                              size="sm"
+                              align="right"
+                              disabled={savingSettings || permBusy}
+                              ariaLabel={t("connectors.permissions.selectAria", { client: label })}
+                              className="w-44"
+                              menuClassName="w-72"
+                              onChange={(nextPerm) =>
+                                void handleChangePermission(connector.client, nextPerm)
+                              }
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-bone-subtle">
+                          {t(`connectors.permissions.explanations.${permission}`)}
+                        </p>
+                      </div>
+
+                      {/* Status + Backup path + Errors */}
+                      <div className="space-y-1.5 border-t border-rule pt-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span
+                            className={`rounded-[2px] border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] ${
+                              connector.broken
+                                ? "border-cinnabar-rule bg-cinnabar-wash text-cinnabar"
+                                : connector.connected
+                                  ? "border-verdigris-rule bg-verdigris-wash text-verdigris"
+                                  : connector.detected
+                                    ? "border-rule-strong bg-surface-2 text-bone-muted"
+                                    : "border-rule bg-void text-bone-subtle"
+                            }`}
+                          >
+                            {connector.broken
+                              ? t("connectors.broken")
+                              : connector.connected
+                                ? t("connectors.connected")
+                                : connector.detected
+                                  ? t("connectors.detected")
+                                  : t("connectors.notDetected")}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenManualForClient(connector.client)}
+                            className="font-mono text-[10px] text-cobalt-ink hover:underline"
+                          >
+                            {t("connectors.viewManualSnippet")}
+                          </button>
+                        </div>
+
+                        {connector.last_backup_path && (
+                          <div className="truncate font-mono text-[10px] text-bone-muted">
+                            <span className="text-bone-subtle">{t("connectors.backupLabel")}:</span>{" "}
+                            {connector.last_backup_path}
+                          </div>
+                        )}
+
+                        {connector.error && (
+                          <div className="rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/70 px-2 py-1 text-[11px] text-cinnabar">
+                            {connector.error}
+                          </div>
+                        )}
+                      </div>
                     </div>
+                  );
+                })}
+              </div>
 
-                    {connector.last_backup_path && (
-                      <div className="truncate font-mono text-[10px] text-bone-muted">
-                        <span className="text-bone-subtle">{t("connectors.backupLabel")}:</span>{" "}
-                        {connector.last_backup_path}
-                      </div>
-                    )}
+              {/* Extra AI clients seen in telemetry or saved permissions */}
+              {extraClients.length > 0 && (
+                <div className="rounded-[2px] border border-rule bg-surface">
+                  <div className="border-b border-rule px-4 py-2.5">
+                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-bone-subtle">
+                      {t("connectors.permissions.otherClientsTitle")}
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-bone-muted">
+                      {t("connectors.permissions.otherClientsDesc")}
+                    </p>
+                  </div>
+                  <div className="divide-y divide-rule px-4">
+                    {extraClients.map((client) => {
+                      const permission = resolveClientPermission(
+                        settings.mcp.client_permissions,
+                        client.key,
+                      );
+                      const permBusy = savingPermClient === client.key;
+                      const totalOps = client.stats
+                        ? client.stats.reads +
+                          client.stats.writes +
+                          client.stats.updates +
+                          client.stats.reuses +
+                          client.stats.handoffs
+                        : 0;
+                      return (
+                        <div
+                          key={client.key}
+                          className="flex flex-wrap items-center justify-between gap-3 py-3"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Bot size={13} className="shrink-0 text-cobalt-ink" aria-hidden />
+                              <span className="text-sm font-medium text-bone">{client.label}</span>
+                              {client.label.toLowerCase() !== client.key.toLowerCase() && (
+                                <span className="rounded-[2px] border border-rule bg-void px-1.5 py-0.5 font-mono text-[10px] text-bone-subtle">
+                                  {client.key}
+                                </span>
+                              )}
+                              {totalOps > 0 && (
+                                <span className="font-mono text-[10px] tabular-nums text-bone-subtle">
+                                  {t("stats.facts.requestsCount", { count: totalOps })}
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-0.5 text-[11px] text-bone-subtle">
+                              {t(`connectors.permissions.explanations.${permission}`)}
+                            </p>
+                          </div>
 
-                    {connector.error && (
-                      <div className="rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/70 px-2 py-1 text-[11px] text-cinnabar">
-                        {connector.error}
-                      </div>
-                    )}
+                          <div className="flex shrink-0 items-center gap-2">
+                            {permBusy && (
+                              <Loader2
+                                size={12}
+                                className="animate-spin text-cobalt-ink"
+                                aria-hidden
+                              />
+                            )}
+                            <Select<ClientPermission>
+                              value={permission}
+                              options={permissionOptions}
+                              size="sm"
+                              align="right"
+                              disabled={savingSettings || permBusy}
+                              ariaLabel={t("connectors.permissions.selectAria", {
+                                client: client.label,
+                              })}
+                              className="w-44"
+                              menuClassName="w-72"
+                              onChange={(nextPerm) =>
+                                void handleChangePermission(client.key, nextPerm)
+                              }
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-                );
-              })}
+              )}
             </div>
           )}
         </section>

@@ -34,6 +34,43 @@ export interface SettingsState {
   clearError: () => void;
 }
 
+function normalizeLoadedSettings(loaded: AppSettings): AppSettings {
+  const defaults = createDefaultSettings();
+  return {
+    ...defaults,
+    ...loaded,
+    search: {
+      ...defaults.search,
+      ...(loaded.search ?? {}),
+      rrf: {
+        ...defaults.search.rrf,
+        ...(loaded.search?.rrf ?? {}),
+      },
+    },
+    mcp: {
+      ...defaults.mcp,
+      ...(loaded.mcp ?? {}),
+      tool_docstring_overrides: {
+        ...defaults.mcp.tool_docstring_overrides,
+        ...(loaded.mcp?.tool_docstring_overrides ?? {}),
+      },
+      client_permissions: {
+        ...defaults.mcp.client_permissions,
+        ...(loaded.mcp?.client_permissions ?? {}),
+      },
+    },
+    capture: { ...defaults.capture, ...(loaded.capture ?? {}) },
+    savings: {
+      ...defaults.savings,
+      ...(loaded.savings ?? {}),
+      client_prices: {
+        ...defaults.savings.client_prices,
+        ...(loaded.savings?.client_prices ?? {}),
+      },
+    },
+  };
+}
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: createDefaultSettings(),
   daemonStatus: null,
@@ -45,20 +82,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   loadSettings: async () => {
     try {
       const loaded = await backendCall("get_settings");
-      const defaults = createDefaultSettings();
-      const settings: AppSettings = {
-        ...defaults,
-        ...loaded,
-        search: {
-          ...defaults.search,
-          ...(loaded.search ?? {}),
-          rrf: {
-            ...defaults.search.rrf,
-            ...(loaded.search?.rrf ?? {}),
-          },
-        },
-        capture: { ...defaults.capture, ...(loaded.capture ?? {}) },
-      };
+      const settings = normalizeLoadedSettings(loaded);
       await applyLanguageToDom(settings.language);
       set({ settings, loaded: true, error: null });
       return settings;
@@ -72,7 +96,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   updateSettings: async (next) => {
     set({ saving: true, error: null });
     try {
-      const saved = await backendCall("update_settings", next);
+      const saved = normalizeLoadedSettings(await backendCall("update_settings", next));
       await applyLanguageToDom(saved.language);
       set({ settings: saved, saving: false });
       return saved;

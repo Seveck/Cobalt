@@ -382,6 +382,8 @@
     "vectorWeight": "Vector w",
     "ftsWeight": "FTS w",
     "includeArchived": "Include archived",
+    "expandGraph": "Expand graph (1-hop)",
+    "relatedTo": "related to \"{{target}}\"",
     "emptyHint": "Run a query to inspect vector ranks, BM25 scores, RRF fusion and token cost.",
     "injectedTokens": "Injected tokens",
     "savedTokens": "Saved tokens",
@@ -420,11 +422,28 @@
     "title": "Clean Brain",
     "shortLabel": "Clean",
     "subtitle": "Detect and merge near-duplicate or conflicting memories.",
-    "rescan": "Rescan duplicates",
+    "tabsAria": "Clean Brain sections",
+    "tabs": {
+      "duplicates": "Duplicates",
+      "contradictions": "Contradictions"
+    },
+    "rescan": "Rescan duplicates and contradictions",
     "scanning": "Scanning semantic clusters…",
     "cleanTitle": "Brain is clean",
     "cleanDesc": "No duplicate or conflicting memory clusters detected.",
     "mergedNotice": "{{count}} cluster(s) merged.",
+    "contradictionsResolvedNotice": "{{count}} contradiction(s) resolved.",
+    "contradictionsEmptyTitle": "No contradictions found",
+    "contradictionsEmptyDesc": "Your active memories don't contradict each other.",
+    "showDismissedConflicts": "Show {{count}} pair(s) marked as correct",
+    "keepA": "Keep A",
+    "keepB": "Keep B",
+    "bothCorrect": "Both are correct",
+    "conflictReasons": {
+      "negation": "One says the opposite of the other",
+      "different_value": "Different values for the same thing",
+      "opposite_choice": "Opposite choices"
+    },
     "similarity": "{{value}}% similarity",
     "keepBadge": "Keep",
     "selectKeep": "Set keep",
@@ -433,6 +452,10 @@
       "duplicate": "Duplicate",
       "conflict": "Conflict"
     }
+  },
+  "conflicts": {
+    "possibleToast_one": "Saved, but it may contradict 1 existing memory:",
+    "possibleToast_other": "Saved, but it may contradict {{count}} existing memories:"
   },
   "settings": {
     "title": "Settings",
@@ -479,6 +502,27 @@
     "captureSessionHandoffsDesc": "When an AI session finishes, saves a short temporary summary of recent progress so your next AI can pick up where you left off.",
     "captureGitCommitsTitle": "Record saved project changes (Git)",
     "captureGitCommitsDesc": "Saves a short note for each recorded change (commit) and automatically re-indexes the modified files.",
+    "savings": {
+      "title": "Savings",
+      "subtitle": "Turn saved tokens into estimated money and time.",
+      "estimateNote": "Estimates: adjust the price to the model you use",
+      "globalPriceLabel": "Global price (USD / 1M tokens)",
+      "globalPriceHint": "Used for totals and when an AI doesn't have a custom price.",
+      "tokensPerSecondLabel": "Reference speed (tokens / second)",
+      "tokensPerSecondHint": "Used to estimate how much time you save by avoiding repeated context.",
+      "perAiTitle": "Price per AI (optional)",
+      "perAiHint": "Leave blank to use the global price in per-client breakdowns.",
+      "customPriceBadge": "Custom price (USD / 1M)",
+      "usingGlobalBadge": "Uses global price",
+      "clientPriceAria": "USD per million tokens for {{client}}",
+      "resetToGlobal": "Use global price",
+      "addClientPlaceholder": "Another AI name (e.g. opencode, zed)…",
+      "addClientButton": "Add",
+      "saveButton": "Save savings",
+      "invalidPrice": "Enter a valid global price (0 or higher).",
+      "invalidTps": "Enter a valid speed greater than 0.",
+      "invalidClientPrice": "Price for {{client}} must be a valid number (0 or higher)."
+    },
     "saved": "Changes saved",
     "engineTitle": "Hardware profile & engine",
     "engineSubtitle": "Change the tier, vector engine or embedding model selected during onboarding.",
@@ -617,7 +661,24 @@
     "manualHintJson": "Inside \"mcpServers\" if the file already exists; restart your AI afterwards.",
     "manualHintToml": "At the end of the file if it already exists (TOML format); restart Codex afterwards.",
     "copySnippet": "Copy snippet",
-    "httpEndpointHint": "Local Streamable HTTP endpoint also available at {{url}}"
+    "httpEndpointHint": "Local Streamable HTTP endpoint also available at {{url}}",
+    "permissions": {
+      "accessLabel": "Access",
+      "selectAria": "Access level for {{client}}",
+      "updatedNotice": "{{client}} access changed to \"{{level}}\".",
+      "otherClientsTitle": "Other detected AIs",
+      "otherClientsDesc": "Assistants seen in activity whose access you can manage here.",
+      "levels": {
+        "read_write": "Read and write",
+        "read": "Read only",
+        "none": "No access"
+      },
+      "explanations": {
+        "read_write": "Can search your memory and save new items.",
+        "read": "Can search your memory, but cannot save or modify anything.",
+        "none": "No access: cannot read from or save to your memory."
+      }
+    }
   },
   "capture": {
     "title": "Automatic capture",
@@ -783,6 +844,7 @@
     },
     "avoidedVsInjected": "{{avoided}} avoided · {{injected}} sent",
     "conservativeSavingsNote": "Conservative estimate: each file counts up to 2,000 tokens and at most once every 30 min per AI; saving does not count as savings.",
+    "adjustPricingLink": "Adjust prices in Settings → Savings",
     "sessionHint": "Tokens saved since Cobalt started.",
     "injectedShare": "Only {{pct}}% of full file size sent",
     "readsVsReuseTitle": "Reads vs Reusable Assets",
@@ -1407,6 +1469,7 @@
       "preference": "Preference",
       "suspicious": "Review: looks like an instruction"
     },
+    "suspiciousWarning": "An AI tried to save text that looks like an instruction; review it before accepting",
     "status": {
       "accepted": "Accepted",
       "rejected": "Discarded"

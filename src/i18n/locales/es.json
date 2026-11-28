@@ -382,6 +382,8 @@
     "vectorWeight": "Peso Vector",
     "ftsWeight": "Peso FTS",
     "includeArchived": "Incluir archivados",
+    "expandGraph": "Expandir grafo (1 salto)",
+    "relatedTo": "relacionada con «{{target}}»",
     "emptyHint": "Ejecuta una búsqueda para ver rangos vectoriales, BM25, fusión RRF y costo en tokens.",
     "injectedTokens": "Tokens inyectados",
     "savedTokens": "Tokens ahorrados",
@@ -420,11 +422,28 @@
     "title": "Limpiar Cerebro",
     "shortLabel": "Limpiar",
     "subtitle": "Detecta y fusiona memorias duplicadas o en conflicto.",
-    "rescan": "Reescanear duplicados",
+    "tabsAria": "Secciones de Limpiar Cerebro",
+    "tabs": {
+      "duplicates": "Duplicados",
+      "contradictions": "Contradicciones"
+    },
+    "rescan": "Reescanear duplicados y contradicciones",
     "scanning": "Analizando clústeres semánticos…",
     "cleanTitle": "El cerebro está limpio",
     "cleanDesc": "No se detectaron duplicados ni conflictos.",
     "mergedNotice": "{{count}} clúster(es) fusionado(s).",
+    "contradictionsResolvedNotice": "{{count}} contradicción(es) resuelta(s).",
+    "contradictionsEmptyTitle": "Sin contradicciones",
+    "contradictionsEmptyDesc": "Tus memorias activas no se contradicen entre sí.",
+    "showDismissedConflicts": "Mostrar {{count}} par(es) marcado(s) como correctos",
+    "keepA": "Quedarme con A",
+    "keepB": "Quedarme con B",
+    "bothCorrect": "Ambas son correctas",
+    "conflictReasons": {
+      "negation": "Una dice lo contrario de la otra",
+      "different_value": "Valores distintos para lo mismo",
+      "opposite_choice": "Elecciones opuestas"
+    },
     "similarity": "{{value}}% similitud",
     "keepBadge": "Conservar",
     "selectKeep": "Elegir principal",
@@ -433,6 +452,10 @@
       "duplicate": "Duplicado",
       "conflict": "Conflicto"
     }
+  },
+  "conflicts": {
+    "possibleToast_one": "Guardado, pero podría contradecir 1 memoria existente:",
+    "possibleToast_other": "Guardado, pero podría contradecir {{count}} memorias existentes:"
   },
   "settings": {
     "title": "Ajustes",
@@ -479,6 +502,27 @@
     "captureSessionHandoffsDesc": "Cuando termina una sesión con tu IA, guarda un resumen corto y temporal de lo último que hicieron para que la siguiente IA retome sin perder el hilo.",
     "captureGitCommitsTitle": "Registrar cambios confirmados (Git)",
     "captureGitCommitsDesc": "Guarda una nota breve por cada cambio confirmado (commit) y vuelve a indexar automáticamente los archivos modificados.",
+    "savings": {
+      "title": "Ahorro",
+      "subtitle": "Convierte los tokens ahorrados en dinero y tiempo estimados.",
+      "estimateNote": "Estimaciones: ajusta el precio al modelo que usas",
+      "globalPriceLabel": "Precio global (USD / 1M tokens)",
+      "globalPriceHint": "Se usa en totales y cuando una IA no tiene precio propio.",
+      "tokensPerSecondLabel": "Velocidad de referencia (tokens / segundo)",
+      "tokensPerSecondHint": "Sirve para estimar cuánto tiempo ahorras al evitar reenviar contexto.",
+      "perAiTitle": "Precio por IA (opcional)",
+      "perAiHint": "Déjalo vacío para usar el precio global en los desgloses por cliente.",
+      "customPriceBadge": "Precio personalizado (USD / 1M)",
+      "usingGlobalBadge": "Usa el precio global",
+      "clientPriceAria": "Precio USD por millón de tokens para {{client}}",
+      "resetToGlobal": "Usar precio global",
+      "addClientPlaceholder": "Nombre de otra IA (ej. opencode, zed)…",
+      "addClientButton": "Añadir",
+      "saveButton": "Guardar ahorro",
+      "invalidPrice": "Introduce un precio global válido (0 o mayor).",
+      "invalidTps": "Introduce una velocidad válida mayor que 0.",
+      "invalidClientPrice": "El precio para {{client}} debe ser un número válido (0 o mayor)."
+    },
     "saved": "Cambios guardados",
     "engineTitle": "Perfil de hardware y motor",
     "engineSubtitle": "Cambia el perfil, motor vectorial o modelo elegido durante el onboarding.",
@@ -617,7 +661,24 @@
     "manualHintJson": "Dentro de \"mcpServers\" si el archivo ya existe; reinicia la IA después.",
     "manualHintToml": "Al final del archivo si ya existe (formato TOML); reinicia Codex después.",
     "copySnippet": "Copiar bloque",
-    "httpEndpointHint": "También disponible por HTTP local (Streamable HTTP) en {{url}}"
+    "httpEndpointHint": "También disponible por HTTP local (Streamable HTTP) en {{url}}",
+    "permissions": {
+      "accessLabel": "Acceso",
+      "selectAria": "Nivel de acceso para {{client}}",
+      "updatedNotice": "Acceso de {{client}} cambiado a «{{level}}».",
+      "otherClientsTitle": "Otras IAs detectadas",
+      "otherClientsDesc": "Asistentes que ya usaron Cobalt y pueden configurarse aquí.",
+      "levels": {
+        "read_write": "Lectura y escritura",
+        "read": "Solo lectura",
+        "none": "Sin acceso"
+      },
+      "explanations": {
+        "read_write": "Puede consultar tu memoria y guardar cosas nuevas.",
+        "read": "Puede consultar tu memoria, pero no guardar ni cambiar nada.",
+        "none": "Sin acceso: no puede leer ni guardar en tu memoria."
+      }
+    }
   },
   "capture": {
     "title": "Captura automática",
@@ -783,6 +844,7 @@
     },
     "avoidedVsInjected": "{{avoided}} evitados · {{injected}} enviados",
     "conservativeSavingsNote": "Cálculo conservador: cada archivo cuenta como máximo 2.000 tokens y una vez cada 30 min por IA; guardar no cuenta como ahorro.",
+    "adjustPricingLink": "Ajustar precios en Ajustes → Ahorro",
     "sessionHint": "Tokens ahorrados desde que abriste Cobalt.",
     "injectedShare": "Solo se envió el {{pct}}% del tamaño completo",
     "readsVsReuseTitle": "Lecturas vs Reúso",
@@ -1407,6 +1469,7 @@
       "preference": "Preferencia",
       "suspicious": "Revisar: parece una instrucción"
     },
+    "suspiciousWarning": "Una IA intentó guardar texto con forma de orden; revísalo antes de aceptarlo",
     "status": {
       "accepted": "Aceptada",
       "rejected": "Descartada"

@@ -13,7 +13,7 @@ export type NavSection =
   | "settings";
 
 export type ToolsTab = "projects" | "web_bridge" | "importer" | "capsules" | "backup";
-export type SettingsSectionId = "ocr";
+export type SettingsSectionId = "ocr" | "savings";
 
 export interface OpenSettingsSectionOptions {
   autoInstall?: boolean;

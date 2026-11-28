@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Loader2, Pin, Search, SlidersHorizontal, X } from "lucide-react";
+import { AlertTriangle, Link2, Loader2, Pin, Search, SlidersHorizontal, X } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { staggerStyle } from "@/lib/motion";
+import { formatSavingsEstimate } from "@/lib/savings";
 import {
   useBranchesStore,
   useMemoryStore,
@@ -10,6 +11,12 @@ import {
 } from "@/stores";
 import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import type { FileAvailability, ProjectScope, SearchResponse, Uuid } from "@/types/contracts";
+
+function truncatePreview(text: string, maxLen = 58): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= maxLen) return collapsed;
+  return `${collapsed.slice(0, maxLen - 1).trimEnd()}…`;
+}
 
 interface RagDebuggerProps {
   onClose: () => void;
@@ -23,12 +30,14 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
   const setHighlightedNodeIds = useMemoryStore((s) => s.setHighlightedNodeIds);
   const activeBranchId = useBranchesStore((s) => s.activeBranchId);
   const defaultSearch = useSettingsStore((s) => s.settings.search);
+  const savingsSettings = useSettingsStore((s) => s.settings.savings);
 
   const [query, setQuery] = useState("");
   const [scopeKey, setScopeKey] = useState<string>("all");
   const [topK, setTopK] = useState<number>(defaultSearch.top_k);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [onlyReusable, setOnlyReusable] = useState(false);
+  const [expandGraph, setExpandGraph] = useState(true);
 
   const [useRrfOverride, setUseRrfOverride] = useState(true);
   const [rrfK, setRrfK] = useState<number>(defaultSearch.rrf.k);
@@ -109,6 +118,7 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
             }
           : null,
         record_hits: false,
+        expand_graph: expandGraph,
       });
       if (searchSeqRef.current !== seq) return;
       setResult(response);
@@ -284,7 +294,15 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 text-[11px] text-bone-muted">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 text-[11px] text-bone-muted">
+          <label className="inline-flex items-center gap-2">
+            <Toggle
+              checked={expandGraph}
+              ariaLabel={t("rag.expandGraph")}
+              onChange={setExpandGraph}
+            />
+            <span>{t("rag.expandGraph")}</span>
+          </label>
           <label className="inline-flex items-center gap-2">
             <Toggle
               checked={onlyReusable}
@@ -346,6 +364,11 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
                 <div className="mt-0.5 text-sm font-semibold text-verdigris">
                   {result.savings.saved_tokens.toLocaleString()}
                 </div>
+                {result.savings.saved_tokens > 0 && (
+                  <div className="mt-0.5 text-[10px] text-verdigris/85">
+                    {formatSavingsEstimate(result.savings.saved_tokens, savingsSettings).combined}
+                  </div>
+                )}
               </div>
               <div>
                 <div className="text-bone-subtle">{t("rag.avoidedTokens")}</div>
@@ -400,18 +423,32 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
 
               {result.hits.length === 0 ? (
                 <p className="text-xs text-bone-subtle">{t("rag.noHits")}</p>
-              ) : (
-                result.hits.map((hit, idx) => {
+              ) : (() => {
+                const hitsById = new Map(result.hits.map((h) => [h.memory.id, h.memory.content]));
+                const graphNodesById = new Map(graph?.nodes.map((n) => [n.id, n.preview]) ?? []);
+                return result.hits.map((hit, idx) => {
                   const fileModified =
                     hit.memory.source_doc_id !== null &&
                     docAvailability[hit.memory.source_doc_id] === "modified";
+                  const relatedId = hit.related_to ?? null;
+                  const relatedTarget = relatedId
+                    ? truncatePreview(
+                        hitsById.get(relatedId) ??
+                          graphNodesById.get(relatedId) ??
+                          relatedId.slice(0, 8),
+                      )
+                    : null;
                   return (
                     <button
                       key={hit.memory.id}
                       type="button"
                       onClick={() => onInspectMemory(hit.memory.id)}
                       style={staggerStyle(idx, 22, 8)}
-                      className="cobalt-stagger-item w-full space-y-2 rounded-[2px] border border-rule bg-surface-2 p-3 text-left transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3"
+                      className={`cobalt-stagger-item w-full space-y-2 rounded-[2px] border p-3 text-left transition-colors hover:border-cobalt-ink/60 hover:bg-surface-3 ${
+                        relatedId
+                          ? "border-cobalt-rule/55 bg-surface-2/65"
+                          : "border-rule bg-surface-2"
+                      }`}
                     >
                       <div className="flex items-center justify-between gap-2 font-mono text-[10px] tabular-nums">
                         <span className="font-semibold text-cobalt-ink">
@@ -421,6 +458,15 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
                           {t("brain.tokens", { count: hit.memory.chunk_tokens })}
                         </span>
                       </div>
+
+                      {relatedTarget && (
+                        <div className="inline-flex max-w-full items-center gap-1.5 rounded-[2px] border border-cobalt-rule/70 bg-cobalt-wash/70 px-2 py-0.5 font-mono text-[10px] text-cobalt-ink">
+                          <Link2 size={10} className="shrink-0" aria-hidden />
+                          <span className="truncate">
+                            {t("rag.relatedTo", { target: relatedTarget })}
+                          </span>
+                        </div>
+                      )}
 
                       {fileModified && (
                         <div className="inline-flex items-center gap-1.5 rounded-[2px] border border-ochre-rule bg-ochre-wash px-2 py-0.5 font-mono text-[10px] font-medium text-ochre">
@@ -456,8 +502,8 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
                       </div>
                     </button>
                   );
-                })
-              )}
+                });
+              })()}
             </div>
           </>
         )}

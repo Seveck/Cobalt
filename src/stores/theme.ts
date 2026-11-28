@@ -13,6 +13,7 @@ import { MINIMAL_THEME_MANIFEST } from "@/themes/minimal";
 import {
   BUILTIN_THEME_ID,
   type ClusterSizeMetric,
+  type ConflictHint,
   type InstalledTheme,
   type LayoutType,
   type ThemeManifest,
@@ -92,11 +93,12 @@ export interface OpenThemeEditorOptions {
 
 export interface ThemeToast {
   id: string;
-  kind: "ai_created" | "exported" | "saved" | "info";
+  kind: "ai_created" | "exported" | "saved" | "info" | "warning";
   message: string;
   themeId?: string;
   themeName?: string;
   applied?: boolean;
+  conflicts?: ConflictHint[];
 }
 
 let toastCounter = 0;
