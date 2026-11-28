@@ -24,7 +24,7 @@ import { pickSavePath, pickSinglePath, useFileDrop } from "@/lib/dialogs";
 import { formatBytes } from "@/lib/format";
 import { staggerStyle } from "@/lib/motion";
 import { isBuiltinThemeId, resolvePreviewTokens } from "@/lib/themeEngine";
-import { useSettingsStore, useThemeStore } from "@/stores";
+import { useSettingsStore, useThemeStore, useUiStore } from "@/stores";
 import { ThemeWarningsBanner } from "@/components/canvas3d";
 import { Skeleton } from "@/components/ui";
 import { MINIMAL_THEME_MANIFEST } from "@/themes/minimal";
@@ -60,6 +60,9 @@ export function ThemeStoreView() {
   const openThemeEditor = useThemeStore((s) => s.openThemeEditor);
   const pushThemeToast = useThemeStore((s) => s.pushThemeToast);
   const patchSettings = useSettingsStore((s) => s.patchSettings);
+  const optionalTools = useSettingsStore((s) => s.settings.mcp.optional_tools);
+  const openConnectorsSection = useUiStore((s) => s.openConnectorsSection);
+  const createThemeEnabled = optionalTools.includes("create_theme");
 
   const [builtinManifests, setBuiltinManifests] = useState<ThemeManifest[]>([]);
   const [userManifests, setUserManifests] = useState<Record<string, ThemeManifest>>({});
@@ -454,9 +457,23 @@ export function ThemeStoreView() {
               <Share2 size={13} className="shrink-0 text-cobalt-ink" aria-hidden />
               <span>{t("store.shareExplain")}</span>
             </div>
-            <div className="flex items-center gap-1.5 text-cobalt-ink">
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-cobalt-ink">
               <Sparkles size={13} className="shrink-0" aria-hidden />
               <span>{t("store.askAiHint")}</span>
+              <span className="text-bone-muted">
+                (
+                {createThemeEnabled
+                  ? t("store.askAiToolEnabledNote")
+                  : t("store.askAiToolRequiredNote")}{" "}
+                <button
+                  type="button"
+                  onClick={() => openConnectorsSection("ai_tools")}
+                  className="font-medium text-cobalt-ink underline decoration-cobalt-ink/50 underline-offset-2 hover:text-cobalt-bright"
+                >
+                  {t("nav.connectors")}
+                </button>
+                )
+              </span>
             </div>
           </div>
         </section>
