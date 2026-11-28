@@ -1,4 +1,11 @@
-# Cobalt — Frozen Contracts (v1.14.0)
+# Cobalt — Frozen Contracts (v1.15.0)
+
+> v1.15.0 (additive): per-AI permissions (`McpSettings.client_permissions`: none | read |
+> read_write; error kind `permission_denied`); prompt-injection defense (`injection::scan`,
+> `CompactMemory.suspicious`, instruction-like AI writes are held as `suspicious` proposals);
+> savings as money/time (`AppSettings.savings`); graph-expanded search (`SearchRequest.
+> expand_graph`, `SearchHit.related_to`), contradiction hints (`SaveOutcome.possible_conflicts`,
+> `find_conflicts`), schema v5.
 
 > v1.14.0 (additive): memory proposals — `MemoryProposal`, `ProposalKind`, `ProposalStatus`,
 > table `memory_proposals` (§2.3, schema v4), `HandoffRepository::{add_proposal, list_proposals,

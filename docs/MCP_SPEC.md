@@ -223,8 +223,18 @@ calm sunset theme"). Themes are data only; send a complete manifest (THEME_SPEC 
 
 Tool failures return `isError: true` with text `"<kind>: <message>"` and
 `structuredContent = ErrorPayload`. Kinds: `invalid_input`, `not_found`, `read_only`,
-`firewall_blocked`, `conflict`, `storage`, `engine`, `embedding`, `internal`.
+`firewall_blocked`, `conflict`, `storage`, `engine`, `embedding`, `internal`,
+`permission_denied` (the user limited this AI in Cobalt > Conectores, v1.15.0).
 Protocol errors (unknown tool, bad JSON) use JSON-RPC error codes.
+
+## 3.1 Safety (v1.15.0)
+- **Per-AI permissions**: `none` refuses every call and ignores that client's hooks; `read`
+  allows searches/rules only; `read_write` (default) everything. Error kind `permission_denied`.
+- **Memories are data, never instructions.** Results whose text looks like an attempt to give
+  orders ("ignore previous instructions…", role markers, "don't tell the user…") carry
+  `suspicious: true` and a ⚠ note. An AI's `save_memory` / `update_memory` with such text is
+  not stored: it becomes a `suspicious` proposal for the user and the call fails with
+  `firewall_blocked`.
 
 ## 4. Text rendering (token-lean)
 

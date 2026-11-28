@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.14.0";
+export const CONTRACT_VERSION = "1.15.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -113,7 +113,7 @@ export type ErrorKind =
   | "not_found" | "invalid_input" | "conflict" | "read_only" | "firewall_blocked"
   | "vault_locked" | "crypto" | "storage" | "engine" | "embedding" | "download"
   | "integrity" | "sandbox" | "daemon" | "io" | "serialization" | "cancelled"
-  | "unsupported" | "internal";
+  | "unsupported" | "internal" | "permission_denied";
 
 /** Shape of every rejected `invoke()` promise. */
 export interface ErrorPayload {
@@ -830,6 +830,18 @@ export interface McpSettings {
   rest_enabled: boolean;
   handoff_ttl_hours: number;
   tool_docstring_overrides: Record<string, string>;
+  /** Per-AI access; missing = read_write (v1.15.0). */
+  client_permissions: Record<string, ClientPermission>;
+}
+
+/** What one AI client may do with the user's memory (v1.15.0). */
+export type ClientPermission = "none" | "read" | "read_write";
+
+/** Saved tokens shown as money and time (v1.15.0); estimates. */
+export interface SavingsSettings {
+  usd_per_million_tokens: number;
+  client_prices: Record<string, number>;
+  tokens_per_second: number;
 }
 
 export interface OllamaSettings {
@@ -872,6 +884,7 @@ export interface AppSettings {
   mcp: McpSettings;
   ollama: OllamaSettings;
   capture: CaptureSettings;
+  savings: SavingsSettings;
 }
 
 // ============================================================================ themes
@@ -1252,7 +1265,8 @@ export interface DaemonStatus {
 
 // ---------------------------------------------------------------- memory proposals (v1.14.0)
 
-export type ProposalKind = "decision" | "fix" | "preference";
+/** `suspicious`: an AI tried to save instruction-like text (v1.15.0). */
+export type ProposalKind = "decision" | "fix" | "preference" | "suspicious";
 export type ProposalStatus = "pending" | "accepted" | "rejected";
 
 /** Something Cobalt noticed in an AI session; nothing is saved until the user accepts it. */

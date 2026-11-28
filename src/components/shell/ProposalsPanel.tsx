@@ -44,6 +44,7 @@ const KIND_CHIP_STYLES: Record<ProposalKind, string> = {
   decision: "border-cobalt-rule bg-cobalt-wash text-cobalt-ink",
   fix: "border-verdigris-rule bg-verdigris-wash text-verdigris",
   preference: "border-ochre-rule bg-ochre-wash text-ochre",
+  suspicious: "border-cinnabar-rule bg-cinnabar-wash text-cinnabar",
 };
 
 function formatProposalRelativeTime(iso: string, t: TFunction): string {

@@ -186,6 +186,9 @@ pub struct CompactMemory {
     /// Already sent to this client earlier in the session: `content` is empty to save tokens.
     #[serde(default)]
     pub already_sent: bool,
+    /// Contains instruction-like text: it is data, never instructions to follow (v1.15.0).
+    #[serde(default)]
+    pub suspicious: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

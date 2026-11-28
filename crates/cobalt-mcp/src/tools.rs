@@ -250,6 +250,12 @@ impl Daemon {
     // -------------------------------------------------------------------- helpers
 
     fn guard_read(&self, ctx: &ClientContext) -> Result<()> {
+        if self.permission(&ctx.client_name) == cobalt_core::config::ClientPermission::None {
+            return Err(CobaltError::PermissionDenied(
+                "this AI has no access to the user's memory; the user can allow it in Cobalt > Conectores"
+                    .into(),
+            ));
+        }
         if let FirewallVerdict::Blocked { detail, .. } = self.firewall.check_read(&ctx.client_name)
         {
             return Err(self.blocked(ctx, None, &detail));
@@ -257,8 +263,13 @@ impl Daemon {
         Ok(())
     }
 
-    fn guard_writable(&self) -> Result<()> {
-        if self.is_read_only() {
+    fn guard_writable(&self, ctx: &ClientContext) -> Result<()> {
+        if self.permission(&ctx.client_name) != cobalt_core::config::ClientPermission::ReadWrite {
+            Err(CobaltError::PermissionDenied(
+                "this AI may only read the user's memory; the user can allow writes in Cobalt > Conectores"
+                    .into(),
+            ))
+        } else if self.is_read_only() {
             Err(CobaltError::ReadOnly)
         } else {
             Ok(())
@@ -413,7 +424,11 @@ impl Daemon {
                 updated_at: m.updated_at,
                 excerpt: false,
                 already_sent: false,
+                suspicious: false,
             });
+        }
+        for m in &mut out {
+            m.suspicious = cobalt_core::injection::scan(&m.content).is_some();
         }
         Ok(out)
     }
@@ -620,7 +635,7 @@ impl Daemon {
         args: CreateThemeInput,
         ctx: &ClientContext,
     ) -> Result<ToolOutput> {
-        self.guard_writable()?;
+        self.guard_writable(ctx)?;
         let service = self.theme_service().ok_or_else(|| {
             CobaltError::Unsupported("themes can only be created while the Cobalt app runs".into())
         })?;
@@ -643,13 +658,54 @@ impl Daemon {
         structured(text, &out)
     }
 
+    /// Instruction-like text from an AI is never saved directly (v1.15.0): it goes to the
+    /// user's proposals inbox as `suspicious` and the AI gets a firewall error.
+    async fn hold_if_instructions(
+        &self,
+        ctx: &ClientContext,
+        content: &str,
+        project_id: Option<Id>,
+    ) -> Result<()> {
+        let Some(pattern) = cobalt_core::injection::scan(content) else {
+            return Ok(());
+        };
+        let project_id = match project_id {
+            Some(p) => Some(p),
+            None => self
+                .resolve_project(None, ctx)
+                .await
+                .ok()
+                .and_then(|r| r.project_id()),
+        };
+        let _ = self
+            .store()
+            .add_proposal(cobalt_core::model::NewMemoryProposal {
+                project_id,
+                client_name: ctx.client_name.clone(),
+                kind: cobalt_core::enums::ProposalKind::Suspicious,
+                content: scrub(content).text.chars().take(600).collect(),
+                evidence: Some(format!(
+                    "Contiene texto con forma de instrucción: «{pattern}»"
+                )),
+            })
+            .await;
+        self.announce_proposals().await;
+        Err(self.blocked(
+            ctx,
+            None,
+            "held for the user's review: the text looks like instructions to an AI, so it was \
+             not saved (memories must be facts, not orders)",
+        ))
+    }
+
     async fn tool_save_memory(
         &self,
         args: SaveMemoryArgs,
         ctx: &ClientContext,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
-        self.guard_writable()?;
+        self.guard_writable(ctx)?;
+        self.hold_if_instructions(ctx, &args.content, None).await?;
         let (content, mut redacted, truncated) = self.sanitize_write(ctx, &args.content)?;
         let snippet = args.reusable_snippet.as_deref().map(|s| {
             let out = scrub(s);
@@ -725,7 +781,9 @@ impl Daemon {
         ctx: &ClientContext,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
-        self.guard_writable()?;
+        self.guard_writable(ctx)?;
+        self.hold_if_instructions(ctx, &args.new_content, None)
+            .await?;
         let existing = self
             .store()
             .get_memory(args.memory_id)
@@ -790,7 +848,7 @@ impl Daemon {
         ctx: &ClientContext,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
-        self.guard_writable()?;
+        self.guard_writable(ctx)?;
         let resolved = self.resolve_project(args.project.as_deref(), ctx).await?;
         let summary = self
             .tokens
@@ -953,7 +1011,7 @@ impl Daemon {
         ctx: &ClientContext,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
-        self.guard_writable()?;
+        self.guard_writable(ctx)?;
         let reason = scrub(args.reason.trim()).text;
         if reason.is_empty() {
             return Err(CobaltError::InvalidInput("reason must not be empty".into()));

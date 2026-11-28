@@ -473,6 +473,8 @@ pub async fn accept_proposal(
     let category = match proposal.kind {
         ProposalKind::Preference => MemoryCategory::Preference,
         ProposalKind::Decision | ProposalKind::Fix => MemoryCategory::Decision,
+        // The user reviewed instruction-like text and chose to keep it: store it as a note.
+        ProposalKind::Suspicious => MemoryCategory::Note,
     };
     let outcome = {
         let _slot = state.daemon.write_slot().await;

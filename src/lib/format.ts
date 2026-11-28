@@ -232,6 +232,7 @@ export function createDefaultSettings(): AppSettings {
       rest_enabled: true,
       handoff_ttl_hours: 48,
       tool_docstring_overrides: {},
+      client_permissions: {},
     },
     ollama: {
       base_url: "http://127.0.0.1:11434",
@@ -244,6 +245,11 @@ export function createDefaultSettings(): AppSettings {
       ocr_model_id: "paddleocr-latin",
       session_context: true,
       proposals: true,
+    },
+    savings: {
+      usd_per_million_tokens: 3,
+      client_prices: {},
+      tokens_per_second: 1000,
     },
   };
 }

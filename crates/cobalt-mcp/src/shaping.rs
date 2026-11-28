@@ -117,6 +117,7 @@ mod tests {
             updated_at: cobalt_core::ids::now(),
             excerpt: false,
             already_sent: false,
+            suspicious: false,
         }
     }
     fn words(t: &str) -> usize {

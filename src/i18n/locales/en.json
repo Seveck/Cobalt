@@ -1404,7 +1404,8 @@
     "kind": {
       "decision": "Decision",
       "fix": "Fix",
-      "preference": "Preference"
+      "preference": "Preference",
+      "suspicious": "Review: looks like an instruction"
     },
     "status": {
       "accepted": "Accepted",

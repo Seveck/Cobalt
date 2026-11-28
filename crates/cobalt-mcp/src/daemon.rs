@@ -158,6 +158,19 @@ impl Daemon {
         Ok(read_only)
     }
 
+    // ------------------------------------------------------------------ permissions
+
+    /// What the user allows this AI client to do (contract v1.15.0); default read + write.
+    pub fn permission(&self, client: &str) -> cobalt_core::config::ClientPermission {
+        self.config
+            .get()
+            .mcp
+            .client_permissions
+            .get(client)
+            .copied()
+            .unwrap_or_default()
+    }
+
     // ------------------------------------------------------------------ themes
 
     /// Installs the app's theme service (once); without it `create_theme` is unavailable.

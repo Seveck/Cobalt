@@ -163,7 +163,10 @@ impl Daemon {
             return String::new();
         }
         let ctx = hook_client(env);
-        if ctx.client_name.is_empty() || ctx.cwd.is_none() {
+        if ctx.client_name.is_empty()
+            || ctx.cwd.is_none()
+            || self.permission(&ctx.client_name) == cobalt_core::config::ClientPermission::None
+        {
             return String::new();
         }
         let mut parts = Vec::new();
@@ -212,7 +215,9 @@ impl Daemon {
     /// Handles one hook event. Never fails loudly: hooks must not disturb the user's CLI.
     pub async fn handle_hook(&self, env: HookEnvelope) -> Result<()> {
         let ctx = hook_client(&env);
-        if ctx.client_name.is_empty() {
+        if ctx.client_name.is_empty()
+            || self.permission(&ctx.client_name) == cobalt_core::config::ClientPermission::None
+        {
             return Ok(());
         }
         let resolved = if ctx.cwd.is_some() {
@@ -515,7 +520,10 @@ impl Daemon {
         files: &[String],
         force: bool,
     ) {
-        if !self.config.get().capture.session_handoffs || self.is_read_only() {
+        if !self.config.get().capture.session_handoffs
+            || self.is_read_only()
+            || self.permission(&ctx.client_name) != cobalt_core::config::ClientPermission::ReadWrite
+        {
             return;
         }
         {

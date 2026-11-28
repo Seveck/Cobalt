@@ -193,6 +193,43 @@ pub struct McpSettings {
     pub handoff_ttl_hours: u32,
     /// Pro mode: per-tool docstring overrides keyed by tool name.
     pub tool_docstring_overrides: BTreeMap<String, String>,
+    /// Per-AI access keyed by client name (`claude-code`, `codex`, …); missing = read_write
+    /// (contract v1.15.0).
+    pub client_permissions: BTreeMap<String, ClientPermission>,
+}
+
+/// What one AI client may do with the user's memory (contract v1.15.0).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClientPermission {
+    /// No access: every tool call is refused and its hooks are ignored.
+    None,
+    /// Search and rules only.
+    Read,
+    #[default]
+    ReadWrite,
+}
+
+/// How saved tokens are shown as money and time (contract v1.15.0). Estimates.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavingsSettings {
+    /// Price per million input tokens used when a client has no own price.
+    pub usd_per_million_tokens: f64,
+    /// Per-client price per million input tokens.
+    pub client_prices: BTreeMap<String, f64>,
+    /// Tokens an AI processes per second, to turn saved tokens into time.
+    pub tokens_per_second: f64,
+}
+
+impl Default for SavingsSettings {
+    fn default() -> Self {
+        Self {
+            usd_per_million_tokens: 3.0,
+            client_prices: BTreeMap::new(),
+            tokens_per_second: 1000.0,
+        }
+    }
 }
 
 impl Default for McpSettings {
@@ -203,6 +240,7 @@ impl Default for McpSettings {
             rest_enabled: true,
             handoff_ttl_hours: 48,
             tool_docstring_overrides: BTreeMap::new(),
+            client_permissions: BTreeMap::new(),
         }
     }
 }
@@ -282,6 +320,7 @@ pub struct AppSettings {
     pub mcp: McpSettings,
     pub ollama: OllamaSettings,
     pub capture: CaptureSettings,
+    pub savings: SavingsSettings,
 }
 
 /// Id of the only theme bundled with the base app.
@@ -318,6 +357,7 @@ impl Default for AppSettings {
             mcp: McpSettings::default(),
             ollama: OllamaSettings::default(),
             capture: CaptureSettings::default(),
+            savings: SavingsSettings::default(),
         }
     }
 }

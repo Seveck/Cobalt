@@ -199,7 +199,10 @@ impl Daemon {
         assistant: Option<&str>,
         user: Option<&str>,
     ) {
-        if !self.config.get().capture.proposals || self.is_read_only() {
+        if !self.config.get().capture.proposals
+            || self.is_read_only()
+            || self.permission(client) != cobalt_core::config::ClientPermission::ReadWrite
+        {
             return;
         }
         let mut added = 0;

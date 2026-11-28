@@ -1404,7 +1404,8 @@
     "kind": {
       "decision": "Decisión",
       "fix": "Arreglo",
-      "preference": "Preferencia"
+      "preference": "Preferencia",
+      "suspicious": "Revisar: parece una instrucción"
     },
     "status": {
       "accepted": "Aceptada",

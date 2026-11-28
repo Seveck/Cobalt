@@ -46,6 +46,9 @@ pub enum CobaltError {
     Cancelled,
     #[error("unsupported: {0}")]
     Unsupported(String),
+    /// The user did not allow this AI client to do that (contract v1.15.0).
+    #[error("permission denied: {0}")]
+    PermissionDenied(String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -73,6 +76,7 @@ pub enum ErrorKind {
     Cancelled,
     Unsupported,
     Internal,
+    PermissionDenied,
 }
 
 /// Wire representation of an error crossing IPC / HTTP / MCP boundaries.
@@ -103,6 +107,7 @@ impl CobaltError {
             Self::Serialization(_) => ErrorKind::Serialization,
             Self::Cancelled => ErrorKind::Cancelled,
             Self::Unsupported(_) => ErrorKind::Unsupported,
+            Self::PermissionDenied(_) => ErrorKind::PermissionDenied,
             Self::Internal(_) => ErrorKind::Internal,
         }
     }
