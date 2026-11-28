@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -23,6 +23,9 @@ import type { ConflictPair, DuplicateCluster, Memory, Project, Uuid } from "@/ty
 type CleanTab = "duplicates" | "contradictions";
 
 const DISMISSED_CONFLICTS_STORAGE_KEY = "cobalt.dismissedConflictPairs";
+/** Cap passive 3D highlights so large scan results never cause GPU sprite overdraw lag. */
+const MAX_PASSIVE_HIGHLIGHT_NODES = 18;
+const CONFLICTS_YIELD_MS = 80;
 
 function conflictPairKey(aId: Uuid, bId: Uuid): string {
   return aId < bId ? `${aId}:${bId}` : `${bId}:${aId}`;
@@ -83,12 +86,21 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
   );
   const [keepChoices, setKeepChoices] = useState<Record<number, Uuid>>({});
   const [extraProjects, setExtraProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingDuplicates, setLoadingDuplicates] = useState(true);
+  const [loadingConflicts, setLoadingConflicts] = useState(true);
+  const [hoveredHighlightIds, setHoveredHighlightIds] = useState<readonly Uuid[] | null>(null);
   const [mergingIdx, setMergingIdx] = useState<number | null>(null);
   const [resolvingPairKey, setResolvingPairKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mergedCount, setMergedCount] = useState(0);
   const [resolvedConflictsCount, setResolvedConflictsCount] = useState(0);
+
+  const scanSeqRef = useRef(0);
+  const mountedRef = useRef(true);
+  const conflictYieldTimerRef = useRef<number | null>(null);
+  const loading = loadingDuplicates || loadingConflicts;
+  const activeTabLoading =
+    activeTab === "duplicates" ? loadingDuplicates : loadingConflicts;
 
   const nodeMap = useMemo(() => {
     return new Map(graph?.nodes.map((n) => [n.id, n]) ?? []);
@@ -116,62 +128,142 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
   const hiddenDismissedCount = conflicts.length - visibleConflicts.length;
 
   const scan = useCallback(async () => {
-    setLoading(true);
+    const seq = ++scanSeqRef.current;
+    if (conflictYieldTimerRef.current !== null) {
+      window.clearTimeout(conflictYieldTimerRef.current);
+      conflictYieldTimerRef.current = null;
+    }
+
+    setLoadingDuplicates(true);
+    setLoadingConflicts(true);
+    setHoveredHighlightIds(null);
     setError(null);
+
+    // Stage 1: run duplicate scan first so we never run two heavy O(N^2) backend scans in parallel
     try {
-      const [dupRes, conflictRes, projectsRes] = await Promise.allSettled([
-        backendCall("find_duplicates"),
-        backendCall("find_conflicts"),
-        backendCall("list_projects", { include_archived: true }),
-      ]);
-
-      if (dupRes.status === "fulfilled") {
-        setClusters(dupRes.value);
-        const defaults: Record<number, Uuid> = {};
-        dupRes.value.forEach((c, idx) => {
-          defaults[idx] = c.suggested_keep_id;
-        });
-        setKeepChoices(defaults);
-      } else {
-        throw dupRes.reason;
-      }
-
-      if (conflictRes.status === "fulfilled") {
-        setConflicts(conflictRes.value);
-      } else if (isUnsupportedError(conflictRes.reason)) {
-        setConflicts([]);
-      } else {
-        setError(
-          conflictRes.reason instanceof Error
-            ? conflictRes.reason.message
-            : String(conflictRes.reason),
-        );
-      }
-
-      if (projectsRes.status === "fulfilled") {
-        setExtraProjects(projectsRes.value.map((s) => s.project));
-      }
+      const dupClusters = await backendCall("find_duplicates");
+      if (!mountedRef.current || scanSeqRef.current !== seq) return;
+      setClusters(dupClusters);
+      const defaults: Record<number, Uuid> = {};
+      dupClusters.forEach((c, idx) => {
+        defaults[idx] = c.suggested_keep_id;
+      });
+      setKeepChoices(defaults);
     } catch (err: unknown) {
+      if (!mountedRef.current || scanSeqRef.current !== seq) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (mountedRef.current && scanSeqRef.current === seq) {
+        setLoadingDuplicates(false);
+      }
     }
+
+    if (!mountedRef.current || scanSeqRef.current !== seq) return;
+
+    // Brief yield so UI & 3D frame loop stay responsive between the two heavy backend scans
+    await new Promise<void>((resolve) => {
+      conflictYieldTimerRef.current = window.setTimeout(() => {
+        conflictYieldTimerRef.current = null;
+        resolve();
+      }, CONFLICTS_YIELD_MS);
+    });
+    if (!mountedRef.current || scanSeqRef.current !== seq) return;
+
+    // Stage 2: run contradiction scan sequentially after duplicates finish
+    try {
+      const conflictPairs = await backendCall("find_conflicts");
+      if (!mountedRef.current || scanSeqRef.current !== seq) return;
+      setConflicts(conflictPairs);
+    } catch (err: unknown) {
+      if (!mountedRef.current || scanSeqRef.current !== seq) return;
+      if (isUnsupportedError(err)) {
+        setConflicts([]);
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (mountedRef.current && scanSeqRef.current === seq) {
+        setLoadingConflicts(false);
+      }
+    }
+
+    if (!mountedRef.current || scanSeqRef.current !== seq) return;
+
+    // Only load archived projects if we don't already have them populated
+    void backendCall("list_projects", { include_archived: true })
+      .then((list) => {
+        if (!mountedRef.current || scanSeqRef.current !== seq) return;
+        setExtraProjects(list.map((s) => s.project));
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
-    void scan();
+    mountedRef.current = true;
+    // Defer heavy IPC by one animation frame so the drawer and loading skeleton paint smoothly first
+    const rafId = window.requestAnimationFrame(() => {
+      void scan();
+    });
     return () => {
+      mountedRef.current = false;
+      window.cancelAnimationFrame(rafId);
+      if (conflictYieldTimerRef.current !== null) {
+        window.clearTimeout(conflictYieldTimerRef.current);
+        conflictYieldTimerRef.current = null;
+      }
       setHighlightedNodeIds([]);
     };
   }, [scan, setHighlightedNodeIds]);
 
   useEffect(() => {
-    if (activeTab === "duplicates") {
-      setHighlightedNodeIds(clusters.flatMap((c) => c.memory_ids));
-    } else {
-      setHighlightedNodeIds(visibleConflicts.flatMap((p) => [p.a.id, p.b.id]));
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        mergingIdx === null &&
+        resolvingPairKey === null
+      ) {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mergingIdx, onClose, resolvingPairKey]);
+
+  useEffect(() => {
+    if (activeTabLoading) {
+      setHighlightedNodeIds([]);
+      return;
     }
-  }, [activeTab, clusters, setHighlightedNodeIds, visibleConflicts]);
+    if (hoveredHighlightIds && hoveredHighlightIds.length > 0) {
+      setHighlightedNodeIds(hoveredHighlightIds);
+      return;
+    }
+    const passive: Uuid[] = [];
+    if (activeTab === "duplicates") {
+      for (const c of clusters) {
+        for (const id of c.memory_ids) {
+          passive.push(id);
+          if (passive.length >= MAX_PASSIVE_HIGHLIGHT_NODES) break;
+        }
+        if (passive.length >= MAX_PASSIVE_HIGHLIGHT_NODES) break;
+      }
+    } else {
+      for (const p of visibleConflicts) {
+        passive.push(p.a.id, p.b.id);
+        if (passive.length >= MAX_PASSIVE_HIGHLIGHT_NODES) break;
+      }
+    }
+    setHighlightedNodeIds(passive);
+  }, [
+    activeTab,
+    activeTabLoading,
+    clusters,
+    hoveredHighlightIds,
+    setHighlightedNodeIds,
+    visibleConflicts,
+  ]);
 
   const handleMergeCluster = async (clusterIdx: number) => {
     if (readOnly) return;
@@ -278,7 +370,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
 
   return (
     <aside
-      className={`cobalt-drawer-enter-right flex h-full w-full flex-col border-l border-rule-strong bg-surface text-bone shadow-[-12px_0_32px_rgba(0,0,0,0.65)] transition-[max-width] duration-200 ${
+      className={`cobalt-drawer-enter-right flex h-full w-full flex-col border-l border-rule-strong bg-surface text-bone shadow-[-12px_0_32px_rgba(0,0,0,0.65)] ${
         activeTab === "contradictions" ? "max-w-[600px]" : "max-w-[440px]"
       }`}
     >
@@ -377,7 +469,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
       )}
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
-        {loading ? (
+        {activeTabLoading ? (
           <div className="space-y-3" aria-busy="true" aria-label={t("cleanBrain.scanning")}>
             {[0, 1, 2].map((idx) => (
               <div
@@ -408,8 +500,10 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
               return (
                 <div
                   key={`${cluster.suggested_keep_id}-${idx}`}
-                  style={staggerStyle(idx, 24, 8)}
-                  className="cobalt-stagger-item space-y-2.5 rounded-[2px] border border-rule bg-void p-3"
+                  style={idx < 8 ? staggerStyle(idx, 24, 8) : undefined}
+                  onMouseEnter={() => setHoveredHighlightIds(cluster.memory_ids)}
+                  onMouseLeave={() => setHoveredHighlightIds(null)}
+                  className={`${idx < 8 ? "cobalt-stagger-item " : ""}space-y-2.5 rounded-[2px] border border-rule bg-void p-3`}
                 >
                   <div className="flex items-center justify-between gap-2 font-mono text-[10px]">
                     <span
@@ -529,8 +623,10 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
             return (
               <div
                 key={pairKey}
-                style={staggerStyle(idx, 24, 8)}
-                className="cobalt-stagger-item space-y-2.5 rounded-[2px] border border-ochre-rule/70 bg-void p-3"
+                style={idx < 8 ? staggerStyle(idx, 24, 8) : undefined}
+                onMouseEnter={() => setHoveredHighlightIds([pair.a.id, pair.b.id])}
+                onMouseLeave={() => setHoveredHighlightIds(null)}
+                className={`${idx < 8 ? "cobalt-stagger-item " : ""}space-y-2.5 rounded-[2px] border border-ochre-rule/70 bg-void p-3`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px]">
                   <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-ochre-rule bg-ochre-wash px-2 py-0.5 font-medium text-ochre">

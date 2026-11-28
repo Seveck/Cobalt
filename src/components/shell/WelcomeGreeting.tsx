@@ -10,7 +10,6 @@ import {
   Radio,
   Sun,
   Sunset,
-  TrendingDown,
   X,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
@@ -21,7 +20,6 @@ import {
   getDayPeriod,
 } from "@/lib/format";
 import { isUnsortedProject } from "@/lib/projects";
-import { formatSavingsEstimate } from "@/lib/savings";
 import { useMemoryStore, useSettingsStore, useUiStore } from "@/stores";
 import type {
   DaemonStatus,
@@ -35,17 +33,9 @@ const FADE_OUT_MS = 220;
 
 interface WelcomeSnapshot {
   loaded: boolean;
-  totalSavedTokens: number;
-  todaySavedTokens: number;
   lastActivity: TelemetryLog | null;
   projectsFallback: ProjectStats[];
   daemonFallback: DaemonStatus | null;
-}
-
-function getLocalStartOfDayIso(): string {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  return start.toISOString();
 }
 
 function formatRelativeAgo(iso: string, t: TFunction): string {
@@ -90,14 +80,11 @@ export function WelcomeGreeting() {
   const setActiveNav = useUiStore((s) => s.setActiveNav);
 
   const userDisplayName = useSettingsStore((s) => s.settings.user_display_name);
-  const savingsSettings = useSettingsStore((s) => s.settings.savings);
   const daemonStatus = useSettingsStore((s) => s.daemonStatus);
   const graph = useMemoryStore((s) => s.graph);
 
   const [snapshot, setSnapshot] = useState<WelcomeSnapshot>({
     loaded: false,
-    totalSavedTokens: 0,
-    todaySavedTokens: 0,
     lastActivity: null,
     projectsFallback: [],
     daemonFallback: null,
@@ -133,11 +120,8 @@ export function WelcomeGreeting() {
     if (welcomeDismissed) return;
 
     let cancelled = false;
-    const todayStart = getLocalStartOfDayIso();
 
     void Promise.allSettled([
-      backendCall("get_telemetry_summary", { from: null, to: null, session_only: false }),
-      backendCall("get_telemetry_summary", { from: todayStart, to: null, session_only: false }),
       backendCall("query_telemetry", {
         client_name: null,
         project_id: null,
@@ -150,14 +134,10 @@ export function WelcomeGreeting() {
       }),
       backendCall("list_projects", { include_archived: false }),
       backendCall("get_daemon_status"),
-    ]).then(([totalRes, todayRes, lastRes, projectsRes, daemonRes]) => {
+    ]).then(([lastRes, projectsRes, daemonRes]) => {
       if (cancelled) return;
       setSnapshot({
         loaded: true,
-        totalSavedTokens:
-          totalRes.status === "fulfilled" ? totalRes.value.total_saved_tokens : 0,
-        todaySavedTokens:
-          todayRes.status === "fulfilled" ? todayRes.value.total_saved_tokens : 0,
         lastActivity:
           lastRes.status === "fulfilled" ? (lastRes.value.items[0] ?? null) : null,
         projectsFallback: projectsRes.status === "fulfilled" ? projectsRes.value : [],
@@ -311,29 +291,6 @@ export function WelcomeGreeting() {
                     memories: formatTokenCount(memoriesCount, lang),
                     projects: formatTokenCount(projectsCount, lang),
                   })}
-            </span>
-          </li>
-
-          <li className="flex items-start gap-2">
-            <TrendingDown size={13} className="mt-0.5 shrink-0 text-verdigris" aria-hidden />
-            <span className="leading-snug">
-              {snapshot.totalSavedTokens === 0 &&
-              snapshot.todaySavedTokens === 0 &&
-              !snapshot.lastActivity ? (
-                t("welcome.noSavingsYet")
-              ) : (
-                <>
-                  {t("welcome.tokensFact", {
-                    total: formatTokenCount(snapshot.totalSavedTokens, lang),
-                    today: formatTokenCount(snapshot.todaySavedTokens, lang),
-                  })}
-                  {snapshot.totalSavedTokens > 0 && (
-                    <span className="ml-1.5 font-mono text-[10px] text-verdigris/90">
-                      ({formatSavingsEstimate(snapshot.totalSavedTokens, savingsSettings).combined})
-                    </span>
-                  )}
-                </>
-              )}
             </span>
           </li>
 

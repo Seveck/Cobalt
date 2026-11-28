@@ -863,13 +863,28 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
               {/* Inline Vault Unlock / Setup prompt */}
               {vaultPromptOpen && (
                 <div className="space-y-2 rounded-[2px] border border-cobalt-rule bg-cobalt-wash p-3">
-                  <div className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-cobalt-ink">
-                    <KeyRound size={11} aria-hidden />
-                    <span>
-                      {vaultStatus && !vaultStatus.initialized
-                        ? t("inspector.vaultSetupTitle")
-                        : t("inspector.vaultUnlockTitle")}
-                    </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-cobalt-ink">
+                      <KeyRound size={11} aria-hidden />
+                      <span>
+                        {vaultStatus && !vaultStatus.initialized
+                          ? t("inspector.vaultSetupTitle")
+                          : t("inspector.vaultUnlockTitle")}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setVaultPromptOpen(false);
+                        setVaultPassword("");
+                        setPendingVaultAction(null);
+                      }}
+                      aria-label={t("common.close")}
+                      className="rounded-[2px] p-0.5 text-bone-muted hover:bg-surface-2 hover:text-bone disabled:opacity-45"
+                    >
+                      <X size={12} aria-hidden />
+                    </button>
                   </div>
                   <div className="flex gap-1.5">
                     <input
@@ -877,7 +892,14 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                       value={vaultPassword}
                       onChange={(e) => setVaultPassword(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") void handleSubmitVaultPassword();
+                        if (e.key === "Enter") {
+                          void handleSubmitVaultPassword();
+                        } else if (e.key === "Escape" && !busy) {
+                          e.preventDefault();
+                          setVaultPromptOpen(false);
+                          setVaultPassword("");
+                          setPendingVaultAction(null);
+                        }
                       }}
                       placeholder={t("inspector.vaultPasswordPlaceholder")}
                       className="h-8 flex-1 rounded-[2px] border border-rule-strong bg-void px-2.5 font-mono text-xs text-bone focus:border-cobalt-ink focus:outline-none"

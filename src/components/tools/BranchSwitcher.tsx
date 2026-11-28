@@ -37,8 +37,18 @@ export function BranchSwitcher() {
         setOpen(false);
       }
     };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
+        setOpen(false);
+      }
+    };
     document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [open]);
 
   const handleSwitch = async (id: string) => {

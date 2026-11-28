@@ -342,7 +342,7 @@ export function ThemeStoreView() {
         </div>
       )}
 
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="@container mx-auto max-w-6xl space-y-6">
         {/* Header */}
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
           <div>
@@ -522,7 +522,7 @@ export function ThemeStoreView() {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 items-stretch gap-4 @xl:grid-cols-2 @4xl:grid-cols-3">
               {myThemes.map((theme, idx) => {
                 const isActive = activeThemeId === theme.id;
                 const isBusy = busyId === theme.id;
@@ -542,7 +542,7 @@ export function ThemeStoreView() {
                   <article
                     key={theme.id}
                     style={staggerStyle(idx, 24, 6)}
-                    className={`cobalt-stagger-item flex flex-col overflow-hidden rounded-[2px] border transition-colors ${
+                    className={`@container/card cobalt-stagger-item flex h-full flex-col overflow-hidden rounded-[2px] border transition-colors ${
                       isActive
                         ? "border-cobalt-rule bg-cobalt-wash/35 ring-1 ring-cobalt/40"
                         : "border-rule bg-surface hover:border-rule-strong"
@@ -588,26 +588,26 @@ export function ThemeStoreView() {
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-rule pt-3">
-                        <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 border-t border-rule pt-3">
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                           {isActive ? (
-                            <span className="inline-flex items-center gap-1 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2 py-1 font-mono text-[10px] font-semibold text-verdigris">
-                              <Check size={11} aria-hidden />
-                              {t("store.inUse")}
+                            <span className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2 font-mono text-[10px] font-semibold text-verdigris">
+                              <Check size={11} className="shrink-0" aria-hidden />
+                              <span>{t("store.inUse")}</span>
                             </span>
                           ) : (
                             <button
                               type="button"
                               disabled={isBusy}
                               onClick={() => void handleApplyTheme(theme.id, theme.name)}
-                              className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[10px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
+                              className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 font-mono text-[10px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
                             >
                               {isBusy ? (
-                                <Loader2 size={10} className="animate-spin" aria-hidden />
+                                <Loader2 size={10} className="shrink-0 animate-spin" aria-hidden />
                               ) : (
-                                <Sparkles size={10} aria-hidden />
+                                <Sparkles size={10} className="shrink-0" aria-hidden />
                               )}
-                              {t("store.applyShort")}
+                              <span>{t("store.applyShort")}</span>
                             </button>
                           )}
 
@@ -615,24 +615,28 @@ export function ThemeStoreView() {
                             type="button"
                             disabled={isBusy}
                             onClick={() => void handleEditUserTheme(theme.id)}
-                            className="inline-flex items-center gap-1 rounded-[2px] border border-rule-strong bg-surface-2 px-2 py-1 font-mono text-[10px] text-bone hover:border-cobalt-ink/60 disabled:opacity-45"
+                            title={t("store.editButton")}
+                            aria-label={t("store.editButton")}
+                            className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-[2px] border border-rule-strong bg-surface-2 px-2 font-mono text-[10px] text-bone hover:border-cobalt-ink/60 disabled:opacity-45"
                           >
-                            <Pencil size={10} aria-hidden />
-                            {t("store.editButton")}
+                            <Pencil size={10} className="shrink-0" aria-hidden />
+                            <span className="hidden @[230px]/card:inline">{t("store.editButton")}</span>
                           </button>
 
                           <button
                             type="button"
                             disabled={isBusy || isExporting}
                             onClick={() => void handleExportTheme(theme.id, theme.name)}
-                            className="inline-flex items-center gap-1 rounded-[2px] border border-rule-strong bg-surface-2 px-2 py-1 font-mono text-[10px] text-bone hover:border-cobalt-ink/60 disabled:opacity-45"
+                            title={t("store.exportButton")}
+                            aria-label={t("store.exportButton")}
+                            className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-[2px] border border-rule-strong bg-surface-2 px-2 font-mono text-[10px] text-bone hover:border-cobalt-ink/60 disabled:opacity-45"
                           >
                             {isExporting ? (
-                              <Loader2 size={10} className="animate-spin" aria-hidden />
+                              <Loader2 size={10} className="shrink-0 animate-spin" aria-hidden />
                             ) : (
-                              <Share2 size={10} aria-hidden />
+                              <Share2 size={10} className="shrink-0" aria-hidden />
                             )}
-                            {t("store.exportButton")}
+                            <span className="hidden @[270px]/card:inline">{t("store.exportButton")}</span>
                           </button>
                         </div>
 
@@ -642,10 +646,10 @@ export function ThemeStoreView() {
                           onClick={() => void handleUninstallTheme(theme.id)}
                           aria-label={t("store.deleteButton")}
                           title={t("store.deleteButton")}
-                          className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2 py-1 font-mono text-[10px] text-cinnabar hover:bg-cinnabar hover:text-on-accent disabled:opacity-45"
+                          className="inline-flex h-7 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2 font-mono text-[10px] text-cinnabar hover:bg-cinnabar hover:text-on-accent disabled:opacity-45"
                         >
-                          <Trash2 size={10} aria-hidden />
-                          {t("store.deleteButton")}
+                          <Trash2 size={11} className="shrink-0" aria-hidden />
+                          <span className="hidden @[310px]/card:inline">{t("store.deleteButton")}</span>
                         </button>
                       </div>
                     </div>
@@ -669,7 +673,7 @@ export function ThemeStoreView() {
 
           {loadingBuiltins && builtinManifests.length === 0 ? (
             <div
-              className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
+              className="grid grid-cols-1 gap-4 @xl:grid-cols-2 @4xl:grid-cols-3"
               aria-busy="true"
               aria-label={t("store.loadingBuiltins")}
             >
@@ -691,7 +695,7 @@ export function ThemeStoreView() {
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 items-stretch gap-4 @xl:grid-cols-2 @4xl:grid-cols-3">
               {builtinManifests.map((theme, idx) => {
                 const isActive = activeThemeId === theme.id;
                 const isBusy = busyId === theme.id;
@@ -708,7 +712,7 @@ export function ThemeStoreView() {
                   <article
                     key={theme.id}
                     style={staggerStyle(idx, 26, 6)}
-                    className={`cobalt-stagger-item flex flex-col overflow-hidden rounded-[2px] border transition-colors ${
+                    className={`@container/card cobalt-stagger-item flex h-full flex-col overflow-hidden rounded-[2px] border transition-colors ${
                       isActive
                         ? "border-cobalt-rule bg-cobalt-wash/35 ring-1 ring-cobalt/40"
                         : "border-rule bg-surface hover:border-rule-strong"
@@ -719,8 +723,8 @@ export function ThemeStoreView() {
                     <div className="flex flex-1 flex-col justify-between gap-3 p-4">
                       <div className="space-y-2">
                         <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <h3 className="text-base font-semibold tracking-tight text-bone">
+                          <div className="min-w-0">
+                            <h3 className="truncate text-base font-semibold tracking-tight text-bone">
                               {theme.name}
                             </h3>
                             <div className="mt-1 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-bone-subtle">
@@ -744,7 +748,7 @@ export function ThemeStoreView() {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-1 pt-0.5">
+                          <div className="flex shrink-0 items-center gap-1 pt-0.5">
                             {swatches.map((color, sIdx) => (
                               <span
                                 key={`${theme.id}-sw-${sIdx}`}
@@ -760,34 +764,38 @@ export function ThemeStoreView() {
                         )}
                       </div>
 
-                      <div className="flex items-center justify-between gap-2 border-t border-rule pt-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-rule pt-3">
                         <button
                           type="button"
                           onClick={() => openThemeEditor({ manifest: theme, mode: "create" })}
-                          className="inline-flex items-center gap-1 rounded-[2px] border border-rule-strong bg-surface-2 px-2.5 py-1 font-mono text-[10px] text-bone hover:border-cobalt-ink/60"
+                          title={t("store.customizeButton")}
+                          aria-label={t("store.customizeButton")}
+                          className="inline-flex h-7 min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-[2px] border border-rule-strong bg-surface-2 px-2.5 font-mono text-[11px] font-medium text-bone hover:border-cobalt-ink/60"
                         >
-                          <SlidersHorizontal size={10} aria-hidden />
-                          {t("store.customizeButton")}
+                          <SlidersHorizontal size={11} className="shrink-0" aria-hidden />
+                          <span className="hidden @[220px]/card:inline">
+                            {t("store.customizeButton")}
+                          </span>
                         </button>
 
                         {isActive ? (
-                          <span className="inline-flex items-center gap-1 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2.5 py-1 font-mono text-[11px] font-semibold text-verdigris">
-                            <Check size={12} aria-hidden />
-                            {t("store.inUse")}
+                          <span className="inline-flex h-7 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2.5 font-mono text-[11px] font-semibold text-verdigris">
+                            <Check size={12} className="shrink-0" aria-hidden />
+                            <span>{t("store.inUse")}</span>
                           </span>
                         ) : (
                           <button
                             type="button"
                             disabled={isBusy}
                             onClick={() => void handleApplyTheme(theme.id, theme.name)}
-                            className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1 font-mono text-[11px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
+                            className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-[2px] border border-cobalt-rule bg-cobalt px-3 font-mono text-[11px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
                           >
                             {isBusy ? (
-                              <Loader2 size={11} className="animate-spin" aria-hidden />
+                              <Loader2 size={11} className="shrink-0 animate-spin" aria-hidden />
                             ) : (
-                              <Sparkles size={11} aria-hidden />
+                              <Sparkles size={11} className="shrink-0" aria-hidden />
                             )}
-                            {t("store.applyShort")}
+                            <span>{t("store.applyShort")}</span>
                           </button>
                         )}
                       </div>
@@ -836,7 +844,7 @@ export function ThemeStoreView() {
 
           {searching && cards.length === 0 ? (
             <div
-              className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
+              className="grid grid-cols-1 gap-4 @xl:grid-cols-2 @4xl:grid-cols-3"
               aria-busy="true"
               aria-label={t("store.searching")}
             >
@@ -899,7 +907,7 @@ export function ThemeStoreView() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 items-stretch gap-4 @xl:grid-cols-2 @4xl:grid-cols-3">
               {cards.map((card, idx) => {
                 const { entry } = card;
                 const isActive = activeThemeId === entry.id;
@@ -912,7 +920,7 @@ export function ThemeStoreView() {
                   <article
                     key={entry.id}
                     style={staggerStyle(idx, 24, 9)}
-                    className="cobalt-stagger-item flex flex-col overflow-hidden rounded-[2px] border border-rule bg-surface transition-colors hover:border-rule-strong"
+                    className="@container/card cobalt-stagger-item flex h-full flex-col overflow-hidden rounded-[2px] border border-rule bg-surface transition-colors hover:border-rule-strong"
                   >
                     {/* Preview */}
                     <div className="relative h-36 w-full border-b border-rule bg-void">
@@ -989,27 +997,27 @@ export function ThemeStoreView() {
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                           {card.installed ? (
                             <>
                               {isActive ? (
-                                <span className="inline-flex items-center gap-1 font-mono text-[11px] font-semibold text-verdigris">
-                                  <Check size={12} aria-hidden />
-                                  {t("store.inUse")}
+                                <span className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2.5 font-mono text-[11px] font-semibold text-verdigris">
+                                  <Check size={12} className="shrink-0" aria-hidden />
+                                  <span>{t("store.inUse")}</span>
                                 </span>
                               ) : (
                                 <button
                                   type="button"
                                   disabled={isBusy}
                                   onClick={() => void handleApplyTheme(entry.id, entry.name)}
-                                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-[11px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
+                                  className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[2px] border border-cobalt-rule bg-cobalt px-3 font-mono text-[11px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
                                 >
                                   {isBusy ? (
-                                    <Loader2 size={11} className="animate-spin" aria-hidden />
+                                    <Loader2 size={11} className="shrink-0 animate-spin" aria-hidden />
                                   ) : (
-                                    <Sparkles size={11} aria-hidden />
+                                    <Sparkles size={11} className="shrink-0" aria-hidden />
                                   )}
-                                  {t("store.applyShort")}
+                                  <span>{t("store.applyShort")}</span>
                                 </button>
                               )}
 
@@ -1018,10 +1026,14 @@ export function ThemeStoreView() {
                                   type="button"
                                   disabled={isBusy}
                                   onClick={() => void handleUninstallTheme(entry.id)}
-                                  className="inline-flex items-center gap-1 rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2.5 py-1.5 font-mono text-[11px] text-cinnabar hover:bg-cinnabar hover:text-on-accent disabled:opacity-45"
+                                  title={t("store.uninstallButton")}
+                                  aria-label={t("store.uninstallButton")}
+                                  className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/60 px-2.5 font-mono text-[11px] text-cinnabar hover:bg-cinnabar hover:text-on-accent disabled:opacity-45"
                                 >
-                                  <Trash2 size={11} aria-hidden />
-                                  {t("store.uninstallButton")}
+                                  <Trash2 size={11} className="shrink-0" aria-hidden />
+                                  <span className="hidden @[230px]/card:inline">
+                                    {t("store.uninstallButton")}
+                                  </span>
                                 </button>
                               )}
                             </>
@@ -1030,16 +1042,18 @@ export function ThemeStoreView() {
                               type="button"
                               disabled={isBusy || card.compatibility === "incompatible"}
                               onClick={() => void handleInstallFromRegistry(entry.id)}
-                              className="inline-flex w-full items-center justify-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-[11px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
+                              className="inline-flex h-7 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-[2px] border border-cobalt-rule bg-cobalt px-3 font-mono text-[11px] font-semibold text-on-accent hover:bg-cobalt-bright disabled:opacity-45"
                             >
                               {isBusy ? (
-                                <Loader2 size={11} className="animate-spin" aria-hidden />
+                                <Loader2 size={11} className="shrink-0 animate-spin" aria-hidden />
                               ) : (
-                                <Download size={11} aria-hidden />
+                                <Download size={11} className="shrink-0" aria-hidden />
                               )}
-                              {t("store.installButton", {
-                                size: formatBytes(entry.size_bytes),
-                              })}
+                              <span>
+                                {t("store.installButton", {
+                                  size: formatBytes(entry.size_bytes),
+                                })}
+                              </span>
                             </button>
                           )}
                         </div>

@@ -188,7 +188,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     }));
     try {
       const manifest = await backendCall("get_theme_manifest", { theme_id: themeId });
-      applyThemeToRoot(manifest);
+      applyThemeToRoot(manifest, { animate: true });
       const prevInitialSize = get().themeEditorInitialUiSize;
       if (get().themeEditorOpen && prevInitialSize) {
         applyUiSizeToRoot(prevInitialSize);
@@ -207,7 +207,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       }));
       return true;
     } catch (err: unknown) {
-      applyThemeToRoot(MINIMAL_THEME_MANIFEST);
+      applyThemeToRoot(MINIMAL_THEME_MANIFEST, { animate: true });
       if (themeId === BUILTIN_THEME_ID) {
         set({
           activeThemeId: BUILTIN_THEME_ID,
@@ -351,7 +351,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       ? (state.themeEditorInitialUiSize ?? state.uiSize)
       : state.uiSize;
 
-    applyThemeToRoot(target);
+    applyThemeToRoot(target, { animate: target.id !== state.manifest.id });
     set({
       manifest: target,
       themeEditorOpen: true,
@@ -365,7 +365,8 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   updateThemeEditorDraft: (updater) => {
     const current = get().manifest;
     const next = updater(cloneThemeManifest(current));
-    applyThemeToRoot(next);
+    const modeChanged = (current.ui?.mode ?? "dark") !== (next.ui?.mode ?? "dark");
+    applyThemeToRoot(next, { animate: modeChanged });
     set({
       manifest: next,
       themeEditorDirty: true,
@@ -377,7 +378,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     if (!state.themeEditorBaseManifest) return;
     const restored = cloneThemeManifest(state.themeEditorBaseManifest);
     const restoredSize = state.themeEditorInitialUiSize ?? state.uiSize;
-    applyThemeToRoot(restored);
+    applyThemeToRoot(restored, { animate: true });
     applyUiSizeToRoot(restoredSize);
     set({
       manifest: restored,
@@ -390,7 +391,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     const state = get();
     const committed = cloneThemeManifest(state.committedManifest);
     const restoredSize = state.themeEditorInitialUiSize ?? state.uiSize;
-    applyThemeToRoot(committed);
+    applyThemeToRoot(committed, { animate: true });
     applyUiSizeToRoot(restoredSize);
     set({
       manifest: committed,

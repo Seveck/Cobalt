@@ -26,9 +26,16 @@ export const AI_CLIENT_LABELS: Record<AiClient, string> = {
 /** Common aliases reported by MCP clients beyond the canonical `AiClient` enum. */
 const AI_CLIENT_ALIASES: Record<string, string> = {
   codex: "Codex",
+  codex_mcp_client: "Codex",
+  codex_cli_mcp_client: "Codex",
+  openai_codex: "Codex",
+  claude_code_mcp_client: "Claude Code",
+  gemini_cli_mcp_client: "Gemini CLI",
   gemini: "Gemini CLI",
   claude: "Claude",
   antigravity: "Antigravity",
+  antigravity_cli: "Antigravity",
+  antigravity_mcp_client: "Antigravity",
   opencode: "OpenCode",
   vscode: "VS Code",
   vs_code: "VS Code",

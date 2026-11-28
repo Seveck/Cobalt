@@ -57,6 +57,17 @@ export function TimeTravelBar({ onClose }: TimeTravelBarProps) {
     void fetchSnapshots();
   }, [fetchSnapshots]);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented && !busy) {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, onClose]);
+
   const activeSnap = snapshots[selectedIdx] ?? null;
 
   const handleCreate = async () => {

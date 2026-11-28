@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
@@ -35,7 +35,29 @@ interface FilterDockProps {
 
 export function FilterDock({ nodes, projects }: FilterDockProps) {
   const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setExpanded(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
+        setExpanded(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [expanded]);
 
   const filters = useFiltersStore((s) => s.filters);
   const searchQuery = useFiltersStore((s) => s.searchQuery);
@@ -111,7 +133,7 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
   };
 
   return (
-    <div className="pointer-events-auto flex flex-col gap-1.5">
+    <div ref={containerRef} className="pointer-events-auto flex flex-col gap-1.5">
       {expanded && (
         <div className="cobalt-panel-enter-up w-full max-w-4xl rounded-[2px] border border-rule-strong bg-surface p-3 shadow-[0_14px_36px_rgba(0,0,0,0.72)]">
           <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-rule pb-2">
