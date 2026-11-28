@@ -14,6 +14,7 @@ mod migration;
 mod portable;
 mod repositories;
 mod retrieval;
+mod similarity_scan;
 mod snapshots;
 mod telemetry;
 mod usage_stats;

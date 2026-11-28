@@ -1,15 +1,18 @@
 use std::cmp::Reverse;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use cobalt_core::error::Result;
 use cobalt_core::ids::Id;
-use cobalt_core::model::ConflictPair;
+use cobalt_core::model::{ConflictPair, Memory};
 use cobalt_core::search::SearchHit;
 use rusqlite::{Connection, params};
 
-use crate::Retrieval;
 use crate::db::sql_error;
 use crate::memory::{document_neighbors, memory, required_memory};
+use crate::repositories::{id, optional_id};
+use crate::similarity_scan::{DotProduct, UnitVector, raw_floor, rounding_margin};
+use crate::vector::{Index, vector_bytes};
+use crate::{Retrieval, SimilarityKind, calibrated_similarity};
 
 const MIN_TOPIC_SIMILARITY: f64 = 0.50;
 pub(crate) const NEIGHBOR_LIMIT: usize = 16;
@@ -256,6 +259,129 @@ pub(crate) fn order_search_hits(mut hits: Vec<SearchHit>) -> Vec<SearchHit> {
     ordered
 }
 
+// SQLite's scoped search evaluates a join and decodes the same vectors for every
+// anchor. Load each vector once, then rank using the same distance and ID tie-break.
+struct SqliteCandidate {
+    id: Id,
+    embedding: Vec<u8>,
+    unit: UnitVector,
+}
+
+type NeighborLists = HashMap<Id, Vec<(Id, f64)>>;
+
+fn sqlite_neighbors(
+    conn: &Connection,
+    branch_id: Id,
+    retrieval: &Retrieval,
+    anchors: &[Memory],
+) -> Result<Option<NeighborLists>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, project_id FROM memories
+             WHERE branch_id = ?1 AND status = 'active' AND is_encrypted = 0",
+        )
+        .map_err(sql_error)?;
+    let rows = stmt
+        .query_map([branch_id.to_string()], |row| {
+            Ok((id(row, "id")?, optional_id(row, "project_id")?))
+        })
+        .map_err(sql_error)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(sql_error)?;
+    let ids: Vec<_> = rows.iter().map(|&(id, _)| id).collect();
+    let vectors = retrieval.index.vectors(conn, &ids)?;
+    let mut projects: HashMap<_, Vec<SqliteCandidate>> = HashMap::new();
+    for ((id, project), vector) in rows.into_iter().zip(vectors) {
+        let Some(vector) = vector else { continue };
+        let squared_norm = vector.iter().map(|x| x * x).sum::<f32>();
+        // Preserve the index's handling of extreme or malformed legacy vectors.
+        let stable_norms = (f32::MIN_POSITIVE / f32::EPSILON)..=(f32::MAX / 2.0);
+        if vector.len() != retrieval.index.dimensions() || !stable_norms.contains(&squared_norm) {
+            return Ok(None);
+        }
+        projects.entry(project).or_default().push(SqliteCandidate {
+            id,
+            embedding: vector_bytes(&vector),
+            unit: UnitVector::new(&vector),
+        });
+    }
+    let mut locations = HashMap::new();
+    for scope in projects.values_mut() {
+        scope.sort_unstable_by_key(|row| row.unit.strongest());
+        locations.extend(scope.iter().enumerate().map(|(i, row)| (row.id, i)));
+    }
+    let model = &retrieval.embedder.spec().id;
+    let floor = raw_floor(model, MIN_TOPIC_SIMILARITY);
+    let margin = rounding_margin(retrieval.index.dimensions());
+    let dot_product = DotProduct::new();
+    let by_distance =
+        |a: &(Id, f32), b: &(Id, f32)| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0));
+    let mut exact_distance = conn
+        .prepare("SELECT vec_distance_cosine(?1, ?2)")
+        .map_err(sql_error)?;
+    let mut neighbors = HashMap::new();
+    let mut nearest = Vec::new();
+    for anchor in anchors {
+        let Some(&position) = locations.get(&anchor.id) else {
+            continue;
+        };
+        let scope = &projects[&anchor.project_id];
+        let from = &scope[position];
+        nearest.clear();
+
+        // Try vectors sharing the dominant coordinate first. Their exact distances
+        // can tighten the cutoff before examining the rest of the project.
+        let strongest = from.unit.strongest();
+        let start = scope.partition_point(|row| row.unit.strongest() < strongest);
+        let end = scope.partition_point(|row| row.unit.strongest() <= strongest);
+        let groups = [&scope[start..end], &scope[..start], &scope[end..]];
+        let mut cutoff = floor;
+        for batch in groups.into_iter().flat_map(|group| group.chunks(64)) {
+            let approx_floor = cutoff - margin;
+            let radius_squared = 2.0 * (1.0 - approx_floor);
+            for to in batch {
+                if to.id == anchor.id
+                    || from.unit.projected_distance_squared(&to.unit) > radius_squared
+                    || dot_product.score(&from.unit, &to.unit) < approx_floor
+                {
+                    continue;
+                }
+                let distance = exact_distance
+                    .query_row(params![to.embedding, from.embedding], |row| row.get(0))
+                    .map_err(sql_error)?;
+                nearest.push((to.id, distance));
+            }
+            if nearest.len() > NEIGHBOR_LIMIT {
+                nearest.select_nth_unstable_by(NEIGHBOR_LIMIT, by_distance);
+                nearest.truncate(NEIGHBOR_LIMIT);
+            }
+            if nearest.len() == NEIGHBOR_LIMIT
+                && let Some(worst) = nearest.iter().max_by(|a, b| by_distance(a, b))
+            {
+                cutoff = floor.max(1.0 - f64::from(worst.1));
+            }
+        }
+        nearest.sort_unstable_by(by_distance);
+        neighbors.insert(
+            anchor.id,
+            nearest
+                .iter()
+                .map(|&(id, distance)| {
+                    (
+                        id,
+                        calibrated_similarity(
+                            model,
+                            SimilarityKind::Document,
+                            f64::from((1.0_f32 - distance).clamp(0.0, 1.0)),
+                        ),
+                    )
+                })
+                .collect(),
+        );
+    }
+    Ok(Some(neighbors))
+}
+
 pub(crate) fn scan(
     conn: &Connection,
     branch_id: Id,
@@ -279,11 +405,17 @@ pub(crate) fn scan(
     if anchors.is_empty() {
         return Ok(Vec::new());
     }
+    let mut batched = match retrieval {
+        Some(retrieval) if matches!(retrieval.index, Index::SqliteVec(_)) => {
+            sqlite_neighbors(conn, branch_id, retrieval, &anchors)?
+        }
+        _ => None,
+    };
     let vectors = match retrieval {
-        Some(retrieval) => retrieval
+        Some(retrieval) if batched.is_none() => retrieval
             .index
             .vectors(conn, &anchors.iter().map(|row| row.id).collect::<Vec<_>>())?,
-        None => vec![None; anchors.len()],
+        _ => vec![None; anchors.len()],
     };
     let mut edges = conn
         .prepare(
@@ -297,46 +429,56 @@ pub(crate) fn scan(
         .map_err(sql_error)?;
     let mut found = Vec::new();
     let mut seen = HashSet::new();
+    let mut compared = HashMap::new();
     for (anchor, vector) in anchors.into_iter().zip(vectors) {
-        let neighbors = if let Some((retrieval, vector)) = retrieval.zip(vector.as_deref()) {
-            document_neighbors(
-                conn,
-                retrieval,
-                branch_id,
-                anchor.project_id,
-                vector,
-                Some(anchor.id),
-                NEIGHBOR_LIMIT,
-            )?
-        } else {
-            edges
-                .query_map(
-                    params![
-                        anchor.id.to_string(),
-                        branch_id.to_string(),
-                        anchor.project_id.map(|id| id.to_string()),
-                        NEIGHBOR_LIMIT as u32
-                    ],
-                    |row| Ok((crate::repositories::id(row, "id")?, row.get(1)?)),
-                )
-                .map_err(sql_error)?
-                .collect::<rusqlite::Result<_>>()
-                .map_err(sql_error)?
-        };
+        let anchor_tokens = tokens(&anchor.content);
+        let neighbors =
+            if let Some(neighbors) = batched.as_mut().and_then(|batch| batch.remove(&anchor.id)) {
+                neighbors
+            } else if let Some((retrieval, vector)) = retrieval.zip(vector.as_deref()) {
+                document_neighbors(
+                    conn,
+                    retrieval,
+                    branch_id,
+                    anchor.project_id,
+                    vector,
+                    Some(anchor.id),
+                    NEIGHBOR_LIMIT,
+                )?
+            } else {
+                edges
+                    .query_map(
+                        params![
+                            anchor.id.to_string(),
+                            branch_id.to_string(),
+                            anchor.project_id.map(|id| id.to_string()),
+                            NEIGHBOR_LIMIT as u32
+                        ],
+                        |row| Ok((crate::repositories::id(row, "id")?, row.get(1)?)),
+                    )
+                    .map_err(sql_error)?
+                    .collect::<rusqlite::Result<_>>()
+                    .map_err(sql_error)?
+            };
         for (id, similarity) in neighbors {
             if !in_band(similarity, duplicate_threshold)
                 || !seen.insert((anchor.id.min(id), anchor.id.max(id)))
             {
                 continue;
             }
-            let other = required_memory(conn, id)?;
-            let Some(reason) = reason(&anchor.content, &other.content) else {
+            if let std::collections::hash_map::Entry::Vacant(slot) = compared.entry(id) {
+                let row = required_memory(conn, id)?;
+                let tokens = tokens(&row.content);
+                slot.insert((row, tokens));
+            }
+            let (other, other_tokens) = &compared[&id];
+            let Some(reason) = reason_tokens(&anchor_tokens, other_tokens) else {
                 continue;
             };
             let (a, b) = if anchor.id < id {
-                (anchor.clone(), other)
+                (anchor.clone(), other.clone())
             } else {
-                (other, anchor.clone())
+                (other.clone(), anchor.clone())
             };
             found.push(ConflictPair {
                 a,
