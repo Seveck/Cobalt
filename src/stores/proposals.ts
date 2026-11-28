@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { backendCall } from "@/lib/backend";
+import { toStoreDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { isUnsupportedError } from "@/lib/ipc";
 import type { MemoryProposal, ProposalStatus, Uuid } from "@/types/contracts";
 import { useMemoryStore } from "./memory";
@@ -34,7 +35,7 @@ export interface ProposalsState {
   itemsByStatus: Record<ProposalStatus, MemoryProposal[]>;
   loadingTab: ProposalStatus | null;
   unsupported: boolean;
-  error: string | null;
+  error: DisplayError | null;
   busyIds: Record<Uuid, boolean>;
   bulkBusy: "accept" | "reject" | null;
   openPanel: () => void;
@@ -155,10 +156,9 @@ export const useProposalsStore = create<ProposalsState>((set, get) => ({
         }));
         return;
       }
-      const message = err instanceof Error ? err.message : String(err);
       set((state) => ({
         loadingTab: state.loadingTab === targetStatus ? null : state.loadingTab,
-        error: message,
+        error: toStoreDisplayError(err, "list_proposals"),
       }));
     }
   },
@@ -191,13 +191,12 @@ export const useProposalsStore = create<ProposalsState>((set, get) => ({
       void useMemoryStore.getState().loadGraph();
       return updated;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
       set((state) => {
         const nextBusy = { ...state.busyIds };
         delete nextBusy[id];
         return {
           busyIds: nextBusy,
-          error: isUnsupportedError(err) ? null : message,
+          error: isUnsupportedError(err) ? null : toStoreDisplayError(err, "accept_proposal"),
           unsupported: isUnsupportedError(err) ? true : state.unsupported,
         };
       });
@@ -230,13 +229,12 @@ export const useProposalsStore = create<ProposalsState>((set, get) => ({
 
       return updated;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
       set((state) => {
         const nextBusy = { ...state.busyIds };
         delete nextBusy[id];
         return {
           busyIds: nextBusy,
-          error: isUnsupportedError(err) ? null : message,
+          error: isUnsupportedError(err) ? null : toStoreDisplayError(err, "reject_proposal"),
           unsupported: isUnsupportedError(err) ? true : state.unsupported,
         };
       });
@@ -253,7 +251,7 @@ export const useProposalsStore = create<ProposalsState>((set, get) => ({
 
     let succeeded = 0;
     let failed = 0;
-    let lastError: string | null = null;
+    let lastError: DisplayError | null = null;
     const acceptedList: MemoryProposal[] = [];
     const succeededIds = new Set<Uuid>();
 
@@ -272,7 +270,7 @@ export const useProposalsStore = create<ProposalsState>((set, get) => ({
         succeeded += 1;
       } catch (err: unknown) {
         failed += 1;
-        lastError = err instanceof Error ? err.message : String(err);
+        lastError = toStoreDisplayError(err, "accept_proposal");
       }
     }
 
@@ -309,7 +307,7 @@ export const useProposalsStore = create<ProposalsState>((set, get) => ({
 
     let succeeded = 0;
     let failed = 0;
-    let lastError: string | null = null;
+    let lastError: DisplayError | null = null;
     const rejectedList: MemoryProposal[] = [];
     const succeededIds = new Set<Uuid>();
 
@@ -321,7 +319,7 @@ export const useProposalsStore = create<ProposalsState>((set, get) => ({
         succeeded += 1;
       } catch (err: unknown) {
         failed += 1;
-        lastError = err instanceof Error ? err.message : String(err);
+        lastError = toStoreDisplayError(err, "reject_proposal");
       }
     }
 

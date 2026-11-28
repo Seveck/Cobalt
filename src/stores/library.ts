@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { backendCall } from "@/lib/backend";
-import type { LibraryFilter, ReusableAsset } from "@/types/contracts";
+import { toStoreDisplayError, type DisplayError } from "@/lib/friendlyError";
+import type { LibraryFilter, ReusableAsset, Uuid } from "@/types/contracts";
 
 const DEFAULT_LIBRARY_FILTER: LibraryFilter = {
   query: null,
@@ -15,9 +16,10 @@ export interface LibraryState {
   assets: ReusableAsset[];
   filter: LibraryFilter;
   loading: boolean;
-  error: string | null;
+  error: DisplayError | null;
   loadLibrary: (override?: Partial<LibraryFilter>) => Promise<void>;
   setFilter: (patch: Partial<LibraryFilter>) => void;
+  clearProjectFilter: (projectId: Uuid) => void;
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
@@ -37,10 +39,19 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       const assets = await backendCall("list_library", nextFilter);
       set({ assets, loading: false });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ loading: false, error: message });
+      set({ loading: false, error: toStoreDisplayError(err, "list_library") });
     }
   },
 
   setFilter: (patch) => set((state) => ({ filter: { ...state.filter, ...patch } })),
+  clearProjectFilter: (projectId) =>
+    set((state) => {
+      if (!state.filter.project_ids.includes(projectId)) return state;
+      return {
+        filter: {
+          ...state.filter,
+          project_ids: state.filter.project_ids.filter((id) => id !== projectId),
+        },
+      };
+    }),
 }));

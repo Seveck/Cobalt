@@ -16,8 +16,9 @@ import {
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard } from "@/lib/dialogs";
 import { createDefaultSettings, formatBytes, formatTokenCount } from "@/lib/format";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { useHardwareStore, useMemoryStore, useSettingsStore } from "@/stores";
-import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
+import { ErrorAlert, Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import {
   ENGINE_KINDS,
   type EngineKind,
@@ -117,7 +118,7 @@ export function ProModePanel() {
   const [removingOld, setRemovingOld] = useState(false);
 
   const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
   const [copiedSwagger, setCopiedSwagger] = useState(false);
 
   const flashNotice = useCallback((msg: string) => {
@@ -136,11 +137,11 @@ export function ProModePanel() {
       }
       setDocDrafts(next);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "get_mcp_tool_docs"));
     } finally {
       setLoadingDocs(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (settings.pro_mode) {
@@ -305,11 +306,7 @@ export function ProModePanel() {
           <span>{notice}</span>
         </div>
       )}
-      {(error || hardwareError) && (
-        <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-3.5 py-2 text-xs text-cinnabar">
-          {error ?? hardwareError}
-        </div>
-      )}
+      <ErrorAlert error={error ?? hardwareError} />
 
       {!settings.pro_mode ? (
         <p className="text-xs text-bone-subtle">{t("pro.disabledHint")}</p>

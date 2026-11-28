@@ -2,6 +2,7 @@ import { create } from "zustand";
 import i18n from "@/i18n";
 import { backendCall } from "@/lib/backend";
 import { createDefaultSettings } from "@/lib/format";
+import { toStoreDisplayError, type DisplayError } from "@/lib/friendlyError";
 import type { AppSettings, DaemonStatus, Language, VaultStatus } from "@/types/contracts";
 
 async function applyLanguageToDom(language: Language): Promise<void> {
@@ -19,7 +20,7 @@ export interface SettingsState {
   vaultStatus: VaultStatus | null;
   loaded: boolean;
   saving: boolean;
-  error: string | null;
+  error: DisplayError | null;
   loadSettings: () => Promise<AppSettings>;
   updateSettings: (next: AppSettings) => Promise<AppSettings>;
   patchSettings: (partial: Partial<AppSettings>) => Promise<AppSettings>;
@@ -90,8 +91,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({ settings, loaded: true, error: null });
       return settings;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ loaded: true, error: message });
+      set({ loaded: true, error: toStoreDisplayError(err, "get_settings") });
       return get().settings;
     }
   },
@@ -104,8 +104,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({ settings: saved, saving: false });
       return saved;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ saving: false, error: message });
+      set({ saving: false, error: toStoreDisplayError(err, "update_settings") });
       return get().settings;
     }
   },
@@ -135,8 +134,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       }));
       return applied;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ saving: false, error: message });
+      set({ saving: false, error: toStoreDisplayError(err, "set_read_only") });
       return get().settings.read_only;
     }
   },

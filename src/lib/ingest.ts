@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { errorMatchesPattern, type DisplayError } from "@/lib/friendlyError";
 import { INGEST_STAGES, type IngestIssue, type IngestReport } from "@/types/contracts";
 
 export type IngestStageKey =
@@ -44,8 +45,10 @@ const SKIP_ISSUE_PATTERN =
   /\b(skip|skipped|omit|omitted|ignor|ignored|binary|binario|too large|exceeds|2\s*mib|2\s*mb|size limit|unsupported|no soportado)\b/i;
 
 /** Returns true when a backend error or ingest issue indicates the local OCR model is missing. */
-export function isOcrNotInstalledMessage(message: string | null | undefined): boolean {
-  return Boolean(message && OCR_NOT_INSTALLED_PATTERN.test(message));
+export function isOcrNotInstalledMessage(
+  message: DisplayError | string | null | undefined,
+): boolean {
+  return errorMatchesPattern(message, OCR_NOT_INSTALLED_PATTERN);
 }
 
 /** Returns true when an `IngestReport` contains any issue reporting OCR is not installed. */

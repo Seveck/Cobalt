@@ -1,13 +1,15 @@
 import { useTranslation } from "react-i18next";
 import { AlertCircle, CheckCircle2, Loader2, X } from "lucide-react";
 import { formatBytes, formatPercent } from "@/lib/format";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
+import { ErrorAlert } from "@/components/ui";
 import type { DownloadProgress } from "@/types/contracts";
 
 interface DownloadProgressBarProps {
   progress: DownloadProgress | null;
   isInstalling: boolean;
   isCancelling: boolean;
-  error: string | null;
+  error: DisplayError | string | null;
   onCancel: () => void;
 }
 
@@ -25,15 +27,7 @@ export function DownloadProgressBar({
   }
 
   if (!progress && !isInstalling && error) {
-    return (
-      <div
-        role="alert"
-        className="flex items-start gap-2.5 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash p-4 text-xs text-cinnabar"
-      >
-        <AlertCircle size={15} className="mt-0.5 shrink-0" aria-hidden />
-        <p className="leading-relaxed">{error}</p>
-      </div>
-    );
+    return <ErrorAlert error={error} treatStringAsRaw />;
   }
 
   const phase = progress?.phase ?? (isInstalling ? "queued" : "failed");
@@ -120,11 +114,19 @@ export function DownloadProgressBar({
         )}
       </div>
 
-      {(error || progress?.message) && (
-        <p className={`mt-2 text-xs ${isError ? "text-cinnabar" : "text-bone-muted"}`}>
-          {error ?? progress?.message}
-        </p>
-      )}
+      {error ? (
+        <ErrorAlert error={error} treatStringAsRaw compact className="mt-2.5" />
+      ) : progress?.message ? (
+        isError ? (
+          <ErrorAlert
+            error={toDisplayError(progress.message, t, "install_engine")}
+            compact
+            className="mt-2.5"
+          />
+        ) : (
+          <p className="mt-2 text-xs text-bone-muted">{progress.message}</p>
+        )
+      ) : null}
     </div>
   );
 }

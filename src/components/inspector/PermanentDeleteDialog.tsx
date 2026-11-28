@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { formatAiClientName } from "@/lib/format";
-import { Skeleton } from "@/components/ui";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
+import { ErrorAlert, Skeleton } from "@/components/ui";
 import type { DeletionImpact, Memory } from "@/types/contracts";
 
 interface PermanentDeleteDialogProps {
@@ -76,7 +77,7 @@ export function PermanentDeleteDialog({
 
   const [impact, setImpact] = useState<DeletionImpact | null>(null);
   const [loadingImpact, setLoadingImpact] = useState(true);
-  const [impactError, setImpactError] = useState<string | null>(null);
+  const [impactError, setImpactError] = useState<DisplayError | null>(null);
   const [confirmText, setConfirmText] = useState("");
   const [archiving, setArchiving] = useState(false);
 
@@ -93,11 +94,11 @@ export function PermanentDeleteDialog({
       setImpact(data);
     } catch (err: unknown) {
       setImpact(null);
-      setImpactError(err instanceof Error ? err.message : String(err));
+      setImpactError(toDisplayError(err, t, "get_deletion_impact"));
     } finally {
       setLoadingImpact(false);
     }
-  }, [memory.id]);
+  }, [memory.id, t]);
 
   useEffect(() => {
     setConfirmText("");
@@ -196,17 +197,21 @@ export function PermanentDeleteDialog({
             </div>
           </div>
         ) : impactError || !impact ? (
-          <div className="space-y-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash/50 p-3 text-xs text-cinnabar">
-            <p>{t("delete.loadError")}</p>
-            {impactError && <p className="font-mono text-[11px] opacity-85">{impactError}</p>}
-            <button
-              type="button"
-              onClick={() => void loadImpact()}
-              className="inline-flex items-center gap-1.5 rounded-[2px] border border-cinnabar-rule bg-surface px-2.5 py-1 font-mono text-[11px] text-bone hover:bg-surface-2"
-            >
-              <RefreshCw size={11} aria-hidden />
-              {t("delete.retryImpact")}
-            </button>
+          <div className="space-y-2">
+            <ErrorAlert
+              error={impactError ?? t("delete.loadError")}
+              compact
+              actions={
+                <button
+                  type="button"
+                  onClick={() => void loadImpact()}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-cinnabar-rule bg-surface px-2.5 py-1 font-mono text-[11px] text-bone hover:bg-surface-2"
+                >
+                  <RefreshCw size={11} aria-hidden />
+                  {t("delete.retryImpact")}
+                </button>
+              }
+            />
           </div>
         ) : (
           <>

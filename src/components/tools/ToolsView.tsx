@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Archive,
@@ -21,6 +21,7 @@ import {
   HardDriveDownload,
   History,
   Inbox,
+  Info,
   Loader2,
   Lock,
   Package,
@@ -36,6 +37,7 @@ import {
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickPaths, pickSavePath, pickSinglePath, useFileDrop } from "@/lib/dialogs";
 import { isEngineStateInstalled } from "@/lib/format";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import {
   analyzeIngestReport,
   isOcrNotInstalledMessage,
@@ -43,6 +45,7 @@ import {
 } from "@/lib/ingest";
 import { staggerStyle } from "@/lib/motion";
 import {
+  findProjectByName,
   GLOBAL_PROJECT_SENTINEL,
   isCodeProject,
   PROJECT_COLORS,
@@ -60,9 +63,11 @@ import {
   type ToolsTab,
 } from "@/stores";
 import { CreateFolderDialog } from "@/components/projects/CreateFolderDialog";
+import { DeleteFolderDialog } from "@/components/projects/DeleteFolderDialog";
 import { FolderPickerDialog } from "@/components/projects/FolderPickerDialog";
+import { FolderRowMenu } from "@/components/projects/FolderRowMenu";
 import { UnsortedMemoriesPanel } from "@/components/projects/UnsortedMemoriesPanel";
-import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
+import { ErrorAlert, Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import type {
   BackupManifest,
   CapsuleManifest,
@@ -186,7 +191,7 @@ export function ToolsView() {
   const [includeArchivedProjects, setIncludeArchivedProjects] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(false);
 
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   // ---- Projects management state ----
@@ -194,6 +199,8 @@ export function ToolsView() {
   const [newProjPath, setNewProjPath] = useState("");
   const [newProjColor, setNewProjColor] = useState<string>(PROJECT_COLORS[0]);
   const [creatingProject, setCreatingProject] = useState(false);
+  const creatingProjectRef = useRef(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectStats | null>(null);
 
   const [editingProjId, setEditingProjId] = useState<Uuid | null>(null);
   const [editProjName, setEditProjName] = useState("");
@@ -255,11 +262,11 @@ export function ToolsView() {
       });
       setProjects(list);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "list_projects"));
     } finally {
       setLoadingProjects(false);
     }
-  }, [includeArchivedProjects]);
+  }, [includeArchivedProjects, t]);
 
   useEffect(() => {
     void loadProjects();
@@ -347,15 +354,32 @@ export function ToolsView() {
     [t],
   );
 
+  const existingNewProjectMatch = useMemo(
+    () => findProjectByName(projects, newProjName),
+    [newProjName, projects],
+  );
+
   // ---- Project handlers ----
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (readOnly || !newProjName.trim()) return;
+    const trimmed = newProjName.trim();
+    if (readOnly || !trimmed || creatingProject || creatingProjectRef.current) return;
+
+    if (existingNewProjectMatch) {
+      flashNotice(
+        t("folders.existingSelectedHint", { name: existingNewProjectMatch.project.name }),
+      );
+      setNewProjName("");
+      setNewProjPath("");
+      return;
+    }
+
+    creatingProjectRef.current = true;
     setCreatingProject(true);
     setError(null);
     try {
       await backendCall("create_project", {
-        name: newProjName.trim(),
+        name: trimmed,
         root_path: newProjPath.trim() || null,
         color_hex: newProjColor,
       });
@@ -364,9 +388,10 @@ export function ToolsView() {
       await Promise.all([loadProjects(), loadGraph()]);
       flashNotice(t("tools.projects.createdNotice"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "create_project"));
     } finally {
       setCreatingProject(false);
+      creatingProjectRef.current = false;
     }
   };
 
@@ -386,7 +411,7 @@ export function ToolsView() {
       await Promise.all([loadProjects(), loadGraph()]);
       flashNotice(t("tools.projects.updatedNotice"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "update_project"));
     }
   };
 
@@ -403,7 +428,7 @@ export function ToolsView() {
         archived ? t("tools.projects.archivedNotice") : t("tools.projects.restoredNotice"),
       );
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "update_project"));
     }
   };
 
@@ -431,7 +456,7 @@ export function ToolsView() {
           : t("tools.projects.watchDisabledNotice", { name: projectName }),
       );
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "set_project_watched"));
     } finally {
       setTogglingWatchId(null);
     }
@@ -451,7 +476,7 @@ export function ToolsView() {
       });
       setWebContext(ctx);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "build_web_context"));
     } finally {
       setBuildingContext(false);
     }
@@ -539,7 +564,7 @@ export function ToolsView() {
       setCapsuleManifest(manifest);
       flashNotice(t("tools.capsules.exportedNotice"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "export_capsule"));
     } finally {
       setCapsuleExporting(false);
     }
@@ -562,7 +587,7 @@ export function ToolsView() {
       await Promise.all([loadProjects(), loadGraph()]);
       flashNotice(t("tools.capsules.importedNotice"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "import_capsule"));
     } finally {
       setCapsuleImporting(false);
     }
@@ -590,7 +615,7 @@ export function ToolsView() {
       setBackupPassword("");
       flashNotice(t("tools.backup.exportedNotice"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "export_backup"));
     } finally {
       setBackupExporting(false);
     }
@@ -617,7 +642,7 @@ export function ToolsView() {
       await Promise.all([loadProjects(), loadGraph()]);
       flashNotice(t("tools.backup.importedNotice"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "import_backup"));
     } finally {
       setBackupImporting(false);
     }
@@ -711,10 +736,10 @@ export function ToolsView() {
             <span>{t("inspector.readOnlyNotice")}</span>
           </div>
         )}
-        {error && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
-            <span>{error}</span>
-            {isOcrNotInstalledMessage(error) && (
+        <ErrorAlert
+          error={error}
+          actions={
+            isOcrNotInstalledMessage(error) ? (
               <button
                 type="button"
                 onClick={() => openSettingsSection("ocr", { autoInstall: true })}
@@ -723,9 +748,9 @@ export function ToolsView() {
                 <ScanText size={11} aria-hidden />
                 {t("ocr.installAction")}
               </button>
-            )}
-          </div>
-        )}
+            ) : undefined
+          }
+        />
         {notice && (
           <div className="flex items-center gap-2 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-4 py-2.5 font-mono text-xs text-verdigris">
             <Check size={13} aria-hidden />
@@ -757,6 +782,19 @@ export function ToolsView() {
                     placeholder={t("tools.projects.namePlaceholder")}
                     className="h-9 w-full rounded-[2px] border border-rule-strong bg-void px-3 text-xs text-bone placeholder:text-bone-subtle focus:border-cobalt-ink focus:outline-none"
                   />
+                  {existingNewProjectMatch && (
+                    <div
+                      role="status"
+                      className="flex items-start gap-1.5 rounded-[2px] border border-cobalt-rule/70 bg-cobalt-wash/45 px-2.5 py-1.5 text-[11px] leading-snug text-bone"
+                    >
+                      <Info size={12} className="mt-0.5 shrink-0 text-cobalt-ink" aria-hidden />
+                      <span>
+                        {t("folders.alreadyExistsSelectHint", {
+                          name: existingNewProjectMatch.project.name,
+                        })}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1">
@@ -821,7 +859,7 @@ export function ToolsView() {
 
                 <button
                   type="submit"
-                  disabled={readOnly || creatingProject || !newProjName.trim()}
+                  disabled={readOnly || creatingProject || !newProjName.trim() || Boolean(existingNewProjectMatch)}
                   className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-4 py-1.5 font-mono text-xs font-semibold text-bone hover:bg-cobalt-bright disabled:opacity-45"
                 >
                   {creatingProject ? (
@@ -953,7 +991,8 @@ export function ToolsView() {
                 </p>
               ) : (
                 <div className="divide-y divide-rule">
-                  {regularProjects.map(({ project, vector_count, total_tokens, reusable_count }, idx) => {
+                  {regularProjects.map((stat, idx) => {
+                    const { project, vector_count, total_tokens, reusable_count } = stat;
                     const isEditing = editingProjId === project.id;
                     return (
                       <div
@@ -1149,6 +1188,12 @@ export function ToolsView() {
                                   </>
                                 )}
                               </button>
+                              <FolderRowMenu
+                                folderName={project.name}
+                                disabled={readOnly}
+                                triggerClassName="border border-rule-strong bg-surface-2"
+                                onDelete={() => setDeleteTarget(stat)}
+                              />
                             </div>
                           </div>
                         )}
@@ -1481,9 +1526,7 @@ export function ToolsView() {
                     </button>
                   </div>
                 </div>
-                {latestFinishedIngestJob.error && (
-                  <p className="text-xs text-cinnabar">{latestFinishedIngestJob.error}</p>
-                )}
+                <ErrorAlert error={latestFinishedIngestJob.error} compact />
                 {latestAnalyzedReport && (
                   <>
                     <div className="grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums sm:grid-cols-4">
@@ -1773,6 +1816,22 @@ export function ToolsView() {
         <CreateFolderDialog
           onClose={() => setCreateFolderOpen(false)}
           onCreated={() => void loadProjects()}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteFolderDialog
+          target={deleteTarget}
+          availableProjects={projects}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={async (deletedId) => {
+            if (editingProjId === deletedId) setEditingProjId(null);
+            if (ingestProjectId === deletedId) setIngestProjectId(GLOBAL_PROJECT_SENTINEL);
+            if (pastLifeProjectId === deletedId) setPastLifeProjectId("__global__");
+            if (webProjectId === deletedId) setWebProjectId("__all__");
+            if (capsuleProjectId === deletedId) setCapsuleProjectId("__all__");
+            await loadProjects();
+          }}
         />
       )}
     </div>

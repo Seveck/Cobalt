@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Camera, Clock, RotateCcw, Trash2, X } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { useBranchesStore, useMemoryStore, useSettingsStore } from "@/stores";
-import { Skeleton } from "@/components/ui";
+import { ErrorAlert, Skeleton } from "@/components/ui";
 import type { Snapshot } from "@/types/contracts";
 
 interface TimeTravelBarProps {
@@ -36,7 +37,7 @@ export function TimeTravelBar({ onClose }: TimeTravelBarProps) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
 
   const fetchSnapshots = useCallback(async () => {
     setLoading(true);
@@ -47,11 +48,11 @@ export function TimeTravelBar({ onClose }: TimeTravelBarProps) {
       setSnapshots(sorted);
       setSelectedIdx(Math.max(0, sorted.length - 1));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "list_snapshots"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void fetchSnapshots();
@@ -83,7 +84,7 @@ export function TimeTravelBar({ onClose }: TimeTravelBarProps) {
       setSelectedIdx(snapshots.length);
       if (created) setConfirmRestore(false);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "create_snapshot"));
     } finally {
       setBusy(false);
     }
@@ -98,7 +99,7 @@ export function TimeTravelBar({ onClose }: TimeTravelBarProps) {
       setConfirmRestore(false);
       await Promise.all([loadBranches(), loadGraph()]);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "restore_snapshot"));
     } finally {
       setBusy(false);
     }
@@ -113,7 +114,7 @@ export function TimeTravelBar({ onClose }: TimeTravelBarProps) {
       setConfirmRestore(false);
       await fetchSnapshots();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "delete_snapshot"));
     } finally {
       setBusy(false);
     }
@@ -165,11 +166,7 @@ export function TimeTravelBar({ onClose }: TimeTravelBarProps) {
         </div>
       </div>
 
-      {error && (
-        <div className="mt-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-2.5 py-1.5 text-[11px] text-cinnabar">
-          {error}
-        </div>
-      )}
+      <ErrorAlert error={error} compact className="mt-2" />
 
       {loading ? (
         <div className="mt-2.5 space-y-2" aria-busy="true" aria-label={t("timeTravel.loading")}>

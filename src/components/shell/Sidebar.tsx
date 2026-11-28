@@ -31,8 +31,10 @@ import {
   type NavSection,
 } from "@/stores";
 import { CreateFolderDialog } from "@/components/projects/CreateFolderDialog";
+import { DeleteFolderDialog } from "@/components/projects/DeleteFolderDialog";
+import { FolderRowMenu } from "@/components/projects/FolderRowMenu";
 import { Select, type SelectOption } from "@/components/ui";
-import type { HardwareTier, Language } from "@/types/contracts";
+import type { HardwareTier, Language, ProjectStats } from "@/types/contracts";
 import { CobaltMark } from "./CobaltMark";
 
 interface NavItem {
@@ -81,6 +83,7 @@ export function Sidebar() {
   const setSolo = useFiltersStore((s) => s.setSolo);
 
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectStats | null>(null);
 
   const { regular: regularFolders } = useMemo(
     () => splitProjects(graph?.projects ?? []),
@@ -337,7 +340,8 @@ export function Sidebar() {
               })()}
 
               {/* Existing folders & code projects */}
-              {activeRegularFolders.map(({ project, vector_count }) => {
+              {activeRegularFolders.map((stat) => {
+                const { project, vector_count } = stat;
                 const count = folderCounts.get(project.id) ?? vector_count;
                 const isCode = isCodeProject(project);
                 const isActiveFolder =
@@ -346,34 +350,45 @@ export function Sidebar() {
                   soloFilter.value === project.id;
 
                 return (
-                  <button
+                  <div
                     key={project.id}
-                    type="button"
-                    onClick={() => handleSelectFolderInBrain(project.id)}
-                    title={isCode && project.root_path ? project.root_path : project.name}
-                    className={`flex w-full items-center justify-between gap-2 rounded-[2px] border px-2 py-1 text-left text-[12px] transition-colors ${
+                    className={`group flex w-full items-center gap-0.5 rounded-[2px] border pr-0.5 transition-colors ${
                       isActiveFolder
                         ? "border-cobalt-rule/70 bg-cobalt-wash text-bone"
                         : "border-transparent text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
                     }`}
                   >
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-[1px]"
-                        style={{ backgroundColor: project.color_hex }}
-                        aria-hidden
-                      />
-                      {isCode ? (
-                        <FolderCode size={12} className="shrink-0 text-bone-subtle" aria-hidden />
-                      ) : (
-                        <Folder size={12} className="shrink-0 text-bone-subtle" aria-hidden />
-                      )}
-                      <span className="truncate">{project.name}</span>
-                    </span>
-                    <span className="shrink-0 font-mono text-[10px] tabular-nums text-bone-subtle">
-                      {count}
-                    </span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectFolderInBrain(project.id)}
+                      title={isCode && project.root_path ? project.root_path : project.name}
+                      className="flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1 text-left text-[12px]"
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-[1px]"
+                          style={{ backgroundColor: project.color_hex }}
+                          aria-hidden
+                        />
+                        {isCode ? (
+                          <FolderCode size={12} className="shrink-0 text-bone-subtle" aria-hidden />
+                        ) : (
+                          <Folder size={12} className="shrink-0 text-bone-subtle" aria-hidden />
+                        )}
+                        <span className="truncate">{project.name}</span>
+                      </span>
+                      <span className="shrink-0 font-mono text-[10px] tabular-nums text-bone-subtle">
+                        {count}
+                      </span>
+                    </button>
+                    <FolderRowMenu
+                      folderName={project.name}
+                      compact
+                      disabled={settings.read_only}
+                      triggerClassName="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                      onDelete={() => setDeleteTarget(stat)}
+                    />
+                  </div>
                 );
               })}
             </div>
@@ -453,7 +468,21 @@ export function Sidebar() {
       )}
 
       {createFolderOpen && (
-        <CreateFolderDialog onClose={() => setCreateFolderOpen(false)} />
+        <CreateFolderDialog
+          onClose={() => setCreateFolderOpen(false)}
+          onSelectExisting={(proj) => {
+            setActiveNav("brain");
+            setSolo({ dimension: "project", value: proj.id });
+          }}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteFolderDialog
+          target={deleteTarget}
+          availableProjects={graph?.projects ?? []}
+          onClose={() => setDeleteTarget(null)}
+        />
       )}
     </aside>
   );

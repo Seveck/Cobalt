@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { backendCall, backendOn } from "@/lib/backend";
+import { toStoreDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { IpcError } from "@/lib/ipc";
 import {
   extractFileName,
@@ -60,7 +61,7 @@ export interface IngestJob {
   /** True while this job was launched by a frontend IPC call that is still in flight. */
   awaitingPromise: boolean;
   report: IngestReport | null;
-  error: string | null;
+  error: DisplayError | null;
 }
 
 export interface IngestState {
@@ -503,7 +504,7 @@ export const useIngestStore = create<IngestState>((set, get) => {
 
   const finalizePromiseError = (localId: string, err: unknown) => {
     const now = Date.now();
-    const message = err instanceof Error ? err.message : String(err);
+    const displayErr = toStoreDisplayError(err, "ingest_paths");
     let shouldAutoRemove = false;
 
     set((state) => {
@@ -532,7 +533,7 @@ export const useIngestStore = create<IngestState>((set, get) => {
           ? INGEST_STAGES.cancelled
           : INGEST_STAGES.failed;
 
-      const hasOcrMissing = !isPaused && !cancelled && isOcrNotInstalledMessage(message);
+      const hasOcrMissing = !isPaused && !cancelled && isOcrNotInstalledMessage(displayErr);
       if (isFinishedStatus(nextStatus) && !hasOcrMissing) {
         shouldAutoRemove = true;
       } else if (hasOcrMissing) {
@@ -551,7 +552,7 @@ export const useIngestStore = create<IngestState>((set, get) => {
         pausing: false,
         cancelQueued: false,
         awaitingPromise: false,
-        error: isPaused || cancelled ? null : message,
+        error: isPaused || cancelled ? null : displayErr,
       };
       const jobs = [...state.jobs];
       jobs[idx] = updated;

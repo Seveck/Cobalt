@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { formatAiClientName, pathBasename } from "@/lib/format";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { staggerStyle } from "@/lib/motion";
 import { Skeleton, Toggle } from "@/components/ui";
 import type {
@@ -22,7 +23,7 @@ import type {
 interface AutoCaptureSectionProps {
   refreshSignal: number;
   onNotice: (message: string) => void;
-  onError: (message: string) => void;
+  onError: (error: DisplayError) => void;
 }
 
 function captureItemKey(item: CaptureStatus): string {
@@ -51,11 +52,7 @@ export function AutoCaptureSection({
       if (integrationsRes.status === "fulfilled") {
         setItems(integrationsRes.value);
       } else {
-        onError(
-          integrationsRes.reason instanceof Error
-            ? integrationsRes.reason.message
-            : String(integrationsRes.reason),
-        );
+        onError(toDisplayError(integrationsRes.reason, t, "list_capture_integrations"));
       }
       if (projectsRes.status === "fulfilled") {
         setProjects(projectsRes.value);
@@ -63,7 +60,7 @@ export function AutoCaptureSection({
     } finally {
       setLoading(false);
     }
-  }, [onError]);
+  }, [onError, t]);
 
   useEffect(() => {
     void loadCaptureData();
@@ -122,7 +119,7 @@ export function AutoCaptureSection({
           : t("capture.disabledNotice", { name: targetName }),
       );
     } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : String(err));
+      onError(toDisplayError(err, t, "toggle_capture_integration"));
     } finally {
       setTogglingKey(null);
     }

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickSinglePath, useFileDrop } from "@/lib/dialogs";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { extractFileName, isOcrNotInstalledMessage } from "@/lib/ingest";
 import { staggerStyle } from "@/lib/motion";
 import {
@@ -55,7 +56,7 @@ import {
 import { CreateFolderDialog } from "@/components/projects/CreateFolderDialog";
 import { FolderPickerDialog } from "@/components/projects/FolderPickerDialog";
 import { UnsortedMemoriesPanel } from "@/components/projects/UnsortedMemoriesPanel";
-import { OutdatedHitBanner, Select, Skeleton, type SelectOption } from "@/components/ui";
+import { ErrorAlert, OutdatedHitBanner, Select, Skeleton, type SelectOption } from "@/components/ui";
 import {
   SOURCE_TYPES,
   type FileAvailability,
@@ -122,7 +123,7 @@ export function LibraryView() {
     Record<Uuid, { winnerId: Uuid; winnerPreview: string | null }>
   >({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   // Promote file to reusable state
@@ -337,7 +338,7 @@ export function LibraryView() {
         await Promise.all([loadLibrary(), loadGraph()]);
         flashNotice(t("library.promotedNotice", { count: paths.length }));
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(toDisplayError(err, t, "promote_file_to_reusable"));
       } finally {
         setPromoting(false);
       }
@@ -432,7 +433,7 @@ export function LibraryView() {
       setVerifiedMap((prev) => ({ ...prev, [asset.memory_id]: status }));
       flashNotice(t("library.relinkedNotice"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "relink_source_document"));
     } finally {
       setBusyId(null);
     }
@@ -450,7 +451,7 @@ export function LibraryView() {
       await Promise.all([loadLibrary(), loadGraph()]);
       flashNotice(t("library.retiredNotice"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "patch_memory"));
     } finally {
       setBusyId(null);
     }
@@ -670,10 +671,10 @@ export function LibraryView() {
             <span>{t("inspector.readOnlyNotice")}</span>
           </div>
         )}
-        {(error || storeError) && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
-            <span>{error ?? storeError}</span>
-            {isOcrNotInstalledMessage(error ?? storeError) && (
+        <ErrorAlert
+          error={error ?? storeError}
+          actions={
+            isOcrNotInstalledMessage(error ?? storeError) ? (
               <button
                 type="button"
                 onClick={() => openSettingsSection("ocr", { autoInstall: true })}
@@ -682,9 +683,9 @@ export function LibraryView() {
                 <ScanText size={11} aria-hidden />
                 {t("ocr.installAction")}
               </button>
-            )}
-          </div>
-        )}
+            ) : undefined
+          }
+        />
         {notice && (
           <div className="flex items-center gap-2 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-4 py-2.5 font-mono text-xs text-verdigris">
             <Check size={13} aria-hidden />

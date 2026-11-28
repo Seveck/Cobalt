@@ -42,6 +42,7 @@ import {
   UNSORTED_PROJECT_NAME,
 } from "@/lib/projects";
 import { isBuiltinThemeId } from "@/lib/themeEngine";
+import { ErrorAlert } from "@/components/ui";
 import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 import {
   useFiltersStore,
@@ -792,16 +793,18 @@ export function BrainCanvas() {
         {/* Load error state when initial graph fetch fails */}
         {!loading && !graph && graphError && (
           <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center p-6">
-            <div className="pointer-events-auto w-full max-w-md rounded-[2px] border border-cinnabar-rule bg-surface/95 p-5 text-center">
-              <p className="text-xs text-cinnabar">{graphError}</p>
-              <button
-                type="button"
-                onClick={() => void loadGraph()}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-1.5 font-mono text-xs text-bone hover:border-cobalt-ink/60"
-              >
-                <RotateCcw size={12} aria-hidden />
-                {t("common.refresh")}
-              </button>
+            <div className="pointer-events-auto w-full max-w-md space-y-3 rounded-[2px] border border-cinnabar-rule bg-surface/95 p-5">
+              <ErrorAlert error={graphError} />
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => void loadGraph()}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-3 py-1.5 font-mono text-xs text-bone hover:border-cobalt-ink/60"
+                >
+                  <RotateCcw size={12} aria-hidden />
+                  {t("common.refresh")}
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -22,11 +22,12 @@ import {
 import { backendCall } from "@/lib/backend";
 import { pickSavePath, pickSinglePath, useFileDrop } from "@/lib/dialogs";
 import { formatBytes } from "@/lib/format";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { staggerStyle } from "@/lib/motion";
 import { isBuiltinThemeId, resolvePreviewTokens } from "@/lib/themeEngine";
 import { useSettingsStore, useThemeStore, useUiStore } from "@/stores";
 import { ThemeWarningsBanner } from "@/components/canvas3d";
-import { Skeleton } from "@/components/ui";
+import { ErrorAlert, Skeleton } from "@/components/ui";
 import { MINIMAL_THEME_MANIFEST } from "@/themes/minimal";
 import {
   BUILTIN_THEME_ID,
@@ -70,12 +71,12 @@ export function ThemeStoreView() {
   const [query, setQuery] = useState("");
   const [cards, setCards] = useState<ThemeCard[]>([]);
   const [searching, setSearching] = useState(true);
-  const [registryError, setRegistryError] = useState<string | null>(null);
+  const [registryError, setRegistryError] = useState<DisplayError | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [installingFile, setInstallingFile] = useState(false);
   const [brokenImages, setBrokenImages] = useState<ReadonlySet<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const flashNotice = useCallback((msg: string) => {
@@ -111,11 +112,11 @@ export function ThemeStoreView() {
       setCards(result);
     } catch (err: unknown) {
       setCards([]);
-      setRegistryError(err instanceof Error ? err.message : String(err));
+      setRegistryError(toDisplayError(err, t, "search_theme_registry"));
     } finally {
       setSearching(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadBuiltinManifests();
@@ -180,7 +181,7 @@ export function ThemeStoreView() {
           setError(t("store.applyError"));
         }
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(toDisplayError(err, t, "get_theme_manifest"));
       } finally {
         setBusyId(null);
       }
@@ -196,7 +197,7 @@ export function ThemeStoreView() {
       const loaded = cached ?? (await backendCall("get_theme_manifest", { theme_id: themeId }));
       openThemeEditor({ manifest: loaded, mode: "edit" });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "get_theme_manifest"));
     } finally {
       setBusyId(null);
     }
@@ -226,7 +227,7 @@ export function ThemeStoreView() {
         }),
       });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "export_theme"));
     } finally {
       setExportingId(null);
     }
@@ -240,7 +241,7 @@ export function ThemeStoreView() {
       await Promise.all([loadInstalledThemes(), searchRegistry(query)]);
       flashNotice(t("store.installedNotice", { name: installed.name }));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "install_theme"));
     } finally {
       setBusyId(null);
     }
@@ -259,7 +260,7 @@ export function ThemeStoreView() {
       await Promise.all([loadInstalledThemes(), searchRegistry(query)]);
       flashNotice(t("store.uninstalledNotice"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "uninstall_theme"));
     } finally {
       setBusyId(null);
     }
@@ -275,7 +276,7 @@ export function ThemeStoreView() {
         await handleApplyTheme(installed.id, installed.name);
         flashNotice(t("store.installedNotice", { name: installed.name }));
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(toDisplayError(err, t, "install_theme_file"));
       } finally {
         setInstallingFile(false);
       }
@@ -388,11 +389,7 @@ export function ThemeStoreView() {
           </div>
         </header>
 
-        {error && (
-          <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
-            {error}
-          </div>
-        )}
+        <ErrorAlert error={error} />
         {notice && (
           <div className="flex items-center gap-2 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-4 py-2.5 font-mono text-xs text-verdigris">
             <Check size={13} aria-hidden />
@@ -870,7 +867,9 @@ export function ThemeStoreView() {
               <p className="mx-auto mt-1.5 max-w-md text-xs text-bone-muted">
                 {t("store.registryErrorDesc")}
               </p>
-              <p className="mt-2 font-mono text-[11px] text-cinnabar">{registryError}</p>
+              <div className="mx-auto mt-3 max-w-md text-left">
+                <ErrorAlert error={registryError} compact />
+              </div>
               <button
                 type="button"
                 disabled={searching}

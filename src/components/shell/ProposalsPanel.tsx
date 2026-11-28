@@ -30,7 +30,7 @@ import {
   useThemeStore,
   useUiStore,
 } from "@/stores";
-import { Skeleton } from "@/components/ui";
+import { ErrorAlert, Skeleton } from "@/components/ui";
 import type {
   MemoryProposal,
   Project,
@@ -728,19 +728,7 @@ export function ProposalsPanel() {
               </div>
             )}
 
-            {error && (
-              <div className="flex items-start justify-between gap-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-3 py-2 text-xs text-cinnabar">
-                <span className="min-w-0 break-words">{error}</span>
-                <button
-                  type="button"
-                  onClick={clearError}
-                  aria-label={t("common.close")}
-                  className="shrink-0 rounded-[2px] p-0.5 text-cinnabar hover:bg-cinnabar/15"
-                >
-                  <X size={12} aria-hidden />
-                </button>
-              </div>
-            )}
+            <ErrorAlert error={error} onDismiss={clearError} />
 
             {/* Bulk actions bar on pending tab */}
             {activeTab === "pending" && items.length > 0 && (
