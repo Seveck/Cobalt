@@ -270,6 +270,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 
   setAutoRotatePaused: (paused) => {
+    if (get().autoRotatePaused === paused) return;
     writeStorageBool(AUTO_ROTATE_PAUSED_STORAGE_KEY, paused);
     set({ autoRotatePaused: paused });
   },
