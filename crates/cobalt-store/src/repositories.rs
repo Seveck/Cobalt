@@ -5,22 +5,23 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use cobalt_core::config::AppSettings;
-use cobalt_core::enums::{FileAvailability, MemoryStatus, SourceType};
+use cobalt_core::enums::{EngineKind, FileAvailability, MemoryStatus, SourceType};
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::{Id, Timestamp, new_id, now, timestamp_from_sql, timestamp_to_sql};
 use cobalt_core::model::{
-    Branch, MoveReport, MoveToProjectRequest, NewProject, NewSourceDocument, Project, ProjectPatch,
-    ProjectStats, SourceDocument,
+    Branch, DeleteProjectContents, DeleteProjectReport, DeleteProjectRequest, Memory, MoveReport,
+    MoveToProjectRequest, NewProject, NewSourceDocument, Project, ProjectPatch, ProjectStats,
+    SourceDocument,
 };
 use cobalt_core::traits::{ConfigRepository, ProjectRepository, SourceDocumentRepository};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::SqliteStore;
 use crate::db::sql_error;
-use crate::memory::{exact_match, mark_superseded, memory, required_memory};
+use crate::memory::{exact_match, mark_superseded, memory, remove_vectors, required_memory};
 use crate::migration::edit_transaction;
+use crate::{Retrieval, SqliteStore};
 
 pub(crate) fn text<T: FromStr<Err = CobaltError>>(row: &Row<'_>, col: &str) -> rusqlite::Result<T> {
     let value: String = row.get(col)?;
@@ -395,108 +396,274 @@ impl ProjectRepository for SqliteStore {
     async fn move_to_project(&self, req: MoveToProjectRequest) -> Result<MoveReport> {
         let gate = self.engine_write().await;
         // Local vector indexes and FTS store no project metadata. Their queries join memories.
-        #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
-        let external = self
-            .configured_retrieval()?
-            .filter(|retrieval| matches!(retrieval.index, crate::vector::Index::External(_)));
-        #[cfg(not(any(feature = "qdrant", feature = "chroma", feature = "lancedb")))]
-        let external: Option<std::sync::Arc<crate::Retrieval>> = None;
+        let external = self.configured_retrieval()?.filter(|r| is_external(r));
 
-        self.db.write(move |conn| {
-            let _gate = gate;
-            edit_transaction(conn, external.as_deref(), |tx, external| {
-                if load_settings(tx)?.read_only {
-                    return Err(CobaltError::ReadOnly);
-                }
-                let target = req.project_id.map(|id| id.to_string());
-                if let Some(target) = &target
-                    && !tx.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?1)",
-                        [target],
-                        |row| row.get::<_, bool>(0),
-                    ).map_err(sql_error)?
-                {
-                    return Err(CobaltError::NotFound(format!("project {target}")));
-                }
+        self.db
+            .write(move |conn| {
+                let _gate = gate;
+                edit_transaction(conn, external.as_deref(), |tx, external| {
+                    if load_settings(tx)?.read_only {
+                        return Err(CobaltError::ReadOnly);
+                    }
+                    let target = req.project_id.map(|id| id.to_string());
+                    if let Some(target) = &target {
+                        require_project(tx, target)?;
+                    }
 
-                let active_branch = branch(tx, None)?.id.to_string();
-                let mut rows = BTreeMap::new();
-                let mut report = MoveReport::default();
-                let stamp = stamp();
-                for doc_id in req.source_doc_ids.into_iter().collect::<BTreeSet<_>>() {
-                    let doc_id = doc_id.to_string();
-                    let mut update = tx.prepare_cached(
-                        "UPDATE source_documents SET project_id = ?2, updated_at = ?3
-                         WHERE id = ?1 AND project_id IS NOT ?2",
-                    ).map_err(sql_error)?;
-                    let changed = update.execute(params![doc_id, target, stamp]).map_err(sql_error)?;
-                    if changed == 0 && !tx.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM source_documents WHERE id = ?1)",
-                        [&doc_id],
-                        |row| row.get::<_, bool>(0),
-                    ).map_err(sql_error)? {
-                        return Err(CobaltError::NotFound(format!("source document {doc_id}")));
-                    }
-                    report.documents += changed as u64;
-                    let mut chunks = tx.prepare_cached(
-                        "SELECT * FROM memories WHERE source_doc_id = ?1 AND branch_id = ?2",
-                    ).map_err(sql_error)?;
-                    for row in chunks.query_map(params![doc_id, active_branch], memory)
-                        .map_err(sql_error)?
-                    {
-                        let row = row.map_err(sql_error)?;
-                        rows.insert(row.id, row);
-                    }
-                }
-                for id in req.memory_ids {
-                    if let std::collections::btree_map::Entry::Vacant(slot) = rows.entry(id) {
-                        slot.insert(required_memory(tx, id)?);
-                    }
-                }
-                let moved: Vec<_> = rows.into_values()
-                    .filter(|row| row.project_id != req.project_id)
-                    .collect();
-                for row in &moved {
-                    tx.execute(
-                        "UPDATE memories SET project_id = ?2, updated_at = ?3 WHERE id = ?1",
-                        params![row.id.to_string(), target, stamp],
-                    ).map_err(sql_error)?;
-                    if row.status == MemoryStatus::Active
-                        && let Some(existing) = exact_match(
-                            tx, row.branch_id, req.project_id, &row.content_hash, Some(row.id),
-                        )?
-                    {
-                        mark_superseded(tx, row.id, existing.id, "moved: duplicate in target", 1.0)?;
-                        report.merged += 1;
-                    }
-                    report.memories += 1;
-                }
-                for row in &moved {
-                    // Semantic edges may cross projects. Project-only edges must agree with
-                    // the final scope of both endpoints, including endpoints moved together.
-                    tx.execute(
-                        "DELETE FROM memory_edges
-                         WHERE edge_type = 'same_project'
-                           AND ((source_id = ?1 AND (SELECT project_id FROM memories WHERE id = target_id) IS NOT ?2)
-                             OR (target_id = ?1 AND
-                                (SELECT project_id FROM memories WHERE id = source_id) IS NOT ?2))",
-                        params![row.id.to_string(), target],
-                    ).map_err(sql_error)?;
-                }
-                if let Some(external) = external {
-                    let ids: Vec<_> = moved.iter().filter(|row| !row.is_encrypted)
-                        .map(|row| row.id).collect();
-                    let vectors = external.index.vectors(tx, &ids)?;
-                    for (id, vector) in ids.into_iter().zip(vectors) {
-                        if let Some(vector) = vector {
-                            external.index.insert(tx, id, &vector)?;
+                    let active_branch = branch(tx, None)?.id.to_string();
+                    let mut rows = BTreeMap::new();
+                    let mut documents = 0;
+                    let stamp = stamp();
+                    for doc_id in req.source_doc_ids.into_iter().collect::<BTreeSet<_>>() {
+                        let doc_id = doc_id.to_string();
+                        let mut update = tx
+                            .prepare_cached(
+                                "UPDATE source_documents SET project_id = ?2, updated_at = ?3
+                                 WHERE id = ?1 AND project_id IS NOT ?2",
+                            )
+                            .map_err(sql_error)?;
+                        let changed = update
+                            .execute(params![doc_id, target, stamp])
+                            .map_err(sql_error)?;
+                        if changed == 0
+                            && !tx
+                                .query_row(
+                                    "SELECT EXISTS(SELECT 1 FROM source_documents WHERE id = ?1)",
+                                    [&doc_id],
+                                    |row| row.get::<_, bool>(0),
+                                )
+                                .map_err(sql_error)?
+                        {
+                            return Err(CobaltError::NotFound(format!("source document {doc_id}")));
+                        }
+                        documents += changed as u64;
+                        let mut chunks = tx
+                            .prepare_cached(
+                                "SELECT * FROM memories WHERE source_doc_id = ?1 AND branch_id = ?2",
+                            )
+                            .map_err(sql_error)?;
+                        for row in chunks
+                            .query_map(params![doc_id, active_branch], memory)
+                            .map_err(sql_error)?
+                        {
+                            let row = row.map_err(sql_error)?;
+                            rows.insert(row.id, row);
                         }
                     }
-                }
-                Ok(report)
+                    for id in req.memory_ids {
+                        if let std::collections::btree_map::Entry::Vacant(slot) = rows.entry(id) {
+                            slot.insert(required_memory(tx, id)?);
+                        }
+                    }
+                    let mut report = move_project_memories(
+                        tx,
+                        rows.into_values(),
+                        req.project_id,
+                        &stamp,
+                        external,
+                    )?;
+                    report.documents = documents;
+                    Ok(report)
+                })
             })
-        }).await
+            .await
     }
+
+    async fn delete_project(&self, req: DeleteProjectRequest) -> Result<DeleteProjectReport> {
+        let gate = self.engine_write().await;
+        let retrieval = self.configured_retrieval()?.filter(|retrieval| {
+            req.contents == DeleteProjectContents::Delete || is_external(retrieval)
+        });
+
+        self.db
+            .write(move |conn| {
+                let _gate = gate;
+                edit_transaction(conn, retrieval.as_deref(), |tx, retrieval| {
+                    let settings = load_settings(tx)?;
+                    if settings.read_only {
+                        return Err(CobaltError::ReadOnly);
+                    }
+                    if req.move_to == Some(req.id) {
+                        return Err(CobaltError::InvalidInput(
+                            "project cannot be moved into itself".into(),
+                        ));
+                    }
+                    let project = req.id.to_string();
+                    require_project(tx, &project)?;
+                    let target = req.move_to.map(|id| id.to_string());
+                    if let Some(target) = &target {
+                        require_project(tx, target)?;
+                    }
+
+                    let mut report = DeleteProjectReport::default();
+                    match req.contents {
+                        DeleteProjectContents::Move => {
+                            let timestamp = stamp();
+                            let mut stmt = tx
+                                .prepare("SELECT * FROM memories WHERE project_id = ?1 ORDER BY id")
+                                .map_err(sql_error)?;
+                            let rows = stmt
+                                .query_map([&project], memory)
+                                .map_err(sql_error)?
+                                .collect::<rusqlite::Result<Vec<_>>>()
+                                .map_err(sql_error)?;
+                            let documents =
+                                tx.execute(
+                                    "UPDATE source_documents SET project_id = ?2, updated_at = ?3
+                                     WHERE project_id = ?1",
+                                    params![project, target, timestamp],
+                                )
+                                .map_err(sql_error)? as u64;
+                            report.moved = move_project_memories(
+                                tx,
+                                rows,
+                                req.move_to,
+                                &timestamp,
+                                retrieval,
+                            )?;
+                            report.moved.documents = documents;
+                        }
+                        DeleteProjectContents::Delete => {
+                            let mut stmt = tx
+                                .prepare("SELECT id FROM memories WHERE project_id = ?1")
+                                .map_err(sql_error)?;
+                            let ids = stmt
+                                .query_map([&project], |row| id(row, "id"))
+                                .map_err(sql_error)?
+                                .collect::<rusqlite::Result<Vec<_>>>()
+                                .map_err(sql_error)?;
+                            if !ids.is_empty() {
+                                if retrieval.is_none() && settings.vector_engine != EngineKind::SqliteVec {
+                                    return Err(CobaltError::Engine(
+                                        "configure the vector engine before deleting project memories".into(),
+                                    ));
+                                }
+                                remove_vectors(tx, retrieval.map(|r| &r.index), &ids)?;
+                            }
+                            // The FTS delete trigger and memory foreign keys clean up indexes,
+                            // edges, and superseded_by references when the memories are removed.
+                            report.memories_deleted = tx
+                                .execute("DELETE FROM memories WHERE project_id = ?1", [&project])
+                                .map_err(sql_error)?
+                                as u64;
+                            report.documents_deleted =
+                                tx.execute(
+                                    "DELETE FROM source_documents WHERE project_id = ?1",
+                                    [&project],
+                                )
+                                .map_err(sql_error)? as u64;
+                        }
+                    }
+                    // Project foreign keys cascade handoffs and proposals and retain telemetry.
+                    retain_project_usage(tx, &project)?;
+                    tx.execute("DELETE FROM projects WHERE id = ?1", [&project])
+                        .map_err(sql_error)?;
+                    Ok(report)
+                })
+            })
+            .await
+    }
+}
+
+fn require_project(conn: &Connection, project: &str) -> Result<()> {
+    let exists = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?1)",
+            [project],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(sql_error)?;
+    if !exists {
+        return Err(CobaltError::NotFound(format!("project {project}")));
+    }
+    Ok(())
+}
+
+fn is_external(retrieval: &Retrieval) -> bool {
+    #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
+    return matches!(retrieval.index, crate::vector::Index::External(_));
+    #[cfg(not(any(feature = "qdrant", feature = "chroma", feature = "lancedb")))]
+    {
+        let _ = retrieval;
+        false
+    }
+}
+
+fn move_project_memories(
+    tx: &Connection,
+    rows: impl IntoIterator<Item = Memory>,
+    project_id: Option<Id>,
+    timestamp: &str,
+    external: Option<&Retrieval>,
+) -> Result<MoveReport> {
+    let target = project_id.map(|id| id.to_string());
+    let mut report = MoveReport::default();
+    let moved: Vec<_> = rows
+        .into_iter()
+        .filter(|row| row.project_id != project_id)
+        .collect();
+    for row in &moved {
+        tx.execute(
+            "UPDATE memories SET project_id = ?2, updated_at = ?3 WHERE id = ?1",
+            params![row.id.to_string(), target, timestamp],
+        )
+        .map_err(sql_error)?;
+        if row.status == MemoryStatus::Active
+            && let Some(existing) = exact_match(
+                tx,
+                row.branch_id,
+                project_id,
+                &row.content_hash,
+                Some(row.id),
+            )?
+        {
+            mark_superseded(tx, row.id, existing.id, "moved: duplicate in target", 1.0)?;
+            report.merged += 1;
+        }
+        report.memories += 1;
+    }
+    for row in &moved {
+        // Semantic edges may cross projects. Project-only edges must agree with
+        // the final scope of both endpoints, including endpoints moved together.
+        tx.execute(
+            "DELETE FROM memory_edges
+             WHERE edge_type = 'same_project'
+               AND ((source_id = ?1 AND (SELECT project_id FROM memories WHERE id = target_id) IS NOT ?2)
+                 OR (target_id = ?1 AND
+                    (SELECT project_id FROM memories WHERE id = source_id) IS NOT ?2))",
+            params![row.id.to_string(), target],
+        ).map_err(sql_error)?;
+    }
+    if let Some(external) = external {
+        let ids: Vec<_> = moved
+            .iter()
+            .filter(|row| !row.is_encrypted)
+            .map(|row| row.id)
+            .collect();
+        let vectors = external.index.vectors(tx, &ids)?;
+        for (id, vector) in ids.into_iter().zip(vectors) {
+            if let Some(vector) = vector {
+                external.index.insert(tx, id, &vector)?;
+            }
+        }
+    }
+    Ok(report)
+}
+
+fn retain_project_usage(conn: &Connection, project: &str) -> Result<()> {
+    // The hourly rollup uses an empty project key for unscoped telemetry.
+    conn.execute(
+        "INSERT INTO usage_hourly (hour_utc, client_name, operation, project_id, requests, saved_tokens)
+         SELECT hour_utc, client_name, operation, '', requests, saved_tokens
+           FROM usage_hourly WHERE project_id = ?1
+         ON CONFLICT (hour_utc, client_name, operation, project_id) DO UPDATE SET
+           requests = usage_hourly.requests + excluded.requests,
+           saved_tokens = usage_hourly.saved_tokens + excluded.saved_tokens",
+        [project],
+    ).map_err(sql_error)?;
+    conn.execute("DELETE FROM usage_hourly WHERE project_id = ?1", [project])
+        .map_err(sql_error)?;
+    Ok(())
 }
 
 pub(crate) fn source(row: &Row<'_>) -> rusqlite::Result<SourceDocument> {
