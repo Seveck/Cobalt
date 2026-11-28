@@ -1,11 +1,15 @@
-import { useEffect, useId, useMemo } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
   Cpu,
+  Folder,
+  FolderCode,
+  FolderPlus,
   Gauge,
+  Globe,
   Leaf,
   Library,
   Network,
@@ -18,11 +22,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { SUPPORTED_LANGUAGES } from "@/i18n";
+import { GENERAL_FOLDER_COLOR, isCodeProject, splitProjects } from "@/lib/projects";
 import {
+  useFiltersStore,
+  useMemoryStore,
   useSettingsStore,
   useUiStore,
   type NavSection,
 } from "@/stores";
+import { CreateFolderDialog } from "@/components/projects/CreateFolderDialog";
 import { Select, type SelectOption } from "@/components/ui";
 import type { HardwareTier, Language } from "@/types/contracts";
 import { CobaltMark } from "./CobaltMark";
@@ -67,6 +75,44 @@ export function Sidebar() {
   const settings = useSettingsStore((s) => s.settings);
   const saving = useSettingsStore((s) => s.saving);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
+
+  const graph = useMemoryStore((s) => s.graph);
+  const soloFilter = useFiltersStore((s) => s.filters.solo);
+  const setSolo = useFiltersStore((s) => s.setSolo);
+
+  const [createFolderOpen, setCreateFolderOpen] = useState(false);
+
+  const { regular: regularFolders } = useMemo(
+    () => splitProjects(graph?.projects ?? []),
+    [graph?.projects],
+  );
+
+  const activeRegularFolders = useMemo(
+    () => regularFolders.filter((stat) => !stat.project.is_archived),
+    [regularFolders],
+  );
+
+  const { folderCounts, generalCount } = useMemo(() => {
+    const counts = new Map<string, number>();
+    let general = 0;
+    for (const node of graph?.nodes ?? []) {
+      if (node.project_id === null) {
+        general += 1;
+      } else {
+        counts.set(node.project_id, (counts.get(node.project_id) ?? 0) + 1);
+      }
+    }
+    return { folderCounts: counts, generalCount: general };
+  }, [graph?.nodes]);
+
+  const handleSelectFolderInBrain = (value: string) => {
+    setActiveNav("brain");
+    if (soloFilter?.dimension === "project" && soloFilter.value === value) {
+      setSolo(null);
+    } else {
+      setSolo({ dimension: "project", value });
+    }
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -169,44 +215,34 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* Primary navigation */}
-      <nav
-        aria-label={t("app.name")}
-        className={`flex flex-1 flex-col gap-0.5 ${collapsed ? "px-1.5 py-2.5" : "p-2.5"}`}
-      >
-        {NAV_ITEMS.map(({ key, icon: Icon }) => {
-          const active = activeNav === key;
-          const label = t(`nav.${key}`);
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setActiveNav(key)}
-              aria-current={active ? "page" : undefined}
-              aria-label={collapsed ? label : undefined}
-              title={collapsed ? label : undefined}
-              className={`group flex w-full items-center rounded-[2px] border text-[13px] font-medium transition-colors focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none ${
-                collapsed
-                  ? "h-9 justify-center px-0"
-                  : "justify-between gap-2 px-2.5 py-2 text-left"
-              } ${
-                active
-                  ? "border-cobalt-rule/70 border-l-2 border-l-cobalt bg-cobalt-wash text-bone"
-                  : "border-transparent bg-sidebar text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
-              }`}
-            >
-              {collapsed ? (
-                <Icon
-                  size={15}
-                  className={
-                    active
-                      ? "shrink-0 text-cobalt-ink"
-                      : "shrink-0 text-bone-subtle group-hover:text-bone-muted"
-                  }
-                  aria-hidden
-                />
-              ) : (
-                <span className="flex min-w-0 items-center gap-2.5 whitespace-nowrap">
+      {/* Primary navigation & Folders list */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <nav
+          aria-label={t("app.name")}
+          className={`flex flex-col gap-0.5 ${collapsed ? "px-1.5 py-2.5" : "p-2.5"}`}
+        >
+          {NAV_ITEMS.map(({ key, icon: Icon }) => {
+            const active = activeNav === key;
+            const label = t(`nav.${key}`);
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveNav(key)}
+                aria-current={active ? "page" : undefined}
+                aria-label={collapsed ? label : undefined}
+                title={collapsed ? label : undefined}
+                className={`group flex w-full items-center rounded-[2px] border text-[13px] font-medium transition-colors focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none ${
+                  collapsed
+                    ? "h-9 justify-center px-0"
+                    : "justify-between gap-2 px-2.5 py-2 text-left"
+                } ${
+                  active
+                    ? "border-cobalt-rule/70 border-l-2 border-l-cobalt bg-cobalt-wash text-bone"
+                    : "border-transparent bg-sidebar text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
+                }`}
+              >
+                {collapsed ? (
                   <Icon
                     size={15}
                     className={
@@ -216,13 +252,134 @@ export function Sidebar() {
                     }
                     aria-hidden
                   />
-                  <span className="truncate">{label}</span>
-                </span>
-              )}
+                ) : (
+                  <span className="flex min-w-0 items-center gap-2.5 whitespace-nowrap">
+                    <Icon
+                      size={15}
+                      className={
+                        active
+                          ? "shrink-0 text-cobalt-ink"
+                          : "shrink-0 text-bone-subtle group-hover:text-bone-muted"
+                      }
+                      aria-hidden
+                    />
+                    <span className="truncate">{label}</span>
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Folders quick section */}
+        {collapsed ? (
+          <div className="mt-auto border-t border-rule px-1.5 py-2">
+            <button
+              type="button"
+              disabled={settings.read_only}
+              onClick={() => setCreateFolderOpen(true)}
+              aria-label={t("folders.newFolder")}
+              title={t("folders.newFolder")}
+              className="inline-flex h-8 w-full items-center justify-center rounded-[2px] border border-transparent text-bone-muted transition-colors hover:border-rule hover:bg-surface-2 hover:text-cobalt-ink disabled:opacity-45"
+            >
+              <FolderPlus size={14} aria-hidden />
             </button>
-          );
-        })}
-      </nav>
+          </div>
+        ) : (
+          <div className="mt-1 border-t border-rule px-2.5 py-2.5">
+            <div className="mb-1.5 flex items-center justify-between gap-1 px-1">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-bone-subtle">
+                {t("folders.sidebarTitle")}
+              </span>
+              <button
+                type="button"
+                disabled={settings.read_only}
+                onClick={() => setCreateFolderOpen(true)}
+                title={t("folders.newFolder")}
+                className="inline-flex items-center gap-1 rounded-[2px] border border-cobalt-rule/60 bg-cobalt-wash/50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-cobalt-ink transition-colors hover:border-cobalt-rule hover:bg-cobalt-wash disabled:opacity-45"
+              >
+                <FolderPlus size={10} aria-hidden />
+                <span>{t("folders.newFolderShort")}</span>
+              </button>
+            </div>
+
+            <div className="space-y-0.5">
+              {/* General bucket */}
+              {(() => {
+                const isActiveGeneral =
+                  activeNav === "brain" &&
+                  soloFilter?.dimension === "project" &&
+                  soloFilter.value === "global";
+                return (
+                  <button
+                    type="button"
+                    onClick={() => handleSelectFolderInBrain("global")}
+                    className={`flex w-full items-center justify-between gap-2 rounded-[2px] border px-2 py-1 text-left text-[12px] transition-colors ${
+                      isActiveGeneral
+                        ? "border-cobalt-rule/70 bg-cobalt-wash text-bone"
+                        : "border-transparent text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-[1px]"
+                        style={{ backgroundColor: GENERAL_FOLDER_COLOR }}
+                        aria-hidden
+                      />
+                      <Globe size={12} className="shrink-0 text-bone-subtle" aria-hidden />
+                      <span className="truncate">{t("brain.globalScope")}</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-[10px] tabular-nums text-bone-subtle">
+                      {generalCount}
+                    </span>
+                  </button>
+                );
+              })()}
+
+              {/* Existing folders & code projects */}
+              {activeRegularFolders.map(({ project, vector_count }) => {
+                const count = folderCounts.get(project.id) ?? vector_count;
+                const isCode = isCodeProject(project);
+                const isActiveFolder =
+                  activeNav === "brain" &&
+                  soloFilter?.dimension === "project" &&
+                  soloFilter.value === project.id;
+
+                return (
+                  <button
+                    key={project.id}
+                    type="button"
+                    onClick={() => handleSelectFolderInBrain(project.id)}
+                    title={isCode && project.root_path ? project.root_path : project.name}
+                    className={`flex w-full items-center justify-between gap-2 rounded-[2px] border px-2 py-1 text-left text-[12px] transition-colors ${
+                      isActiveFolder
+                        ? "border-cobalt-rule/70 bg-cobalt-wash text-bone"
+                        : "border-transparent text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-[1px]"
+                        style={{ backgroundColor: project.color_hex }}
+                        aria-hidden
+                      />
+                      {isCode ? (
+                        <FolderCode size={12} className="shrink-0 text-bone-subtle" aria-hidden />
+                      ) : (
+                        <Folder size={12} className="shrink-0 text-bone-subtle" aria-hidden />
+                      )}
+                      <span className="truncate">{project.name}</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-[10px] tabular-nums text-bone-subtle">
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Footer status & language */}
       {collapsed ? (
@@ -293,6 +450,10 @@ export function Sidebar() {
             </div>
           </div>
         </div>
+      )}
+
+      {createFolderOpen && (
+        <CreateFolderDialog onClose={() => setCreateFolderOpen(false)} />
       )}
     </aside>
   );

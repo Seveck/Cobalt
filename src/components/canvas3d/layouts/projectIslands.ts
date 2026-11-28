@@ -1,4 +1,4 @@
-import { resolveProjectColor } from "@/lib/projects";
+import { GENERAL_FOLDER_COLOR, resolveProjectColor } from "@/lib/projects";
 import {
   MEMORY_CATEGORIES,
   type GraphNode,
@@ -11,7 +11,7 @@ import {
 } from "@/types/contracts";
 
 const GLOBAL_KEY = "__global__";
-const GLOBAL_COLOR = "#94A3B8";
+const GLOBAL_COLOR = GENERAL_FOLDER_COLOR;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 interface IslandBucket {
@@ -77,7 +77,7 @@ export const projectIslandsLayout: LayoutFn = ({ nodes, projects, params }) => {
     const totalTokens = bucket.reduce((sum, n) => sum + n.chunk_tokens, 0);
     const meta =
       key === GLOBAL_KEY
-        ? { label: "Global", color: GLOBAL_COLOR }
+        ? { label: "General", color: GLOBAL_COLOR }
         : (projectMeta.get(key) ?? { label: key.slice(0, 8), color: "#3B82F6" });
     // Area scales linearly with node count => radius scales with sqrt(nodeCount)
     const radius = Math.min(maxR, Math.max(minR, 13 + Math.sqrt(vectorCount) * 2.5));

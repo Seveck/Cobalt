@@ -26,6 +26,7 @@ import { BrainCanvas } from "@/components/canvas3d";
 import { ConnectorsView } from "@/components/connectors/ConnectorsView";
 import { LibraryView } from "@/components/library/LibraryView";
 import { OnboardingScreen } from "@/components/onboarding";
+import { DropIngestHost } from "@/components/projects/DropIngestHost";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { CliActivityShellBar } from "@/components/shell/CliActivityShellBar";
 import { CobaltMark } from "@/components/shell/CobaltMark";
@@ -133,10 +134,7 @@ function DesktopApp() {
       backendOn("cobalt://memory-changed", (payload) => {
         pulseMemoryChange(payload.kind, payload.memory_ids, payload.source_client);
         if (payload.kind === "deleted") {
-          const selected = useMemoryStore.getState().selectedNodeId;
-          if (selected && payload.memory_ids.includes(selected)) {
-            useMemoryStore.getState().setSelectedNodeId(null);
-          }
+          useMemoryStore.getState().pruneSelectedNodes(payload.memory_ids);
         }
         if (refreshTimer !== null) {
           window.clearTimeout(refreshTimer);
@@ -320,6 +318,7 @@ function DesktopApp() {
           <ThemeEditorPanel />
         </div>
         <ThemeToastHost />
+        <DropIngestHost />
       </div>
     </div>
   );

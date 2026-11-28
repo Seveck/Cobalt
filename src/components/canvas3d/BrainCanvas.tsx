@@ -14,7 +14,11 @@ import { Canvas } from "@react-three/fiber";
 import {
   Clock,
   Crosshair,
+  Folder,
+  FolderCode,
+  FolderInput,
   FolderKanban,
+  Globe,
   Inbox,
   Pause,
   Play,
@@ -26,9 +30,13 @@ import {
   Shield,
   Sparkles,
   Upload,
+  X,
 } from "lucide-react";
-import { useFileDrop } from "@/lib/dialogs";
+import { backendCall } from "@/lib/backend";
 import {
+  buildMoveSelectionSummary,
+  formatMoveReportToast,
+  isCodeProject,
   splitProjects,
   UNSORTED_PROJECT_COLOR,
   UNSORTED_PROJECT_NAME,
@@ -37,20 +45,20 @@ import { isBuiltinThemeId } from "@/lib/themeEngine";
 import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 import {
   useFiltersStore,
-  useIngestStore,
   useMemoryStore,
   useSettingsStore,
   useThemeStore,
   useUiStore,
 } from "@/stores";
 import { NodeInspector } from "@/components/inspector/NodeInspector";
+import { FolderPickerDialog } from "@/components/projects/FolderPickerDialog";
 import { CobaltMark } from "@/components/shell/CobaltMark";
 import { Skeleton } from "@/components/ui";
 import { BranchSwitcher } from "@/components/tools/BranchSwitcher";
 import { CleanBrainPanel } from "@/components/tools/CleanBrainPanel";
 import { RagDebugger } from "@/components/tools/RagDebugger";
 import { TimeTravelBar } from "@/components/tools/TimeTravelBar";
-import type { GraphNode, ProjectContainer } from "@/types/contracts";
+import type { GraphNode, ProjectContainer, Uuid } from "@/types/contracts";
 import { BrainScene, type PulseVisibilitySummary } from "./BrainScene";
 import { FilterDock } from "./FilterDock";
 import { LayoutsPanel } from "./LayoutsPanel";
@@ -104,11 +112,15 @@ export function BrainCanvas() {
   const graphError = useMemoryStore((s) => s.error);
   const hoveredNodeId = useMemoryStore((s) => s.hoveredNodeId);
   const selectedNodeId = useMemoryStore((s) => s.selectedNodeId);
+  const selectedNodeIds = useMemoryStore((s) => s.selectedNodeIds);
   const highlightedNodeIds = useMemoryStore((s) => s.highlightedNodeIds);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const setHoveredNodeId = useMemoryStore((s) => s.setHoveredNodeId);
   const setSelectedNodeId = useMemoryStore((s) => s.setSelectedNodeId);
+  const toggleNodeSelection = useMemoryStore((s) => s.toggleNodeSelection);
+  const clearMultiSelection = useMemoryStore((s) => s.clearMultiSelection);
   const requestFocusNodes = useMemoryStore((s) => s.requestFocusNodes);
+  const pushThemeToast = useThemeStore((s) => s.pushThemeToast);
 
   const manifest = useThemeStore((s) => s.manifest);
   const installedThemes = useThemeStore((s) => s.installedThemes);
@@ -150,7 +162,6 @@ export function BrainCanvas() {
   const filters = useFiltersStore((s) => s.filters);
   const searchQuery = useFiltersStore((s) => s.searchQuery);
   const resetFilters = useFiltersStore((s) => s.resetFilters);
-  const startIngestPaths = useIngestStore((s) => s.startIngestPaths);
 
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   const [pointer, setPointer] = useState<TooltipPointer>({ x: 0, y: 0 });
@@ -161,6 +172,7 @@ export function BrainCanvas() {
   const [anyNodeInView, setAnyNodeInView] = useState(true);
   const [activeDrawer, setActiveDrawer] = useState<ActiveDrawer>("none");
   const [timeTravelOpen, setTimeTravelOpen] = useState(false);
+  const [moveSelectionOpen, setMoveSelectionOpen] = useState(false);
   const [projectContainers, setProjectContainers] = useState<readonly ProjectContainer[]>([]);
   const [pulseVisibility, setPulseVisibility] = useState<PulseVisibilitySummary | null>(null);
 
@@ -241,22 +253,6 @@ export function BrainCanvas() {
     return () => observer.disconnect();
   }, [graph?.nodes.length, timeTravelOpen]);
 
-  const handleDropOnto3D = useCallback(
-    (paths: string[]) => {
-      if (readOnly || paths.length === 0) return;
-      void startIngestPaths({
-        paths,
-        project_id: null,
-        watch: false,
-        mark_reusable: false,
-        ocr: true,
-      });
-    },
-    [readOnly, startIngestPaths],
-  );
-
-  const { isDragging } = useFileDrop(handleDropOnto3D, !readOnly);
-
   useEffect(() => {
     if (!graph && !loading) {
       void loadGraph();
@@ -302,10 +298,66 @@ export function BrainCanvas() {
   );
 
   const handleSelectNode = useCallback(
-    (node: GraphNode | null) => {
+    (node: GraphNode | null, additive = false) => {
+      if (additive) {
+        if (node) {
+          toggleNodeSelection(node.id);
+        }
+        return;
+      }
       setSelectedNodeId(node ? node.id : null);
     },
-    [setSelectedNodeId],
+    [setSelectedNodeId, toggleNodeSelection],
+  );
+
+  const selectedNodesList = useMemo<GraphNode[]>(() => {
+    if (!graph || selectedNodeIds.size === 0) return [];
+    return graph.nodes.filter((n) => selectedNodeIds.has(n.id));
+  }, [graph, selectedNodeIds]);
+
+  const multiMoveSummary = useMemo(
+    () => buildMoveSelectionSummary(selectedNodesList, graph?.nodes),
+    [graph?.nodes, selectedNodesList],
+  );
+
+  const multiMoveInfoBanner = useMemo(() => {
+    const { sourceDocIds, standaloneMemoryIds, documentFragmentsCount } = multiMoveSummary;
+    if (sourceDocIds.length === 0) return null;
+    if (sourceDocIds.length === 1 && standaloneMemoryIds.length === 0) {
+      return t("folders.moveWholeDocumentNotice", { count: documentFragmentsCount });
+    }
+    if (standaloneMemoryIds.length === 0) {
+      return t("folders.moveWholeDocumentsNotice", {
+        docs: sourceDocIds.length,
+        fragments: documentFragmentsCount,
+      });
+    }
+    return t("folders.moveMixedSelectionNotice", {
+      docs: sourceDocIds.length,
+      fragments: documentFragmentsCount,
+      standalone: standaloneMemoryIds.length,
+    });
+  }, [multiMoveSummary, t]);
+
+  const handleConfirmMoveSelection = useCallback(
+    async (projectId: Uuid | null, targetName: string) => {
+      if (selectedNodesList.length === 0) {
+        setMoveSelectionOpen(false);
+        return;
+      }
+      const report = await backendCall("move_to_project", {
+        ...multiMoveSummary.request,
+        project_id: projectId,
+      });
+      setMoveSelectionOpen(false);
+      clearMultiSelection();
+      await loadGraph();
+      pushThemeToast({
+        kind: "saved",
+        message: formatMoveReportToast(report, targetName, t),
+      });
+    },
+    [clearMultiSelection, loadGraph, multiMoveSummary.request, pushThemeToast, selectedNodesList.length, t],
   );
 
   const handleInspectMemoryId = useCallback(
@@ -396,18 +448,6 @@ export function BrainCanvas() {
         className="relative min-w-0 flex-1 overflow-hidden select-none"
         style={{ backgroundColor: manifest.palette.background }}
       >
-        {/* Drag & drop onto 3D overlay */}
-        {isDragging && (
-          <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-void/75 backdrop-blur-xs">
-            <div className="flex flex-col items-center gap-2.5 rounded-[2px] border-2 border-dashed border-cobalt bg-cobalt-wash/90 px-8 py-6 text-center">
-              <Upload size={26} className="text-cobalt-ink" aria-hidden />
-              <div className="text-base font-semibold tracking-tight text-bone">
-                {t("brain.dropToIngestTitle")}
-              </div>
-              <p className="text-xs text-bone-muted">{t("brain.dropToIngestHint")}</p>
-            </div>
-          </div>
-        )}
         {/* Top HUD bar: left status + center layout switcher + right tool buttons */}
         <div
           ref={topToolbarRef}
@@ -615,28 +655,40 @@ export function BrainCanvas() {
           <ThemeWarningsBanner />
         </div>
 
-        {/* Project Clusters Legend Overlay (when project_clusters layout is active) */}
-        {activeLayout === "project_clusters" && projectContainers.length > 0 && (
-          <div className="pointer-events-none absolute top-16 left-3 z-10 hidden max-w-xs flex-wrap gap-1.5 rounded-[2px] border border-rule bg-surface/90 p-2 font-mono text-[10px] sm:flex">
-            {projectContainers.map((c) => (
-              <span
-                key={c.id}
-                className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule bg-void px-1.5 py-0.5 text-bone-muted"
-              >
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: c.color }}
-                />
-                <span className="text-bone">{c.label}</span>
-                <span className="tabular-nums text-bone-subtle">
-                  {clusterSizeMetric === "tokens"
-                    ? `${c.totalTokens.toLocaleString()}t`
-                    : `${c.vectorCount}v`}
-                </span>
-              </span>
-            ))}
-          </div>
-        )}
+        {/* Project / Folder Legend Overlay (when project_clusters or project_islands layout is active) */}
+        {(activeLayout === "project_clusters" || activeLayout === "project_islands") &&
+          projectContainers.length > 0 && (
+            <div className="pointer-events-none absolute top-16 left-3 z-10 hidden max-w-xs flex-wrap gap-1.5 rounded-[2px] border border-rule bg-surface/90 p-2 font-mono text-[10px] sm:flex">
+              {projectContainers.map((c) => {
+                const proj = c.projectId ? projectById.get(c.projectId) : null;
+                const displayLabel = c.projectId === null ? t("brain.globalScope") : c.label;
+                return (
+                  <span
+                    key={c.id}
+                    className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule bg-void px-1.5 py-0.5 text-bone-muted"
+                  >
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: c.color }}
+                    />
+                    {c.projectId === null ? (
+                      <Globe size={10} className="shrink-0 text-bone-subtle" aria-hidden />
+                    ) : isCodeProject(proj) ? (
+                      <FolderCode size={10} className="shrink-0 text-bone-subtle" aria-hidden />
+                    ) : (
+                      <Folder size={10} className="shrink-0 text-bone-subtle" aria-hidden />
+                    )}
+                    <span className="text-bone">{displayLabel}</span>
+                    <span className="tabular-nums text-bone-subtle">
+                      {clusterSizeMetric === "tokens"
+                        ? `${c.totalTokens.toLocaleString()}t`
+                        : `${c.vectorCount}v`}
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+          )}
 
         {/* Initial loading skeleton before graph arrives */}
         {loading && !graph && (
@@ -679,6 +731,7 @@ export function BrainCanvas() {
                   searchQuery={searchQuery}
                   hoveredNodeId={hoveredNodeId}
                   selectedNodeId={selectedNodeId}
+                  selectedNodeIds={selectedNodeIds}
                   highlightedNodeIds={highlightedNodeIds}
                   resetSignal={resetSignal}
                   centerViewSignal={centerViewSignal}
@@ -833,6 +886,42 @@ export function BrainCanvas() {
           </div>
 
           <div ref={bottomDockRef} className="flex flex-col gap-2">
+            {selectedNodesList.length > 0 && (
+              <div className="cobalt-panel-enter-up pointer-events-auto flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-cobalt-rule bg-surface/95 px-3 py-2 shadow-[0_10px_28px_rgba(0,0,0,0.68)]">
+                <div className="flex items-center gap-2 font-mono text-[11px] text-bone">
+                  <span className="inline-flex h-5 min-w-[1.4rem] items-center justify-center rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-1.5 font-semibold tabular-nums text-cobalt-ink">
+                    {selectedNodesList.length}
+                  </span>
+                  <span>
+                    {t("folders.selectionCount", { count: selectedNodesList.length })}
+                  </span>
+                  <span className="hidden text-[10px] text-bone-subtle sm:inline">
+                    · {t("folders.multiSelectHint")}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={readOnly}
+                    onClick={() => setMoveSelectionOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[11px] font-semibold text-on-accent transition-colors hover:bg-cobalt-bright disabled:opacity-45"
+                  >
+                    <FolderInput size={12} aria-hidden />
+                    <span>{t("folders.moveSelectionAction")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearMultiSelection}
+                    aria-label={t("folders.clearSelection")}
+                    title={t("folders.clearSelection")}
+                    className="inline-flex items-center gap-1 rounded-[2px] border border-rule-strong bg-surface-2 px-2 py-1 font-mono text-[11px] text-bone-muted hover:text-bone"
+                  >
+                    <X size={11} aria-hidden />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {timeTravelOpen && <TimeTravelBar onClose={() => setTimeTravelOpen(false)} />}
 
             {graph && graph.nodes.length > 0 && (
@@ -841,6 +930,17 @@ export function BrainCanvas() {
           </div>
         </div>
       </div>
+
+      {moveSelectionOpen && selectedNodesList.length > 0 && (
+        <FolderPickerDialog
+          mode="move"
+          title={t("folders.moveSelectionDialogTitle", { count: selectedNodesList.length })}
+          infoBanner={multiMoveInfoBanner}
+          initialProjects={graph?.projects}
+          onConfirm={handleConfirmMoveSelection}
+          onCancel={() => setMoveSelectionOpen(false)}
+        />
+      )}
 
       {/* Collapsible Layouts Panel on the right edge of the 3D view */}
       <LayoutsPanel

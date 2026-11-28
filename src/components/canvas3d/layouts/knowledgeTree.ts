@@ -75,7 +75,7 @@ export const knowledgeTreeLayout: LayoutFn = ({ nodes, projects, params }) => {
 
     const info =
       pKey === GLOBAL_PROJECT_KEY
-        ? { label: "Global", color: "#94A3B8" }
+        ? { label: "General", color: "#94A3B8" }
         : (projectInfoMap.get(pKey) ?? { label: pKey.slice(0, 8), color: "#3B82F6" });
 
     const projAnchorId = `anchor:tree:proj:${pKey}`;

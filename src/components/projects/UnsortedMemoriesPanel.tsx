@@ -12,12 +12,14 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import {
+  buildMoveSelectionSummary,
+  formatMoveReportToast,
   GLOBAL_PROJECT_SENTINEL,
   toPatchProjectId,
   UNSORTED_PROJECT_COLOR,
   UNSORTED_PROJECT_NAME,
 } from "@/lib/projects";
-import { useMemoryStore } from "@/stores";
+import { useMemoryStore, useThemeStore } from "@/stores";
 import { Select, Skeleton, type SelectOption } from "@/components/ui";
 import type { GraphNode, ProjectStats, Uuid } from "@/types/contracts";
 
@@ -61,6 +63,7 @@ export function UnsortedMemoriesPanel({
   const graph = useMemoryStore((s) => s.graph);
   const graphLoading = useMemoryStore((s) => s.loading);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
+  const pushThemeToast = useThemeStore((s) => s.pushThemeToast);
 
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<Uuid>>(() => new Set());
   const [bulkTarget, setBulkTarget] = useState<string>(GLOBAL_PROJECT_SENTINEL);
@@ -168,58 +171,54 @@ export function UnsortedMemoriesPanel({
 
   const handleBulkMove = async () => {
     if (readOnly || movingBulk || selectedIds.size === 0) return;
-    const ids = [...selectedIds];
+    const selectedNodes = unsortedNodes.filter((n) => selectedIds.has(n.id));
+    if (selectedNodes.length === 0) return;
+    const summary = buildMoveSelectionSummary(selectedNodes, graph?.nodes);
     const projectId = toPatchProjectId(bulkTarget);
     const targetName = resolveDestinationName(bulkTarget);
 
     setMovingBulk(true);
     setError(null);
     setNotice(null);
-    let moved = 0;
     try {
-      for (const id of ids) {
-        await backendCall("patch_memory", {
-          id,
-          patch: { project_id: projectId },
-        });
-        moved += 1;
-      }
+      const report = await backendCall("move_to_project", {
+        ...summary.request,
+        project_id: projectId,
+      });
       setSelectedIds(new Set());
       await loadGraph();
       await onMoved();
-      setNotice(
-        moved === 1
-          ? t("unsorted.movedOneNotice", { project: targetName })
-          : t("unsorted.movedManyNotice", { count: moved, project: targetName }),
-      );
+      const toastMsg = formatMoveReportToast(report, targetName, t);
+      setNotice(toastMsg);
+      pushThemeToast({ kind: "saved", message: toastMsg });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
-      if (moved > 0) {
-        await loadGraph();
-        await onMoved();
-      }
     } finally {
       setMovingBulk(false);
     }
   };
 
-  const handleMoveSingle = async (memoryId: Uuid, targetValue: string) => {
+  const handleMoveSingle = async (node: GraphNode, targetValue: string) => {
     if (readOnly || movingSingleId !== null) return;
     const projectId = toPatchProjectId(targetValue);
     const targetName = resolveDestinationName(targetValue);
 
-    setMovingSingleId(memoryId);
+    setMovingSingleId(node.id);
     setError(null);
     setNotice(null);
     try {
-      await backendCall("patch_memory", {
-        id: memoryId,
-        patch: { project_id: projectId },
+      const report = await backendCall("move_to_project", {
+        ...(node.source_doc_id
+          ? { source_doc_ids: [node.source_doc_id] }
+          : { memory_ids: [node.id] }),
+        project_id: projectId,
       });
       setOpenRowMoveId(null);
       await loadGraph();
       await onMoved();
-      setNotice(t("unsorted.movedOneNotice", { project: targetName }));
+      const toastMsg = formatMoveReportToast(report, targetName, t);
+      setNotice(toastMsg);
+      pushThemeToast({ kind: "saved", message: toastMsg });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -447,7 +446,7 @@ export function UnsortedMemoriesPanel({
                       ariaLabel={t("unsorted.moveAction")}
                       onChange={(targetVal) => {
                         if (targetVal !== CHOOSE_DESTINATION_SENTINEL) {
-                          void handleMoveSingle(node.id, targetVal);
+                          void handleMoveSingle(node, targetVal);
                         }
                       }}
                     />

@@ -10,9 +10,12 @@ import {
   Edit3,
   FileText,
   FileUp,
+  Folder,
+  FolderCode,
   FolderInput,
   FolderKanban,
   FolderOpen,
+  FolderPlus,
   FolderSync,
   Globe,
   HardDriveDownload,
@@ -40,6 +43,9 @@ import {
 } from "@/lib/ingest";
 import { staggerStyle } from "@/lib/motion";
 import {
+  GLOBAL_PROJECT_SENTINEL,
+  isCodeProject,
+  PROJECT_COLORS,
   splitProjects,
   UNSORTED_PROJECT_COLOR,
   UNSORTED_PROJECT_NAME,
@@ -53,6 +59,8 @@ import {
   useUiStore,
   type ToolsTab,
 } from "@/stores";
+import { CreateFolderDialog } from "@/components/projects/CreateFolderDialog";
+import { FolderPickerDialog } from "@/components/projects/FolderPickerDialog";
 import { UnsortedMemoriesPanel } from "@/components/projects/UnsortedMemoriesPanel";
 import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import type {
@@ -64,17 +72,6 @@ import type {
   Uuid,
   WebContext,
 } from "@/types/contracts";
-
-const PROJECT_COLORS = [
-  "#3B82F6",
-  "#10B981",
-  "#A855F7",
-  "#F59E0B",
-  "#EC4899",
-  "#06B6D4",
-  "#EF4444",
-  "#84CC16",
-] as const;
 
 const PAST_LIFE_SOURCES: readonly PastLifeSource[] = [
   "chatgpt_export",
@@ -217,10 +214,12 @@ export function ToolsView() {
 
   // ---- Importer state ----
   const [ingestPathsList, setIngestPathsList] = useState<string[]>([]);
-  const [ingestProjectId, setIngestProjectId] = useState<string>("__global__");
+  const [ingestProjectId, setIngestProjectId] = useState<string>(GLOBAL_PROJECT_SENTINEL);
   const [ingestWatch, setIngestWatch] = useState(false);
   const [ingestReusable, setIngestReusable] = useState(false);
   const [ingestOcr, setIngestOcr] = useState(true);
+  const [pendingImporterDropPaths, setPendingImporterDropPaths] = useState<string[] | null>(null);
+  const [createFolderOpen, setCreateFolderOpen] = useState(false);
 
   const [pastLifeSource, setPastLifeSource] = useState<PastLifeSource>("chatgpt_export");
   const [pastLifePath, setPastLifePath] = useState("");
@@ -267,8 +266,30 @@ export function ToolsView() {
   }, [loadProjects]);
 
   const { isDragging } = useFileDrop((paths) => {
-    setIngestPathsList((prev) => [...new Set([...prev, ...paths])]);
-  }, activeTab === "importer" && !readOnly);
+    if (paths.length === 0) return;
+    setPendingImporterDropPaths(paths);
+  }, activeTab === "importer" && !readOnly && pendingImporterDropPaths === null);
+
+  const handleConfirmImporterDrop = useCallback(
+    (projectId: Uuid | null) => {
+      if (!pendingImporterDropPaths || pendingImporterDropPaths.length === 0) {
+        setPendingImporterDropPaths(null);
+        return;
+      }
+      const pathsToIngest = [...pendingImporterDropPaths];
+      setPendingImporterDropPaths(null);
+      setIngestProjectId(projectId ?? GLOBAL_PROJECT_SENTINEL);
+      setError(null);
+      void startIngestPaths({
+        paths: pathsToIngest,
+        project_id: projectId,
+        watch: ingestWatch,
+        mark_reusable: ingestReusable,
+        ocr: ingestOcr,
+      });
+    },
+    [ingestOcr, ingestReusable, ingestWatch, pendingImporterDropPaths, startIngestPaths],
+  );
 
   const { regular: regularProjects, unsorted: unsortedProject } = useMemo(
     () => splitProjects(projects),
@@ -893,14 +914,25 @@ export function ToolsView() {
                 <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-bone-subtle">
                   {t("tools.projects.listTitle")} ({regularProjects.length})
                 </h2>
-                <label className="flex items-center gap-2 text-xs text-bone-muted">
-                  <Toggle
-                    checked={includeArchivedProjects}
-                    ariaLabel={t("tools.projects.showArchived")}
-                    onChange={setIncludeArchivedProjects}
-                  />
-                  <span>{t("tools.projects.showArchived")}</span>
-                </label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={readOnly}
+                    onClick={() => setCreateFolderOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt-wash px-2.5 py-1 font-mono text-[11px] font-semibold text-cobalt-ink transition-colors hover:bg-cobalt hover:text-on-accent disabled:opacity-45"
+                  >
+                    <FolderPlus size={12} aria-hidden />
+                    <span>{t("folders.newFolder")}</span>
+                  </button>
+                  <label className="flex items-center gap-2 text-xs text-bone-muted">
+                    <Toggle
+                      checked={includeArchivedProjects}
+                      ariaLabel={t("tools.projects.showArchived")}
+                      onChange={setIncludeArchivedProjects}
+                    />
+                    <span>{t("tools.projects.showArchived")}</span>
+                  </label>
+                </div>
               </div>
 
               {loadingProjects && regularProjects.length === 0 ? (
@@ -995,9 +1027,29 @@ export function ToolsView() {
                                 style={{ backgroundColor: project.color_hex }}
                               />
                               <div className="min-w-0">
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {isCodeProject(project) ? (
+                                    <FolderCode
+                                      size={14}
+                                      className="shrink-0"
+                                      style={{ color: project.color_hex }}
+                                      aria-hidden
+                                    />
+                                  ) : (
+                                    <Folder
+                                      size={14}
+                                      className="shrink-0"
+                                      style={{ color: project.color_hex }}
+                                      aria-hidden
+                                    />
+                                  )}
                                   <span className="text-sm font-medium text-bone">
                                     {project.name}
+                                  </span>
+                                  <span className="rounded-[2px] border border-rule bg-void px-1.5 py-0.25 font-mono text-[9px] uppercase text-bone-subtle">
+                                    {isCodeProject(project)
+                                      ? t("folders.kindCodeProject")
+                                      : t("folders.kindPlainFolder")}
                                   </span>
                                   {project.is_archived && (
                                     <span className="rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase text-bone-subtle">
@@ -1705,6 +1757,24 @@ export function ToolsView() {
           </div>
         )}
       </div>
+
+      {pendingImporterDropPaths && (
+        <FolderPickerDialog
+          mode="drop"
+          droppedPaths={pendingImporterDropPaths}
+          initialProjects={projects}
+          onConfirm={handleConfirmImporterDrop}
+          onCancel={() => setPendingImporterDropPaths(null)}
+          onFolderCreated={() => void loadProjects()}
+        />
+      )}
+
+      {createFolderOpen && (
+        <CreateFolderDialog
+          onClose={() => setCreateFolderOpen(false)}
+          onCreated={() => void loadProjects()}
+        />
+      )}
     </div>
   );
 }
