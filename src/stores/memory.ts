@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { backendCall } from "@/lib/backend";
 import { toStoreDisplayError, type DisplayError } from "@/lib/friendlyError";
-import type { GraphData, GraphQuery, Uuid } from "@/types/contracts";
+import type { GraphData, GraphQuery, MemoryChanged, Uuid } from "@/types/contracts";
 
 const DEFAULT_GRAPH_QUERY: GraphQuery = {
   branch_id: null,
@@ -19,6 +19,8 @@ export interface CameraFocusRequest {
 export interface MemoryState {
   graph: GraphData | null;
   graphRevision: number;
+  memoryChangeVersion: number;
+  lastMemoryChange: MemoryChanged | null;
   selectedNodeId: Uuid | null;
   selectedNodeIds: ReadonlySet<Uuid>;
   hoveredNodeId: Uuid | null;
@@ -27,6 +29,7 @@ export interface MemoryState {
   loading: boolean;
   error: DisplayError | null;
   loadGraph: (query?: Partial<GraphQuery>) => Promise<void>;
+  recordMemoryChange: (payload: MemoryChanged) => void;
   setSelectedNodeId: (id: Uuid | null) => void;
   toggleNodeSelection: (id: Uuid) => void;
   setSelectedNodeIds: (ids: readonly Uuid[]) => void;
@@ -43,6 +46,8 @@ let focusNonceCounter = 0;
 export const useMemoryStore = create<MemoryState>((set) => ({
   graph: null,
   graphRevision: 0,
+  memoryChangeVersion: 0,
+  lastMemoryChange: null,
   selectedNodeId: null,
   selectedNodeIds: new Set<Uuid>(),
   hoveredNodeId: null,
@@ -50,6 +55,12 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   focusRequest: null,
   loading: false,
   error: null,
+
+  recordMemoryChange: (payload) =>
+    set((state) => ({
+      memoryChangeVersion: state.memoryChangeVersion + 1,
+      lastMemoryChange: payload,
+    })),
 
   loadGraph: async (query) => {
     set({ loading: true, error: null });

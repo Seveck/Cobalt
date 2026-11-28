@@ -132,6 +132,7 @@ function DesktopApp() {
 
     register(
       backendOn("cobalt://memory-changed", (payload) => {
+        useMemoryStore.getState().recordMemoryChange(payload);
         pulseMemoryChange(payload.kind, payload.memory_ids, payload.source_client);
         if (payload.kind === "deleted") {
           useMemoryStore.getState().pruneSelectedNodes(payload.memory_ids);
