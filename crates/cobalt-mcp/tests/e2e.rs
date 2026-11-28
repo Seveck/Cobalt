@@ -291,6 +291,58 @@ async fn mcp_end_to_end_over_socket_and_http() {
 
     c.call("save_memory", json!({ "content": "Usar siempre pnpm, nunca npm, en todos los proyectos.", "category": "preference", "project": "global" })).await;
 
+    // organize (optional, v1.18.0): folders are never created implicitly; moves round-trip;
+    // private paths are refused; import needs the desktop app.
+    let missing = c
+        .call(
+            "organize",
+            json!({ "action": "move", "folder": "Legal", "memory_ids": [memory_id] }),
+        )
+        .await;
+    assert_eq!(missing["isError"], true, "{missing}");
+    let folder = c
+        .call(
+            "organize",
+            json!({ "action": "create_folder", "folder": "Legal" }),
+        )
+        .await;
+    assert_eq!(folder["structuredContent"]["created"], true, "{folder}");
+    let moved = c
+        .call(
+            "organize",
+            json!({ "action": "move", "folder": "Legal", "memory_ids": [memory_id] }),
+        )
+        .await;
+    assert_eq!(moved["isError"], false, "{moved}");
+    assert_eq!(moved["structuredContent"]["moved"]["memories"], 1);
+    assert_eq!(moved["structuredContent"]["folder"]["memory_count"], 1);
+    let listed = c
+        .call("organize", json!({ "action": "list_folders" }))
+        .await;
+    assert!(
+        listed["structuredContent"]["folders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["name"] == "Legal"),
+        "{listed}"
+    );
+    let back = c
+        .call(
+            "organize",
+            json!({ "action": "move", "folder": "shop-api", "memory_ids": [memory_id] }),
+        )
+        .await;
+    assert_eq!(back["structuredContent"]["moved"]["memories"], 1, "{back}");
+    let secret = c
+        .call("organize", json!({ "action": "import", "folder": "Legal", "paths": ["/home/someone/.ssh/id_rsa"] }))
+        .await;
+    assert_eq!(secret["isError"], true, "{secret}");
+    let no_importer = c
+        .call("organize", json!({ "action": "import", "folder": "Legal", "paths": [concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")] }))
+        .await;
+    assert_eq!(no_importer["isError"], true, "{no_importer}");
+
     // search_memory finds it, nothing secret leaks, telemetry + live pulse attributed to the client.
     let found = c
         .call(
