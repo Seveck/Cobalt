@@ -136,8 +136,8 @@ export function FolderRowMenu({
           setOpen((v) => !v);
         }}
         className={`inline-flex shrink-0 items-center justify-center rounded-[2px] text-bone-subtle transition-colors hover:bg-surface-2 hover:text-bone focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none ${
-          compact ? "px-1 py-0.5" : "h-6 w-6"
-        } ${open ? "bg-surface-2 text-bone" : ""} ${triggerClassName}`}
+          compact ? "h-5 w-5" : "h-6 w-6"
+        } ${triggerClassName} ${open ? "bg-surface-2 text-bone opacity-100" : ""}`}
       >
         <MoreHorizontal size={compact ? 11 : 13} aria-hidden />
       </button>

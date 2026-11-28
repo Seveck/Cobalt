@@ -16,9 +16,11 @@ import {
   X,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { formatCount } from "@/lib/format";
 import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { extractFileName } from "@/lib/ingest";
 import {
+  countActiveMemoriesByFolder,
   detectProjectForPaths,
   findProjectByName,
   GENERAL_FOLDER_COLOR,
@@ -77,10 +79,17 @@ export function FolderPickerDialog({
   onCancel,
   onFolderCreated,
 }: FolderPickerDialogProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const currentLanguage = i18n.resolvedLanguage ?? i18n.language;
   const loadGraph = useMemoryStore((s) => s.loadGraph);
+  const graphNodes = useMemoryStore((s) => s.graph?.nodes);
   const graphProjects = useMemoryStore((s) => s.graph?.projects);
   const readOnly = useSettingsStore((s) => s.settings.read_only);
+
+  const activeFolderCounts = useMemo(
+    () => (graphNodes ? countActiveMemoriesByFolder(graphNodes) : null),
+    [graphNodes],
+  );
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const newNameInputRef = useRef<HTMLInputElement>(null);
@@ -475,52 +484,97 @@ export function FolderPickerDialog({
         {/* Scrollable list of folders/projects */}
         <div className="flex-1 space-y-1 overflow-y-auto p-2.5">
           {/* General (all folders) option */}
-          {generalMatchesSearch && (
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={() => setSelectedValue(GLOBAL_PROJECT_SENTINEL)}
-              onDoubleClick={() => {
-                if (!(mode === "move" && currentProjectId === null)) {
-                  void handleConfirmValue(GLOBAL_PROJECT_SENTINEL);
-                }
-              }}
-              className={`flex w-full items-center justify-between gap-2.5 rounded-[2px] border px-3 py-2 text-left transition-colors ${
-                selectedValue === GLOBAL_PROJECT_SENTINEL
-                  ? "border-cobalt-rule bg-cobalt-wash text-bone"
-                  : "border-transparent bg-void/60 text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
-              }`}
-            >
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-[1px]"
-                  style={{ backgroundColor: GENERAL_FOLDER_COLOR }}
-                  aria-hidden
-                />
-                <Globe size={14} className="shrink-0 text-bone-muted" aria-hidden />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-bone">
-                    <span className="truncate">{generalLabel}</span>
-                    {mode === "move" && currentProjectId === null && (
-                      <span className="rounded-[2px] border border-rule bg-surface px-1 py-0.25 font-mono text-[9px] uppercase text-bone-subtle">
-                        {t("folders.currentBadge")}
-                      </span>
-                    )}
-                  </div>
-                  <div className="truncate text-[10px] text-bone-subtle">
-                    {t("folders.generalHint")}
-                  </div>
+          {generalMatchesSearch &&
+            (() => {
+              const generalCount = activeFolderCounts?.general ?? null;
+              const formattedGeneralCount =
+                generalCount !== null ? formatCount(generalCount, currentLanguage) : null;
+              const generalCountTooltip =
+                generalCount !== null && formattedGeneralCount !== null
+                  ? t("folders.memoriesCountTooltip", {
+                      count: generalCount,
+                      formattedCount: formattedGeneralCount,
+                    })
+                  : undefined;
+              const generalTooltip = t("folders.generalRowTooltip");
+              return (
+                <div
+                  className={`group flex w-full items-center gap-1 rounded-[2px] border pr-1.5 transition-colors ${
+                    selectedValue === GLOBAL_PROJECT_SENTINEL
+                      ? "border-cobalt-rule bg-cobalt-wash text-bone"
+                      : "border-transparent bg-void/60 text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    title={generalTooltip}
+                    onClick={() => setSelectedValue(GLOBAL_PROJECT_SENTINEL)}
+                    onDoubleClick={() => {
+                      if (!(mode === "move" && currentProjectId === null)) {
+                        void handleConfirmValue(GLOBAL_PROJECT_SENTINEL);
+                      }
+                    }}
+                    className="flex min-w-0 flex-1 items-center justify-between gap-2.5 px-3 py-2 text-left"
+                  >
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-[1px]"
+                        style={{ backgroundColor: GENERAL_FOLDER_COLOR }}
+                        aria-hidden
+                      />
+                      <Globe size={14} className="shrink-0 text-bone-muted" aria-hidden />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-bone">
+                          <span className="truncate">{generalLabel}</span>
+                          {mode === "move" && currentProjectId === null && (
+                            <span className="rounded-[2px] border border-rule bg-surface px-1 py-0.25 font-mono text-[9px] uppercase text-bone-subtle">
+                              {t("folders.currentBadge")}
+                            </span>
+                          )}
+                        </div>
+                        <div className="truncate text-[10px] text-bone-subtle">
+                          {t("folders.generalHint")}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {selectedValue === GLOBAL_PROJECT_SENTINEL && (
+                        <Check size={14} className="shrink-0 text-cobalt-ink" aria-hidden />
+                      )}
+                      {formattedGeneralCount !== null && (
+                        <span
+                          title={generalCountTooltip}
+                          aria-label={generalCountTooltip}
+                          className="shrink-0 font-mono text-[10px] tabular-nums text-bone-subtle"
+                        >
+                          {formattedGeneralCount}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                  <span
+                    title={generalTooltip}
+                    aria-label={generalTooltip}
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[2px] text-bone-subtle/75"
+                  >
+                    <Info size={13} aria-hidden />
+                  </span>
                 </div>
-              </div>
-              {selectedValue === GLOBAL_PROJECT_SENTINEL && (
-                <Check size={14} className="shrink-0 text-cobalt-ink" aria-hidden />
-              )}
-            </button>
-          )}
+              );
+            })()}
 
           {/* Existing folders & code projects */}
           {filteredProjects.map((stat) => {
             const { project, vector_count } = stat;
+            const activeCount = activeFolderCounts
+              ? (activeFolderCounts.byProjectId.get(project.id) ?? 0)
+              : vector_count;
+            const formattedCount = formatCount(activeCount, currentLanguage);
+            const countTooltip = t("folders.memoriesCountTooltip", {
+              count: activeCount,
+              formattedCount,
+            });
             const isSelected = selectedValue === project.id;
             const isCurrent = mode === "move" && currentProjectId === project.id;
             const isDetected = autoDetectedProject?.id === project.id;
@@ -582,16 +636,23 @@ export function FolderPickerDialog({
                         )}
                       </div>
                       <div className="truncate font-mono text-[10px] text-bone-subtle">
-                        {isCode
-                          ? project.root_path
-                          : t("folders.plainFolderCount", { count: vector_count })}
+                        {isCode ? project.root_path : t("folders.kindPlainFolder")}
                       </div>
                     </div>
                   </div>
 
-                  {isSelected && (
-                    <Check size={14} className="shrink-0 text-cobalt-ink" aria-hidden />
-                  )}
+                  <span className="flex shrink-0 items-center gap-2">
+                    {isSelected && (
+                      <Check size={14} className="shrink-0 text-cobalt-ink" aria-hidden />
+                    )}
+                    <span
+                      title={countTooltip}
+                      aria-label={countTooltip}
+                      className="shrink-0 font-mono text-[10px] tabular-nums text-bone-subtle"
+                    >
+                      {formattedCount}
+                    </span>
+                  </span>
                 </button>
 
                 <FolderRowMenu

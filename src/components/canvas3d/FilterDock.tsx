@@ -15,7 +15,9 @@ import {
   Search,
   X,
 } from "lucide-react";
+import { formatCount } from "@/lib/format";
 import {
+  countActiveMemoriesByFolder,
   GENERAL_FOLDER_COLOR,
   isCodeProject,
   splitProjects,
@@ -39,7 +41,8 @@ interface FilterDockProps {
 }
 
 export function FilterDock({ nodes, projects }: FilterDockProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const currentLanguage = i18n.resolvedLanguage ?? i18n.language;
   const containerRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
 
@@ -81,9 +84,10 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
     [projects],
   );
 
+  const activeFolderCounts = useMemo(() => countActiveMemoriesByFolder(nodes), [nodes]);
+
   const stats = useMemo(() => {
     const sourceTypeCounts = new Map<SourceType, number>();
-    const projectCounts = new Map<string, number>();
     const categoryCounts = new Map<MemoryCategory, number>();
     const statusCounts = new Map<MemoryStatus, number>();
     let reusableCount = 0;
@@ -91,8 +95,6 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
 
     for (const node of nodes) {
       sourceTypeCounts.set(node.source_type, (sourceTypeCounts.get(node.source_type) ?? 0) + 1);
-      const pKey = node.project_id ?? "global";
-      projectCounts.set(pKey, (projectCounts.get(pKey) ?? 0) + 1);
       categoryCounts.set(node.category, (categoryCounts.get(node.category) ?? 0) + 1);
       statusCounts.set(node.status, (statusCounts.get(node.status) ?? 0) + 1);
       if (node.is_reusable) reusableCount += 1;
@@ -104,7 +106,6 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
     return {
       sourceTypeCounts,
       sortedSourceTypes,
-      projectCounts,
       categoryCounts,
       statusCounts,
       reusableCount,
@@ -164,7 +165,12 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
               <div className="flex flex-wrap items-center gap-1">
                 {regularProjects.map((stat) => {
                   const { project } = stat;
-                  const count = stats.projectCounts.get(project.id) ?? 0;
+                  const count = activeFolderCounts.byProjectId.get(project.id) ?? 0;
+                  const formattedCount = formatCount(count, currentLanguage);
+                  const countTooltip = t("folders.memoriesCountTooltip", {
+                    count,
+                    formattedCount,
+                  });
                   const active = filters.projectIds.includes(project.id);
                   const soloed = isSolo("project", project.id);
                   return (
@@ -199,7 +205,13 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                           <Folder size={10} className="shrink-0 opacity-80" aria-hidden />
                         )}
                         <span>{project.name}</span>
-                        <span className="tabular-nums opacity-70">{count}</span>
+                        <span
+                          title={countTooltip}
+                          aria-label={countTooltip}
+                          className="tabular-nums opacity-70"
+                        >
+                          {formattedCount}
+                        </span>
                       </button>
                       <button
                         type="button"
@@ -218,7 +230,12 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                 })}
                 {/* General (project_id === null) chip */}
                 {(() => {
-                  const globalCount = stats.projectCounts.get("global") ?? 0;
+                  const globalCount = activeFolderCounts.general;
+                  const formattedGlobalCount = formatCount(globalCount, currentLanguage);
+                  const globalCountTooltip = t("folders.memoriesCountTooltip", {
+                    count: globalCount,
+                    formattedCount: formattedGlobalCount,
+                  });
                   const active = filters.projectIds.includes(null);
                   const soloed = isSolo("project", "global");
                   return (
@@ -240,6 +257,7 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                             toggleProjectId(null);
                           }
                         }}
+                        title={t("folders.generalRowTooltip")}
                         className="inline-flex items-center gap-1.5 px-2 py-0.5"
                       >
                         <span
@@ -248,7 +266,13 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                         />
                         <Globe size={10} className="shrink-0 opacity-80" aria-hidden />
                         <span>{t("brain.globalScope")}</span>
-                        <span className="tabular-nums opacity-70">{globalCount}</span>
+                        <span
+                          title={globalCountTooltip}
+                          aria-label={globalCountTooltip}
+                          className="tabular-nums opacity-70"
+                        >
+                          {formattedGlobalCount}
+                        </span>
                       </button>
                       <button
                         type="button"
@@ -269,7 +293,12 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                 {unsortedProject &&
                   (() => {
                     const unsortedId = unsortedProject.project.id;
-                    const count = stats.projectCounts.get(unsortedId) ?? unsortedProject.vector_count;
+                    const count = activeFolderCounts.byProjectId.get(unsortedId) ?? 0;
+                    const formattedCount = formatCount(count, currentLanguage);
+                    const countTooltip = t("folders.memoriesCountTooltip", {
+                      count,
+                      formattedCount,
+                    });
                     const active = filters.projectIds.includes(unsortedId);
                     const soloed = isSolo("project", unsortedId);
                     return (
@@ -301,8 +330,12 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                           />
                           <span>{UNSORTED_PROJECT_NAME}</span>
                           {count > 0 && (
-                            <span className="rounded-[2px] border border-rule-strong bg-surface-2 px-1 py-0.25 text-[9px] font-semibold tabular-nums text-bone-muted">
-                              {count}
+                            <span
+                              title={countTooltip}
+                              aria-label={countTooltip}
+                              className="rounded-[2px] border border-rule-strong bg-surface-2 px-1 py-0.25 text-[9px] font-semibold tabular-nums text-bone-muted"
+                            >
+                              {formattedCount}
                             </span>
                           )}
                         </button>

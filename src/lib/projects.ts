@@ -329,6 +329,34 @@ export function countProjectDocuments(
   return docIds.size;
 }
 
+export interface ActiveFolderCounts {
+  byProjectId: Map<Uuid, number>;
+  general: number;
+}
+
+/**
+ * Count active memories (`status === "active"`, excluding superseded and archived)
+ * per folder/project plus the shared General space (`project_id === null`).
+ */
+export function countActiveMemoriesByFolder(
+  nodes: readonly GraphNode[] | null | undefined,
+): ActiveFolderCounts {
+  const byProjectId = new Map<Uuid, number>();
+  let general = 0;
+  if (!nodes || nodes.length === 0) {
+    return { byProjectId, general };
+  }
+  for (const node of nodes) {
+    if (node.status !== "active") continue;
+    if (node.project_id === null) {
+      general += 1;
+    } else {
+      byProjectId.set(node.project_id, (byProjectId.get(node.project_id) ?? 0) + 1);
+    }
+  }
+  return { byProjectId, general };
+}
+
 /** Format a friendly localized toast message describing a `DeleteProjectReport`. */
 export function formatDeleteProjectReportToast(
   projectName: string,
