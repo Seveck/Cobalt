@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Loader2, Sparkles, X } from "lucide-react";
-import { useSettingsStore, useThemeStore, type ThemeToast } from "@/stores";
+import { AlertTriangle, ArrowUpRight, Check, Loader2, Sparkles, X } from "lucide-react";
+import { conflictReasonI18nKey } from "@/lib/savings";
+import {
+  useFiltersStore,
+  useMemoryStore,
+  useSettingsStore,
+  useThemeStore,
+  useUiStore,
+  type ThemeToast,
+} from "@/stores";
+import type { Uuid } from "@/types/contracts";
 
 const STANDARD_TOAST_MS = 5000;
 const AI_TOAST_MS = 14000;
@@ -13,11 +22,15 @@ function ThemeToastItem({ toast }: { toast: ThemeToast }) {
   const dismissThemeToast = useThemeStore((s) => s.dismissThemeToast);
   const markThemeToastApplied = useThemeStore((s) => s.markThemeToastApplied);
   const patchSettings = useSettingsStore((s) => s.patchSettings);
+  const resetFilters = useFiltersStore((s) => s.resetFilters);
+  const setSelectedNodeId = useMemoryStore((s) => s.setSelectedNodeId);
+  const setActiveNav = useUiStore((s) => s.setActiveNav);
 
   const [applying, setApplying] = useState(false);
 
   useEffect(() => {
-    const duration = toast.kind === "ai_created" ? AI_TOAST_MS : STANDARD_TOAST_MS;
+    const duration =
+      toast.kind === "ai_created" || toast.kind === "warning" ? AI_TOAST_MS : STANDARD_TOAST_MS;
     const timer = window.setTimeout(() => {
       dismissThemeToast(toast.id);
     }, duration);
@@ -26,6 +39,7 @@ function ThemeToastItem({ toast }: { toast: ThemeToast }) {
 
   const isAlreadyActive =
     Boolean(toast.themeId) && (toast.applied || activeThemeId === toast.themeId);
+  const isWarning = toast.kind === "warning";
 
   const handleApply = async () => {
     if (!toast.themeId || applying) return;
@@ -41,15 +55,32 @@ function ThemeToastItem({ toast }: { toast: ThemeToast }) {
     }
   };
 
+  const handleOpenMemory = (memoryId: Uuid) => {
+    resetFilters();
+    setSelectedNodeId(memoryId);
+    setActiveNav("brain");
+    dismissThemeToast(toast.id);
+  };
+
   return (
     <div
-      role="status"
-      aria-live="polite"
+      role={isWarning ? "alert" : "status"}
+      aria-live={isWarning ? "assertive" : "polite"}
       style={{ boxShadow: "var(--cobalt-shadow-elevated)" }}
-      className="cobalt-panel-enter-up pointer-events-auto flex items-start gap-2.5 rounded-[2px] border border-cobalt-rule bg-surface px-3.5 py-3 text-xs text-bone"
+      className={`cobalt-panel-enter-up pointer-events-auto flex items-start gap-2.5 rounded-[2px] border bg-surface px-3.5 py-3 text-xs text-bone ${
+        isWarning ? "border-ochre-rule" : "border-cobalt-rule"
+      }`}
     >
-      <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[2px] border border-cobalt-rule bg-cobalt-wash text-cobalt-ink">
-        {toast.kind === "ai_created" ? (
+      <span
+        className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[2px] border ${
+          isWarning
+            ? "border-ochre-rule bg-ochre-wash text-ochre"
+            : "border-cobalt-rule bg-cobalt-wash text-cobalt-ink"
+        }`}
+      >
+        {isWarning ? (
+          <AlertTriangle size={11} aria-hidden />
+        ) : toast.kind === "ai_created" ? (
           <Sparkles size={11} aria-hidden />
         ) : (
           <Check size={11} aria-hidden />
@@ -58,6 +89,33 @@ function ThemeToastItem({ toast }: { toast: ThemeToast }) {
 
       <div className="min-w-0 flex-1 space-y-2">
         <p className="leading-snug text-bone">{toast.message}</p>
+
+        {toast.conflicts && toast.conflicts.length > 0 && (
+          <div className="space-y-1.5">
+            {toast.conflicts.slice(0, 3).map((conflict) => {
+              const reasonKey = conflictReasonI18nKey(conflict.reason);
+              const reasonLabel = reasonKey ? t(reasonKey) : conflict.reason;
+              return (
+                <button
+                  key={conflict.memory_id}
+                  type="button"
+                  onClick={() => handleOpenMemory(conflict.memory_id)}
+                  className="flex w-full items-start justify-between gap-2 rounded-[2px] border border-ochre-rule/60 bg-ochre-wash/40 px-2 py-1.5 text-left transition-colors hover:border-ochre hover:bg-ochre-wash/70 focus-visible:ring-1 focus-visible:ring-ochre focus-visible:outline-none"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="line-clamp-2 text-[11px] leading-snug text-bone">
+                      {conflict.preview}
+                    </div>
+                    <div className="mt-0.5 font-mono text-[10px] text-ochre">
+                      {reasonLabel}
+                    </div>
+                  </div>
+                  <ArrowUpRight size={12} className="mt-0.5 shrink-0 text-ochre" aria-hidden />
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {toast.kind === "ai_created" && toast.themeId && (
           <div className="flex items-center gap-2">
@@ -102,7 +160,7 @@ export function ThemeToastHost() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2">
+    <div className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-96 max-w-[calc(100vw-2rem)] flex-col gap-2">
       {toasts.map((toast) => (
         <ThemeToastItem key={toast.id} toast={toast} />
       ))}

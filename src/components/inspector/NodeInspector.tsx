@@ -36,6 +36,7 @@ import {
   useBranchesStore,
   useMemoryStore,
   useSettingsStore,
+  useThemeStore,
 } from "@/stores";
 import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import {
@@ -102,6 +103,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
   const vaultStatus = useSettingsStore((s) => s.vaultStatus);
   const loadVaultStatus = useSettingsStore((s) => s.loadVaultStatus);
   const setVaultStatus = useSettingsStore((s) => s.setVaultStatus);
+  const pushThemeToast = useThemeStore((s) => s.pushThemeToast);
 
   const [memory, setMemory] = useState<Memory | null>(null);
   const [history, setHistory] = useState<Memory[]>([]);
@@ -256,6 +258,15 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
         await loadDetails();
       }
       flashNotice(t(`inspector.writeAction.${outcome.action}`));
+      if (outcome.possible_conflicts && outcome.possible_conflicts.length > 0) {
+        pushThemeToast({
+          kind: "warning",
+          message: t("conflicts.possibleToast", {
+            count: outcome.possible_conflicts.length,
+          }),
+          conflicts: outcome.possible_conflicts,
+        });
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

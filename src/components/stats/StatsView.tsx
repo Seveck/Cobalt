@@ -4,9 +4,10 @@ import { BarChart3, Clock, Info, Plug, RefreshCw } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { formatCompactNumber, formatTokenCount } from "@/lib/format";
 import { staggerStyle } from "@/lib/motion";
-import { useUiStore } from "@/stores";
+import { formatSavingsEstimate } from "@/lib/savings";
+import { useSettingsStore, useUiStore } from "@/stores";
 import { AnimatedNumber, Skeleton } from "@/components/ui";
-import type { UsageStats, UsageTotals } from "@/types/contracts";
+import type { SavingsSettings, UsageStats, UsageTotals } from "@/types/contracts";
 import { FunFactsGrid } from "./FunFactsGrid";
 import { isUnsupportedError, parseCalendarDate } from "./statsHelpers";
 import { YearlyHeatmap } from "./YearlyHeatmap";
@@ -14,6 +15,7 @@ import { YearlyHeatmap } from "./YearlyHeatmap";
 interface SummaryCardProps {
   label: string;
   totals: UsageTotals;
+  savingsSettings: SavingsSettings;
   accentClassName: string;
   language: string;
   staggerIndex: number;
@@ -22,11 +24,13 @@ interface SummaryCardProps {
 function SummaryCard({
   label,
   totals,
+  savingsSettings,
   accentClassName,
   language,
   staggerIndex,
 }: SummaryCardProps) {
   const { t } = useTranslation();
+  const estimate = formatSavingsEstimate(totals.saved_tokens, savingsSettings);
 
   return (
     <div
@@ -45,16 +49,21 @@ function SummaryCard({
       <div className="mt-1 text-xs text-bone-muted">
         {t("stats.cards.requestsCaption", { count: totals.requests })}
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-0.5 border-t border-rule pt-2.5 font-mono text-[10px] tabular-nums text-bone-subtle">
-        <span>
-          {t("stats.cards.tokensSaved", {
-            tokens: formatCompactNumber(totals.saved_tokens),
-          })}
-        </span>
-        <span aria-hidden>·</span>
-        <span>
-          {t("stats.cards.memoriesCreated", { count: totals.memories_created })}
-        </span>
+      <div className="mt-3 space-y-1 border-t border-rule pt-2.5 font-mono text-[10px] tabular-nums text-bone-subtle">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span>
+            {t("stats.cards.tokensSaved", {
+              tokens: formatCompactNumber(totals.saved_tokens),
+            })}
+          </span>
+          <span aria-hidden>·</span>
+          <span>
+            {t("stats.cards.memoriesCreated", { count: totals.memories_created })}
+          </span>
+        </div>
+        {totals.saved_tokens > 0 && (
+          <div className="text-verdigris/90">{estimate.combined}</div>
+        )}
       </div>
     </div>
   );
@@ -64,6 +73,8 @@ export function StatsView() {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? i18n.language ?? "en";
   const setActiveNav = useUiStore((s) => s.setActiveNav);
+  const openSettingsSection = useUiStore((s) => s.openSettingsSection);
+  const savingsSettings = useSettingsStore((s) => s.settings.savings);
 
   const currentYear = useMemo(() => new Date().getFullYear(), []);
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
@@ -244,6 +255,7 @@ export function StatsView() {
               <SummaryCard
                 label={t("stats.cards.today")}
                 totals={stats.today}
+                savingsSettings={savingsSettings}
                 accentClassName="text-cobalt-ink"
                 language={language}
                 staggerIndex={0}
@@ -251,6 +263,7 @@ export function StatsView() {
               <SummaryCard
                 label={t("stats.cards.thisWeek")}
                 totals={stats.this_week}
+                savingsSettings={savingsSettings}
                 accentClassName="text-bone"
                 language={language}
                 staggerIndex={1}
@@ -258,16 +271,26 @@ export function StatsView() {
               <SummaryCard
                 label={yearCardLabel}
                 totals={stats.this_year}
+                savingsSettings={savingsSettings}
                 accentClassName="text-bone"
                 language={language}
                 staggerIndex={2}
               />
             </section>
 
-            <p className="flex items-center gap-1.5 text-[11px] text-bone-subtle">
-              <Info size={12} className="shrink-0 text-bone-subtle" aria-hidden />
-              <span>{t("telemetry.conservativeSavingsNote")}</span>
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-bone-subtle">
+              <p className="flex items-center gap-1.5">
+                <Info size={12} className="shrink-0 text-bone-subtle" aria-hidden />
+                <span>{t("telemetry.conservativeSavingsNote")}</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => openSettingsSection("savings")}
+                className="shrink-0 font-mono text-[10px] text-cobalt-ink hover:underline"
+              >
+                {t("telemetry.adjustPricingLink")}
+              </button>
+            </div>
 
             {/* Helpful prompt on brand-new installs with zero recorded activity */}
             {isBrandNew && (

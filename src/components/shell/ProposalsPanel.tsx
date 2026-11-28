@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
+  AlertTriangle,
   Check,
   CheckCheck,
   ChevronDown,
@@ -144,6 +145,7 @@ function ProposalCard({
   }, [isEditing]);
 
   const isPending = proposal.status === "pending";
+  const isSuspicious = proposal.kind === "suspicious";
   const currentContent = draftText ?? proposal.content;
   const isModified =
     draftText !== undefined && draftText.trim() !== proposal.content.trim();
@@ -156,14 +158,19 @@ function ProposalCard({
       style={prefersReducedMotion ? undefined : staggerStyle(index, 22, 8)}
       className={`${
         prefersReducedMotion ? "" : "cobalt-stagger-item"
-      } space-y-2.5 rounded-[2px] border border-rule bg-surface-2/85 p-3.5`}
+      } space-y-2.5 rounded-[2px] border p-3.5 ${
+        isSuspicious
+          ? "border-ochre-rule bg-ochre-wash/20"
+          : "border-rule bg-surface-2/85"
+      }`}
     >
       {/* Top metadata row: kind chip + project + timestamp */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span
-            className={`inline-flex items-center rounded-[2px] border px-1.5 py-0.5 font-mono text-[10px] font-medium ${KIND_CHIP_STYLES[proposal.kind]}`}
+            className={`inline-flex items-center gap-1 rounded-[2px] border px-1.5 py-0.5 font-mono text-[10px] font-medium ${KIND_CHIP_STYLES[proposal.kind]}`}
           >
+            {isSuspicious && <AlertTriangle size={10} className="shrink-0" aria-hidden />}
             {t(`proposals.kind.${proposal.kind}`)}
           </span>
 
@@ -198,6 +205,17 @@ function ProposalCard({
           {formatProposalRelativeTime(proposal.created_at, t)}
         </span>
       </div>
+
+      {/* Suspicious prompt-injection warning banner */}
+      {isSuspicious && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-[2px] border border-ochre-rule bg-ochre-wash/75 px-2.5 py-2 text-[11px] leading-snug text-ochre"
+        >
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" aria-hidden />
+          <span>{t("proposals.suspiciousWarning")}</span>
+        </div>
+      )}
 
       {/* Source AI line */}
       <div className="flex items-center justify-between gap-2 text-[11px] text-bone-subtle">

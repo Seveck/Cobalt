@@ -26,9 +26,11 @@ import {
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { staggerStyle } from "@/lib/motion";
+import { formatSavingsEstimate } from "@/lib/savings";
 import {
   useFiltersStore,
   useMemoryStore,
+  useSettingsStore,
   useSynapticStore,
   useTelemetryStore,
   useUiStore,
@@ -95,6 +97,8 @@ export function TelemetryView() {
   const setSelectedNodeId = useMemoryStore((s) => s.setSelectedNodeId);
   const resetVisualFilters = useFiltersStore((s) => s.resetFilters);
   const setActiveNav = useUiStore((s) => s.setActiveNav);
+  const openSettingsSection = useUiStore((s) => s.openSettingsSection);
+  const savingsSettings = useSettingsStore((s) => s.settings.savings);
 
   const [rangePreset, setRangePreset] = useState<RangePreset>("all");
   const [projects, setProjects] = useState<ProjectStats[]>([]);
@@ -408,6 +412,9 @@ export function TelemetryView() {
                     <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-verdigris">
                       <AnimatedNumber value={summary.total_saved_tokens} />
                     </div>
+                    <div className="mt-1 font-mono text-[11px] font-medium tabular-nums text-verdigris/90">
+                      {formatSavingsEstimate(summary.total_saved_tokens, savingsSettings).combined}
+                    </div>
                     <div className="mt-1 font-mono text-[10px] text-bone-subtle">
                       {t("telemetry.avoidedVsInjected", {
                         avoided: summary.total_avoided_tokens.toLocaleString(),
@@ -422,6 +429,9 @@ export function TelemetryView() {
                     </div>
                     <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-cobalt-ink">
                       <AnimatedNumber value={summary.session_saved_tokens} />
+                    </div>
+                    <div className="mt-1 font-mono text-[11px] font-medium tabular-nums text-cobalt-ink/90">
+                      {formatSavingsEstimate(summary.session_saved_tokens, savingsSettings).combined}
                     </div>
                     <div className="mt-1 text-[11px] text-bone-subtle">
                       {t("telemetry.sessionHint")}
@@ -471,16 +481,35 @@ export function TelemetryView() {
                         <AnimatedNumber value={summary.saved_from_reuse} />
                       </span>
                     </div>
+                    {hasReadsOrReuse && (
+                      <div className="mt-1 font-mono text-[10px] tabular-nums text-bone-muted">
+                        {
+                          formatSavingsEstimate(
+                            summary.saved_from_reads + summary.saved_from_reuse,
+                            savingsSettings,
+                          ).combined
+                        }
+                      </div>
+                    )}
                     <div className="mt-1 font-mono text-[10px] text-bone-subtle">
                       {t("telemetry.readsVsReuseLegend")}
                     </div>
                   </div>
                 </section>
 
-                <p className="flex items-center gap-1.5 text-[11px] text-bone-subtle">
-                  <Info size={12} className="shrink-0 text-bone-subtle" aria-hidden />
-                  <span>{t("telemetry.conservativeSavingsNote")}</span>
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-bone-subtle">
+                  <p className="flex items-center gap-1.5">
+                    <Info size={12} className="shrink-0 text-bone-subtle" aria-hidden />
+                    <span>{t("telemetry.conservativeSavingsNote")}</span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => openSettingsSection("savings")}
+                    className="shrink-0 font-mono text-[10px] text-cobalt-ink hover:underline"
+                  >
+                    {t("telemetry.adjustPricingLink")}
+                  </button>
+                </div>
 
                 {/* Charts Row 1: Timeline + Reads vs Reuse */}
                 <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -642,25 +671,37 @@ export function TelemetryView() {
                     </div>
 
                     <div className="divide-y divide-rule border-t border-rule text-xs">
-                      {summary.by_client.map((client) => (
-                        <div
-                          key={client.client_name}
-                          className="flex flex-wrap items-center justify-between gap-2 py-2 font-mono text-[11px]"
-                        >
-                          <span className="font-medium text-bone">{client.client_name}</span>
-                          <div className="flex flex-wrap items-center gap-3 tabular-nums text-bone-subtle">
-                            <span>R:{client.reads}</span>
-                            <span>W:{client.writes}</span>
-                            <span className="text-pulse-reuse">↺:{client.reuses}</span>
-                            {client.blocked > 0 && (
-                              <span className="text-cinnabar">✕:{client.blocked}</span>
-                            )}
-                            <span className="font-semibold text-verdigris">
-                              {client.saved_tokens.toLocaleString()}t
-                            </span>
+                      {summary.by_client.map((client) => {
+                        const est = formatSavingsEstimate(
+                          client.saved_tokens,
+                          savingsSettings,
+                          client.client_name,
+                        );
+                        return (
+                          <div
+                            key={client.client_name}
+                            className="flex flex-wrap items-center justify-between gap-2 py-2 font-mono text-[11px]"
+                          >
+                            <span className="font-medium text-bone">{client.client_name}</span>
+                            <div className="flex flex-wrap items-center gap-3 tabular-nums text-bone-subtle">
+                              <span>R:{client.reads}</span>
+                              <span>W:{client.writes}</span>
+                              <span className="text-pulse-reuse">↺:{client.reuses}</span>
+                              {client.blocked > 0 && (
+                                <span className="text-cinnabar">✕:{client.blocked}</span>
+                              )}
+                              <span className="font-semibold text-verdigris">
+                                {client.saved_tokens.toLocaleString()}t
+                              </span>
+                              {client.saved_tokens > 0 && (
+                                <span className="text-[10px] text-bone-muted">
+                                  ({est.combined})
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -908,6 +949,15 @@ export function TelemetryView() {
                           </span>
                           <span>
                             {t("rag.savedTokens")}: {log.saved_tokens}
+                            {log.saved_tokens > 0
+                              ? ` (${
+                                  formatSavingsEstimate(
+                                    log.saved_tokens,
+                                    savingsSettings,
+                                    log.client_name,
+                                  ).combined
+                                })`
+                              : ""}
                           </span>
                         </div>
 

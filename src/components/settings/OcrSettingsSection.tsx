@@ -326,7 +326,7 @@ export function OcrSettingsSection({ onSaved }: OcrSettingsSectionProps) {
         <div>
           <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
             <ScanText size={13} className="text-cobalt-ink" aria-hidden />
-            05 — {t("settings.ocr.title")}
+            06 — {t("settings.ocr.title")}
           </h2>
           <p className="mt-1 text-xs text-bone-muted">{t("settings.ocr.subtitle")}</p>
         </div>

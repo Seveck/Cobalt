@@ -20,6 +20,7 @@ import {
   formatTokenCount,
   getDayPeriod,
 } from "@/lib/format";
+import { formatSavingsEstimate } from "@/lib/savings";
 import { useMemoryStore, useSettingsStore, useUiStore } from "@/stores";
 import type {
   DaemonStatus,
@@ -88,6 +89,7 @@ export function WelcomeGreeting() {
   const setActiveNav = useUiStore((s) => s.setActiveNav);
 
   const userDisplayName = useSettingsStore((s) => s.settings.user_display_name);
+  const savingsSettings = useSettingsStore((s) => s.settings.savings);
   const daemonStatus = useSettingsStore((s) => s.daemonStatus);
   const graph = useMemoryStore((s) => s.graph);
 
@@ -314,12 +316,21 @@ export function WelcomeGreeting() {
             <span className="leading-snug">
               {snapshot.totalSavedTokens === 0 &&
               snapshot.todaySavedTokens === 0 &&
-              !snapshot.lastActivity
-                ? t("welcome.noSavingsYet")
-                : t("welcome.tokensFact", {
+              !snapshot.lastActivity ? (
+                t("welcome.noSavingsYet")
+              ) : (
+                <>
+                  {t("welcome.tokensFact", {
                     total: formatTokenCount(snapshot.totalSavedTokens, lang),
                     today: formatTokenCount(snapshot.todaySavedTokens, lang),
                   })}
+                  {snapshot.totalSavedTokens > 0 && (
+                    <span className="ml-1.5 font-mono text-[10px] text-verdigris/90">
+                      ({formatSavingsEstimate(snapshot.totalSavedTokens, savingsSettings).combined})
+                    </span>
+                  )}
+                </>
+              )}
             </span>
           </li>
 

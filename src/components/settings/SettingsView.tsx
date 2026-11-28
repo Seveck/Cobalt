@@ -43,6 +43,7 @@ import {
   WelcomeExplainer,
 } from "@/components/onboarding";
 import { OcrSettingsSection } from "@/components/settings/OcrSettingsSection";
+import { SavingsSettingsSection } from "@/components/settings/SavingsSettingsSection";
 import { Select, Toggle, type SelectOption } from "@/components/ui";
 import {
   CONTRACT_VERSION,
@@ -653,12 +654,15 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* 04 — Hardware & Engine section */}
+        {/* 04 — Savings estimation section */}
+        <SavingsSettingsSection onSaved={showSavedFlash} />
+
+        {/* 05 — Hardware & Engine section */}
         <section className="rounded-[2px] border border-rule bg-surface">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule px-5 py-3">
             <div>
               <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
-                04 — {t("settings.engineTitle")}
+                05 — {t("settings.engineTitle")}
               </h2>
               <p className="mt-1 text-xs text-bone-muted">{t("settings.engineSubtitle")}</p>
             </div>
@@ -786,15 +790,15 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* 05 — Text in images (OCR) section */}
+        {/* 06 — Text in images (OCR) section */}
         <OcrSettingsSection onSaved={showSavedFlash} />
 
-        {/* 06 — Detected hardware & re-open onboarding */}
+        {/* 07 — Detected hardware & re-open onboarding */}
         <section className="rounded-[2px] border border-rule bg-surface">
           <div className="border-b border-rule px-5 py-3">
             <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
               <Cpu size={13} className="text-cobalt-ink" aria-hidden />
-              06 — {t("settings.hardwareTitle")}
+              07 — {t("settings.hardwareTitle")}
             </h2>
           </div>
 
@@ -820,12 +824,12 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* 07 — About section (app version + contract version) */}
+        {/* 08 — About section (app version + contract version) */}
         <section className="rounded-[2px] border border-rule bg-surface">
           <div className="border-b border-rule px-5 py-3">
             <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-bone-subtle">
               <Info size={13} className="text-cobalt-ink" aria-hidden />
-              07 — {t("settings.aboutTitle")}
+              08 — {t("settings.aboutTitle")}
             </h2>
           </div>
 

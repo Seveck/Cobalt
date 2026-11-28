@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { formatAiClientName, formatCompactNumber, formatTokenCount } from "@/lib/format";
 import { staggerStyle } from "@/lib/motion";
+import { formatSavingsEstimate } from "@/lib/savings";
+import { useSettingsStore } from "@/stores";
 import { AnimatedNumber, useCountUp } from "@/components/ui";
 import { OPERATION_COLORS, type UsageStats } from "@/types/contracts";
 import {
@@ -43,6 +45,7 @@ const HOUR_TICKS = [0, 6, 12, 18, 23] as const;
 export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? i18n.language ?? "en";
+  const savingsSettings = useSettingsStore((s) => s.settings.savings);
 
   const [activeHour, setActiveHour] = useState<ActiveChartTooltip | null>(null);
   const [activeWeekday, setActiveWeekday] = useState<ActiveChartTooltip | null>(null);
@@ -241,17 +244,27 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
                 format={(n) => formatTokenCount(n, language)}
               />
             </div>
+            <div className="mt-1 font-mono text-[11px] font-medium tabular-nums text-verdigris/90">
+              {formatSavingsEstimate(stats.this_year.saved_tokens, savingsSettings).combined}
+            </div>
             <p className="mt-0.5 text-xs text-bone-muted">{yearLabel}</p>
           </div>
 
-          <div className="mt-4 flex items-baseline justify-between gap-2 border-t border-rule pt-3 text-xs">
-            <span className="text-bone-subtle">{t("stats.facts.allTimeLabel")}</span>
-            <span className="font-mono font-semibold tabular-nums text-bone">
-              <AnimatedNumber
-                value={stats.all_time.saved_tokens}
-                format={(n) => formatTokenCount(n, language)}
-              />
-            </span>
+          <div className="mt-4 space-y-1 border-t border-rule pt-3 text-xs">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-bone-subtle">{t("stats.facts.allTimeLabel")}</span>
+              <span className="font-mono font-semibold tabular-nums text-bone">
+                <AnimatedNumber
+                  value={stats.all_time.saved_tokens}
+                  format={(n) => formatTokenCount(n, language)}
+                />
+              </span>
+            </div>
+            {stats.all_time.saved_tokens > 0 && (
+              <div className="text-right font-mono text-[10px] tabular-nums text-bone-muted">
+                {formatSavingsEstimate(stats.all_time.saved_tokens, savingsSettings).combined}
+              </div>
+            )}
           </div>
         </article>
 
@@ -279,6 +292,17 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
                     ? ` · ${Math.round((topAiClient.requests / totalAiRequests) * 100)}%`
                     : ""}
                 </p>
+                {topAiClient.saved_tokens > 0 && (
+                  <p className="mt-0.5 font-mono text-[10px] tabular-nums text-verdigris/90">
+                    {
+                      formatSavingsEstimate(
+                        topAiClient.saved_tokens,
+                        savingsSettings,
+                        topAiClient.client_name,
+                      ).combined
+                    }
+                  </p>
+                )}
 
                 {aiClients.length > 1 && (
                   <div className="mt-3 space-y-1.5">
@@ -287,6 +311,14 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
                         totalAiRequests > 0
                           ? Math.max(4, Math.round((client.requests / totalAiRequests) * 100))
                           : 0;
+                      const clientEst =
+                        client.saved_tokens > 0
+                          ? formatSavingsEstimate(
+                              client.saved_tokens,
+                              savingsSettings,
+                              client.client_name,
+                            )
+                          : null;
                       return (
                         <div key={client.client_name} className="space-y-0.5">
                           <div className="flex items-center justify-between gap-2 text-[11px]">
@@ -295,6 +327,7 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
                             </span>
                             <span className="shrink-0 font-mono text-[10px] tabular-nums text-bone-subtle">
                               {formatTokenCount(client.requests, language)}
+                              {clientEst ? ` · ${clientEst.approxUsd}` : ""}
                             </span>
                           </div>
                           <div className="h-1 w-full overflow-hidden rounded-[1px] bg-void">
@@ -566,14 +599,28 @@ export function FunFactsGrid({ stats, currentYear }: FunFactsGridProps) {
             )}
           </div>
 
-          <div className="mt-4 border-t border-rule pt-3 font-mono text-[11px] tabular-nums text-bone-subtle">
-            {stats.busiest_day && stats.busiest_day.requests > 0
-              ? `${t("stats.heatmap.tokensPart", {
-                  tokens: formatCompactNumber(stats.busiest_day.saved_tokens),
-                })} · ${t("stats.heatmap.memoriesPart", {
-                  count: stats.busiest_day.memories_created,
-                })}`
-              : yearLabel}
+          <div className="mt-4 space-y-0.5 border-t border-rule pt-3 font-mono text-[11px] tabular-nums text-bone-subtle">
+            {stats.busiest_day && stats.busiest_day.requests > 0 ? (
+              <>
+                <div>
+                  {`${t("stats.heatmap.tokensPart", {
+                    tokens: formatCompactNumber(stats.busiest_day.saved_tokens),
+                  })} · ${t("stats.heatmap.memoriesPart", {
+                    count: stats.busiest_day.memories_created,
+                  })}`}
+                </div>
+                {stats.busiest_day.saved_tokens > 0 && (
+                  <div className="text-[10px] text-verdigris/90">
+                    {
+                      formatSavingsEstimate(stats.busiest_day.saved_tokens, savingsSettings)
+                        .combined
+                    }
+                  </div>
+                )}
+              </>
+            ) : (
+              yearLabel
+            )}
           </div>
         </article>
 
