@@ -23,6 +23,24 @@ pub const TOOL_CREATE_THEME: &str = "create_theme";
 /// another project's searches, so an AI without context cannot contaminate the user's projects.
 pub const UNSORTED_PROJECT_NAME: &str = "Sin clasificar";
 
+/// Tools every client sees (contract v1.17.0): the daily memory loop.
+pub const CORE_TOOLS: [&str; 6] = [
+    TOOL_SEARCH_MEMORY,
+    TOOL_SAVE_MEMORY,
+    TOOL_UPDATE_MEMORY,
+    TOOL_CREATE_HANDOFF,
+    TOOL_RESUME_HANDOFF,
+    TOOL_LIST_PROJECT_RULES,
+];
+
+/// Tools advertised only when the user enables them (`McpSettings.optional_tools`), so their
+/// schemas do not cost tokens in every session (contract v1.17.0).
+pub const OPTIONAL_TOOLS: [&str; 3] = [
+    TOOL_SEARCH_REUSABLE_ASSETS,
+    TOOL_ARCHIVE_MEMORY,
+    TOOL_CREATE_THEME,
+];
+
 /// The 9 tools, in the order they are advertised by `tools/list`.
 pub const ALL_TOOLS: [&str; 9] = [
     TOOL_SEARCH_MEMORY,

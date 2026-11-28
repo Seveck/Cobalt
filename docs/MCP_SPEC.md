@@ -23,6 +23,14 @@ Owner: **[CLAUDE]** (`crates/cobalt-mcp`). Rust DTOs: `cobalt_core::mcp`.
 - Docstrings below are defaults; Pro mode can override them (`McpSettings.tool_docstring_overrides`).
 - Tool results contain a compact text block (token-lean, for the model) **and** `structuredContent` (the output DTO).
 
+## 1.1 Tool profile (v1.17.0)
+To keep the fixed per-session schema cost low, `tools/list` advertises the six **core** tools
+(`search_memory`, `save_memory`, `update_memory`, `create_handoff`, `resume_handoff`,
+`list_project_rules`; ≈1,000 tokens). The **optional** tools (`search_reusable_assets`,
+`archive_memory`, `create_theme`) appear only when the user enables them in Cobalt > Conectores
+(`McpSettings.optional_tools`); calling a disabled one returns `permission_denied`. Annotations
+are sent only where they differ from MCP defaults. A unit test caps the advertised size.
+
 ## 2. Tools
 
 ### 2.1 `search_memory`

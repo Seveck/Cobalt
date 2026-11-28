@@ -196,6 +196,9 @@ pub struct McpSettings {
     /// Per-AI access keyed by client name (`claude-code`, `codex`, …); missing = read_write
     /// (contract v1.15.0).
     pub client_permissions: BTreeMap<String, ClientPermission>,
+    /// Optional MCP tools the user turned on (`mcp::OPTIONAL_TOOLS`); the six core tools are
+    /// always available (contract v1.17.0).
+    pub optional_tools: Vec<String>,
 }
 
 /// What one AI client may do with the user's memory (contract v1.15.0).
@@ -241,6 +244,7 @@ impl Default for McpSettings {
             handoff_ttl_hours: 48,
             tool_docstring_overrides: BTreeMap::new(),
             client_permissions: BTreeMap::new(),
+            optional_tools: Vec::new(),
         }
     }
 }

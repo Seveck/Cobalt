@@ -233,6 +233,7 @@ export function createDefaultSettings(): AppSettings {
       handoff_ttl_hours: 48,
       tool_docstring_overrides: {},
       client_permissions: {},
+      optional_tools: [],
     },
     ollama: {
       base_url: "http://127.0.0.1:11434",

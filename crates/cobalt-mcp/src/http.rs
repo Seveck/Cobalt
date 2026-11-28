@@ -432,8 +432,9 @@ async fn api_list_tools(
         return unauthorized();
     }
     let openai = q.format.as_deref() == Some("openai");
-    let tools: Vec<Value> = crate::tools::TOOLS
-        .iter()
+    let tools: Vec<Value> = ctx
+        .daemon
+        .advertised_tools()
         .map(|spec| {
             let description = ctx.daemon.tool_description(spec);
             let schema = crate::tools::input_schema(spec.name);

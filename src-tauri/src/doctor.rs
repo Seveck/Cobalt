@@ -138,7 +138,7 @@ pub async fn run(state: &AppState) -> Result<DoctorReport> {
             include_archived: false,
             filter: SearchFilter::default(),
             rrf_override: None,
-                expand_graph: false,
+            expand_graph: false,
             record_hits: false,
         })
         .await;

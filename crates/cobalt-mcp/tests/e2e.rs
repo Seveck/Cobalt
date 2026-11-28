@@ -204,7 +204,7 @@ async fn mcp_end_to_end_over_socket_and_http() {
     let recorder = Arc::new(Recorder::default());
     let daemon = Daemon::new(
         Arc::new(store),
-        config,
+        config.clone(),
         tokens,
         home.path().to_path_buf(),
         recorder.clone(),
@@ -226,6 +226,28 @@ async fn mcp_end_to_end_over_socket_and_http() {
     c.send(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))
         .await;
 
+    // v1.17.0: only the six core tools by default; optional ones are refused until enabled.
+    let tools = c.request("tools/list", json!({})).await;
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 6);
+    let off = c
+        .call(
+            "archive_memory",
+            json!({ "memory_id": "00000000-0000-0000-0000-000000000000", "reason": "x" }),
+        )
+        .await;
+    assert_eq!(
+        off["structuredContent"]["kind"], "permission_denied",
+        "{off}"
+    );
+    config
+        .modify(|s| {
+            s.mcp.optional_tools = cobalt_core::mcp::OPTIONAL_TOOLS
+                .iter()
+                .map(|t| (*t).to_owned())
+                .collect();
+        })
+        .await
+        .unwrap();
     let tools = c.request("tools/list", json!({})).await;
     assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 9);
 
@@ -664,7 +686,7 @@ async fn stdio_bridge_survives_daemon_restart() {
     ask(json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} })).await;
     let tools = next(&mut replies).await;
     assert_eq!(tools["id"], 2, "{tools}");
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 9);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 6);
     // The new daemon connection knows who the client is: the handshake was replayed.
     ask(json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "search_memory", "arguments": { "query": "redis", "project": "global" } } })).await;
     assert_eq!(next(&mut replies).await["id"], 3);

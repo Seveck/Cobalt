@@ -42,47 +42,47 @@ pub const TOOLS: [ToolSpec; 9] = [
     ToolSpec {
         name: TOOL_SEARCH_MEMORY,
         read_only: true,
-        description: "Search the user's persistent memory (shared by all their AI tools) BEFORE reading large files, re-asking for context, or re-deriving past decisions. Runs hybrid semantic + exact-text search (vector + BM25, fused with RRF) over the current project and global memories. Returns atomic facts with confidence scores, the project's Nuclear Laws (always obey them), and token-savings metrics. Use precise queries: identifiers, error messages, component names, or the decision you need.",
+        description: "Search the user's memory (shared by all their AIs) before re-reading files, re-asking for context or re-deriving decisions. Hybrid semantic + exact search over this project and global memories; returns facts, the project's Nuclear Laws (obey them) and token savings. Query with identifiers, error text or the decision you need.",
     },
     ToolSpec {
         name: TOOL_SEARCH_REUSABLE_ASSETS,
         read_only: true,
-        description: "Call BEFORE writing boilerplate, utilities, auth/config modules, schemas, or reusable components from scratch. Returns a compact ~50-token interface summary, origin project, verified local file path from `source_documents` if still on disk (or fallback snippet), so you can copy and adapt instead of regenerating.",
+        description: "Before writing boilerplate, utilities, config or reusable components, find existing ones in the user's projects: short interface summary, origin project, verified file path (or snippet) to copy and adapt.",
     },
     ToolSpec {
         name: TOOL_SAVE_MEMORY,
         read_only: false,
-        description: "Save a durable, atomic memory WITHOUT being asked whenever you: make or learn an architecture decision, fix a non-trivial bug (root cause + fix), learn a user preference or convention, or create a reusable piece of code (set is_reusable=true and original_file_path). Write 1–4 lines as \"Context -> Decision -> Reason\". Never save raw logs, full files, stack traces or secrets (they are redacted anyway). Near-duplicates are merged or versioned automatically, so do not search first just to avoid duplicates.",
+        description: "Save a durable 1-4 line memory (Context -> Decision -> Reason) without being asked when you make a decision, fix a non-trivial bug (cause + fix), learn a user preference or write reusable code (is_reusable + original_file_path). No logs, whole files or secrets. Near-duplicates are merged automatically.",
     },
     ToolSpec {
         name: TOOL_UPDATE_MEMORY,
         read_only: false,
-        description: "Replace a memory that is outdated or wrong (e.g. a decision was reversed, an API changed). Creates a new version, marks the old one as superseded and records your reason, keeping history. Use the memory_id returned by search_memory.",
+        description: "Replace an outdated or wrong memory (memory_id from search_memory). Keeps history and your reason.",
     },
     ToolSpec {
         name: TOOL_CREATE_HANDOFF,
         read_only: false,
-        description: "Leave a short-lived baton for the next AI session when you stop mid-task (context limit, switching tools, end of day). Summarize current state, next step, last error and open files in under 250 tokens. Handoffs expire and never pollute permanent memory.",
+        description: "When you stop mid-task, leave a <250-token baton for the next session: state, next step, last error, open files. Expires; never permanent memory.",
     },
     ToolSpec {
         name: TOOL_RESUME_HANDOFF,
         read_only: true,
-        description: "When the user asks to continue, resume, or pick up where they (or another AI) left off, call this first to get the latest active handoff for the project: summary, next step, last error and open files.",
+        description: "When asked to continue or pick up where someone left off, get the project's latest handoff first.",
     },
     ToolSpec {
         name: TOOL_LIST_PROJECT_RULES,
         read_only: true,
-        description: "Call once at the start of every session (and after switching projects) to load the user's Nuclear Laws and stable preferences for this project plus global ones. These rules override your defaults; follow them for the whole session.",
+        description: "At session start (and after switching projects) load the user's Nuclear Laws and preferences for this project; they override your defaults.",
     },
     ToolSpec {
         name: TOOL_ARCHIVE_MEMORY,
         read_only: false,
-        description: "Archive a memory that is wrong or no longer useful, removing it from searches (reversible by the user in Cobalt). Memories are SHARED by all the user's AI tools: another agent may depend on this one. ALWAYS call first with confirm=false to see who uses it, then tell the user plainly that other agents may rely on it and that archiving could hurt their work, and only call again with confirm=true if the user explicitly agrees. Prefer update_memory when the memory is outdated rather than wrong. Nuclear Laws cannot be archived.",
+        description: "Archive a wrong memory (reversible by the user). Memories are shared by all the user's AIs: call with confirm=false to see who uses it, tell the user, and use confirm=true only if they agree. Prefer update_memory for outdated facts. Nuclear Laws cannot be archived.",
     },
     ToolSpec {
         name: TOOL_CREATE_THEME,
         read_only: false,
-        description: "Create (or replace) a visual theme for the user's Cobalt app when they ask you to design one (e.g. 'make me a calm sunset theme'). Themes are data only and fully validated by Cobalt. Send a complete manifest: id (lowercase-dashes, not a built-in id), name, author, version '1.0.0', description, hardware_tier 'eco', layout_type (galaxy|brain|neural_net|knowledge_tree|project_clusters|project_islands), palette (#RRGGBB colors: background, node, core_pin, reusable, edge, text, pulse_read, pulse_reuse, pulse_write, pulse_update, pulse_blocked, category_colors for preference/decision/code/doc/note/ocr), node_geometry, camera, and ui for the whole interface: {mode light|dark, base_hue 0-360, base_tint 0-100, contrast 0-100, accent #RRGGBB, radius 0-16, density compact|comfortable|spacious}. Keep enough contrast; one accent color. Set apply=true only if the user asked to switch to it now. Full spec: GET http://127.0.0.1:7437/api/v1/guide (section 7).",
+        description: "Design a Cobalt app theme when the user asks (data only, validated by Cobalt). Send a full manifest: id, name, layout_type, palette colors and ui {mode, base_hue, base_tint, contrast, accent, radius, density}. Spec: GET http://127.0.0.1:7437/api/v1/guide section 7. apply=true only if the user asked to switch now.",
     },
 ];
 
@@ -107,8 +107,18 @@ const SOURCE_TYPES: [&str; 18] = [
     "other",
 ];
 
+/// MCP tool annotations, only where they differ from the spec defaults (readOnlyHint=false,
+/// destructiveHint=true, idempotentHint=false, openWorldHint=true): fewer schema tokens.
+pub fn annotations(spec: &ToolSpec) -> Value {
+    if spec.read_only {
+        json!({ "readOnlyHint": true, "openWorldHint": false })
+    } else {
+        json!({ "destructiveHint": false, "openWorldHint": false })
+    }
+}
+
 fn project_prop() -> Value {
-    json!({ "type": "string", "description": "Project name or absolute path. Omit to auto-detect from the workspace." })
+    json!({ "type": "string", "description": "Project name or path; omit to auto-detect." })
 }
 
 /// JSON Schema of each tool input (MCP_SPEC §2).
@@ -117,11 +127,11 @@ pub fn input_schema(name: &str) -> Value {
         TOOL_SEARCH_MEMORY => json!({
             "type": "object",
             "properties": {
-                "query": { "type": "string", "minLength": 1, "description": "What you need to know: identifiers, error text, topic or question." },
+                "query": { "type": "string", "minLength": 1, "description": "Identifiers, error text, topic or question." },
                 "project": project_prop(),
-                "include_archived": { "type": "boolean", "default": false, "description": "Also search archived (decayed) memories." },
-                "top_k": { "type": "integer", "minimum": 1, "maximum": 50, "description": "Max results (default from settings, usually 8)." },
-                "max_tokens": { "type": "integer", "minimum": 200, "maximum": 8000, "description": "Token budget for the answer (default ~1200). Long chunks come as excerpts around your query; memories already sent in this session are not repeated." }
+                "include_archived": { "type": "boolean", "default": false },
+                "top_k": { "type": "integer", "minimum": 1, "maximum": 50, "description": "Max results (default 8)." },
+                "max_tokens": { "type": "integer", "minimum": 200, "maximum": 8000, "description": "Answer token budget (default 1200)." }
             },
             "required": ["query"], "additionalProperties": false
         }),
@@ -138,14 +148,13 @@ pub fn input_schema(name: &str) -> Value {
         TOOL_SAVE_MEMORY => json!({
             "type": "object",
             "properties": {
-                "content": { "type": "string", "minLength": 1, "description": "Atomic summary, max ~4 lines: Context -> Decision -> Reason." },
+                "content": { "type": "string", "minLength": 1, "description": "1-4 lines: Context -> Decision -> Reason." },
                 "category": { "type": "string", "enum": ["preference","decision","code","doc","note","ocr"] },
-                "project": { "type": "string", "description": "Project name or absolute path. Omit to auto-detect; use 'global' for cross-project facts." },
-                "original_file_path": { "type": "string", "description": "Absolute path of the file this memory describes (links it as a source document)." },
-                "source_type": { "type": "string", "enum": SOURCE_TYPES, "description": "Inferred from original_file_path when omitted." },
-                "confidence": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0, "description": "How certain this fact is." },
-                "is_reusable": { "type": "boolean", "default": false, "description": "True for reusable code/config/schemas worth copying into other projects." },
-                "reusable_snippet": { "type": "string", "description": "Compact fallback snippet (interface/signature) in case the file moves." }
+                "project": { "type": "string", "description": "Project name or path; omit to auto-detect; 'global' only for facts true everywhere." },
+                "original_file_path": { "type": "string", "description": "Absolute path of the file it describes." },
+                "confidence": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0 },
+                "is_reusable": { "type": "boolean", "default": false, "description": "Reusable code/config worth copying elsewhere." },
+                "reusable_snippet": { "type": "string", "description": "Short interface/signature fallback." }
             },
             "required": ["content", "category"], "additionalProperties": false
         }),
@@ -153,8 +162,8 @@ pub fn input_schema(name: &str) -> Value {
             "type": "object",
             "properties": {
                 "memory_id": { "type": "string", "format": "uuid" },
-                "new_content": { "type": "string", "minLength": 1, "description": "Corrected atomic summary (Context -> Decision -> Reason)." },
-                "reason": { "type": "string", "minLength": 1, "description": "Why the previous version is obsolete." },
+                "new_content": { "type": "string", "minLength": 1 },
+                "reason": { "type": "string", "minLength": 1, "description": "Why the old version is obsolete." },
                 "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
             },
             "required": ["memory_id", "new_content", "reason"], "additionalProperties": false
@@ -162,8 +171,8 @@ pub fn input_schema(name: &str) -> Value {
         TOOL_CREATE_HANDOFF => json!({
             "type": "object",
             "properties": {
-                "summary": { "type": "string", "minLength": 1, "description": "State + next step, < 250 tokens." },
-                "last_error": { "type": "string", "description": "Last blocking error, if any (trimmed)." },
+                "summary": { "type": "string", "minLength": 1, "description": "State + next step, <250 tokens." },
+                "last_error": { "type": "string" },
                 "open_files": { "type": "array", "items": { "type": "string" }, "maxItems": 30 },
                 "project": project_prop()
             },
@@ -215,6 +224,24 @@ fn structured<T: Serialize>(text: String, value: &T) -> Result<ToolOutput> {
 }
 
 impl Daemon {
+    /// Core tools always; optional ones only when the user enabled them (v1.17.0).
+    pub fn tool_enabled(&self, name: &str) -> bool {
+        CORE_TOOLS.contains(&name)
+            || (OPTIONAL_TOOLS.contains(&name)
+                && self
+                    .config
+                    .get()
+                    .mcp
+                    .optional_tools
+                    .iter()
+                    .any(|t| t == name))
+    }
+
+    /// The tools advertised to clients, in `TOOLS` order.
+    pub fn advertised_tools(&self) -> impl Iterator<Item = &'static ToolSpec> + '_ {
+        TOOLS.iter().filter(|t| self.tool_enabled(t.name))
+    }
+
     /// Dispatches a `tools/call`.
     pub async fn call_tool(
         &self,
@@ -222,6 +249,11 @@ impl Daemon {
         args: Value,
         ctx: &ClientContext,
     ) -> Result<ToolOutput> {
+        if TOOLS.iter().any(|t| t.name == name) && !self.tool_enabled(name) {
+            return Err(CobaltError::PermissionDenied(format!(
+                "the tool '{name}' is turned off; the user can enable it in Cobalt > Conectores"
+            )));
+        }
         match name {
             TOOL_SEARCH_MEMORY => self.tool_search_memory(parse(args)?, ctx).await,
             TOOL_SEARCH_REUSABLE_ASSETS => self.tool_search_reusable(parse(args)?, ctx).await,
@@ -1182,4 +1214,46 @@ pub(crate) fn preview(text: &str, max_chars: usize) -> String {
         out.push('…');
     }
     out
+}
+
+#[cfg(test)]
+mod schema_budget {
+    use super::*;
+
+    /// Same shape `tools/list` sends (name, description, schema, annotations).
+    fn advertised_json(names: &[&str]) -> String {
+        let tools: Vec<Value> = TOOLS
+            .iter()
+            .filter(|t| names.contains(&t.name))
+            .map(|t| {
+                json!({ "name": t.name, "description": t.description, "inputSchema": input_schema(t.name),
+                        "annotations": annotations(t) })
+            })
+            .collect();
+        serde_json::to_string(&json!({ "tools": tools })).unwrap()
+    }
+
+    /// Guards the fixed per-session cost of Cobalt's tool schemas (v1.17.0). ~4 chars/token.
+    #[test]
+    fn default_tool_schemas_stay_small() {
+        let core = advertised_json(&CORE_TOOLS);
+        let all = advertised_json(&cobalt_core::mcp::ALL_TOOLS);
+        println!(
+            "core: {} chars (~{} tokens); all: {} chars (~{} tokens)",
+            core.len(),
+            core.len() / 4,
+            all.len(),
+            all.len() / 4
+        );
+        assert!(
+            core.len() <= 4_400,
+            "core tool schemas grew to {} chars",
+            core.len()
+        );
+        assert!(
+            all.len() <= 7_000,
+            "all tool schemas grew to {} chars",
+            all.len()
+        );
+    }
 }

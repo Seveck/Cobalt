@@ -134,19 +134,15 @@ impl Session {
     }
 
     fn tools_list(&self) -> Value {
-        let tools: Vec<Value> = TOOLS
-            .iter()
+        let tools: Vec<Value> = self
+            .daemon
+            .advertised_tools()
             .map(|spec| {
                 json!({
                     "name": spec.name,
                     "description": self.daemon.tool_description(spec),
                     "inputSchema": crate::tools::input_schema(spec.name),
-                    "annotations": {
-                        "readOnlyHint": spec.read_only,
-                        "destructiveHint": false,
-                        "idempotentHint": spec.read_only,
-                        "openWorldHint": false,
-                    },
+                    "annotations": crate::tools::annotations(spec),
                 })
             })
             .collect();

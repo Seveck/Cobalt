@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.16.0";
+export const CONTRACT_VERSION = "1.17.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -840,7 +840,12 @@ export interface McpSettings {
   tool_docstring_overrides: Record<string, string>;
   /** Per-AI access; missing = read_write (v1.15.0). */
   client_permissions: Record<string, ClientPermission>;
+  /** Optional MCP tools the user turned on (v1.17.0); core tools are always on. */
+  optional_tools: string[];
 }
+
+/** MCP tools advertised only when enabled in Conectores (v1.17.0). */
+export const OPTIONAL_MCP_TOOLS = ["search_reusable_assets", "archive_memory", "create_theme"] as const;
 
 /** What one AI client may do with the user's memory (v1.15.0). */
 export type ClientPermission = "none" | "read" | "read_write";

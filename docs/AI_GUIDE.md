@@ -169,6 +169,10 @@ If the model cannot call tools, the **program that hosts it** does the calls:
 
 ## 3. The nine MCP tools
 
+Six core tools are always available; `search_reusable_assets`, `archive_memory` and `create_theme`
+are optional and appear only if the user enables them in Cobalt > Conectores (otherwise calling
+them returns `permission_denied` — ask the user to enable it).
+
 Full JSON schemas and docstrings: `docs/MCP_SPEC.md` §2. Every result has a token-lean text block
 for the model plus `structuredContent` (typed DTO). `project` accepts a project name, an absolute
 path, or `"global"`; omit it to auto-detect.

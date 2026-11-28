@@ -1,4 +1,9 @@
-# Cobalt — Frozen Contracts (v1.15.0)
+# Cobalt — Frozen Contracts (v1.17.0)
+
+> v1.17.0: MCP tool profile — `CORE_TOOLS` always advertised, `OPTIONAL_TOOLS` only when listed
+> in `McpSettings.optional_tools`; shorter tool descriptions/schemas (≈60 % fewer schema tokens).
+> v1.16.0: project/recency precedence (`SearchHit.outranked_by`), "Sin clasificar" project,
+> no-project hints.
 
 > v1.15.0 (additive): per-AI permissions (`McpSettings.client_permissions`: none | read |
 > read_write; error kind `permission_denied`); prompt-injection defense (`injection::scan`,
