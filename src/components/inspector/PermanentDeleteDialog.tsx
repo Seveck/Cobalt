@@ -125,12 +125,20 @@ export function PermanentDeleteDialog({
   };
 
   return (
-    <section
-      role="dialog"
-      aria-modal="false"
-      aria-labelledby="permanent-delete-dialog-title"
-      className="cobalt-modal-enter fixed right-5 bottom-5 z-50 flex max-h-[calc(100vh-2.5rem)] w-[min(468px,calc(100vw-2rem))] flex-col rounded-[2px] border-2 border-cinnabar-rule bg-surface text-bone shadow-[0_20px_56px_rgba(0,0,0,0.85)]"
+    <div
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget && !busy && !archiving) {
+          onCancel();
+        }
+      }}
+      className="fixed inset-0 z-50 flex items-end justify-end bg-void/50 p-5 backdrop-blur-[1px]"
     >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="permanent-delete-dialog-title"
+        className="cobalt-modal-enter flex max-h-[calc(100vh-2.5rem)] w-[min(468px,calc(100vw-2rem))] flex-col rounded-[2px] border-2 border-cinnabar-rule bg-surface text-bone shadow-[0_20px_56px_rgba(0,0,0,0.85)]"
+      >
       {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b border-cinnabar-rule/70 bg-cinnabar-wash/60 px-4 py-3">
         <div className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-cinnabar">
@@ -378,5 +386,6 @@ export function PermanentDeleteDialog({
         </button>
       </div>
     </section>
+    </div>
   );
 }

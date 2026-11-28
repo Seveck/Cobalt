@@ -134,12 +134,20 @@ export function Select<T extends string = string>({
         closeMenu(false);
       }
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        closeMenu(true);
+      }
+    };
     const handleWindowBlur = () => closeMenu(false);
 
     document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("blur", handleWindowBlur);
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("blur", handleWindowBlur);
     };
   }, [closeMenu, open]);

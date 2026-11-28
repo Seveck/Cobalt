@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
@@ -557,6 +557,7 @@ function IngestReportDetail({
  */
 export function IngestShellIndicator() {
   const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const jobs = useIngestStore((s) => s.jobs);
   const expanded = useIngestStore((s) => s.expanded);
@@ -707,8 +708,17 @@ export function IngestShellIndicator() {
         setExpanded(false);
       }
     };
+    const onPointerDown = (e: PointerEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setExpanded(false);
+      }
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [expanded, setExpanded]);
 
   if (jobs.length === 0 && !indexingPaused) {
@@ -773,6 +783,7 @@ export function IngestShellIndicator() {
 
   return (
     <div
+      ref={containerRef}
       className="relative z-30 shrink-0 border-b border-rule bg-surface"
       role="region"
       aria-label={t("ingest.regionLabel")}

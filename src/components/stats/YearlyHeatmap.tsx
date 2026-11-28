@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { formatCompactNumber, formatTokenCount } from "@/lib/format";
+import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 import type { UsageDay } from "@/types/contracts";
 import {
   buildYearHeatmapGrid,
@@ -36,6 +37,7 @@ const CELL_GAP = 3;
 const CELL_STEP = CELL_SIZE + CELL_GAP;
 const DAY_LABEL_WIDTH = 34;
 const MONTH_HEADER_HEIGHT = 18;
+const HEATMAP_REVEAL_SPAN_MS = 1450;
 const LEGEND_LEVELS: readonly HeatmapLevel[] = [0, 1, 2, 3, 4];
 
 export function YearlyHeatmap({
@@ -49,6 +51,7 @@ export function YearlyHeatmap({
 }: YearlyHeatmapProps) {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? i18n.language ?? "en";
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const [activeTooltip, setActiveTooltip] = useState<ActiveHeatmapTooltip | null>(null);
   const tooltipId = useId();
@@ -216,47 +219,64 @@ export function YearlyHeatmap({
               </text>
             ))}
 
-            {/* Day squares */}
-            {grid.weeks.map((week, weekIdx) =>
-              week.map((cell, dayIdx) => {
-                if (!cell.date) return null;
-                const style = HEATMAP_LEVEL_STYLES[cell.level];
-                const x = DAY_LABEL_WIDTH + weekIdx * CELL_STEP;
-                const y = MONTH_HEADER_HEIGHT + dayIdx * CELL_STEP;
-                const isFocused = activeTooltip?.cell.date === cell.date;
-                const tooltipText = buildTooltipText(cell);
+            {/* Day squares grouped by week column for left->right reveal */}
+            {grid.weeks.map((week, weekIdx) => {
+              const colDelayMs = prefersReducedMotion
+                ? 0
+                : Math.round(
+                    (weekIdx / Math.max(1, grid.weeks.length - 1)) * HEATMAP_REVEAL_SPAN_MS,
+                  );
+              const colStyle: CSSProperties | undefined = prefersReducedMotion
+                ? undefined
+                : ({ "--cobalt-col-delay": `${colDelayMs}ms` } as CSSProperties);
 
-                return (
-                  <rect
-                    key={cell.date}
-                    x={x}
-                    y={y}
-                    width={CELL_SIZE}
-                    height={CELL_SIZE}
-                    rx={2.5}
-                    ry={2.5}
-                    fill={style.fill}
-                    stroke={
-                      isFocused
-                        ? "var(--color-bone, #ece9e1)"
-                        : cell.isToday
-                          ? "var(--color-cobalt-ink, #79a8ff)"
-                          : style.border
-                    }
-                    strokeWidth={isFocused || cell.isToday ? 1.25 : 0.75}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={tooltipText}
-                    aria-describedby={isFocused ? tooltipId : undefined}
-                    className="cursor-pointer outline-none transition-[stroke] duration-75"
-                    onMouseEnter={(e) => showTooltipForElement(cell, e.currentTarget)}
-                    onMouseLeave={clearTooltip}
-                    onFocus={(e) => showTooltipForElement(cell, e.currentTarget)}
-                    onBlur={clearTooltip}
-                  />
-                );
-              }),
-            )}
+              return (
+                <g
+                  key={`${year}-week-${weekIdx}`}
+                  className={prefersReducedMotion ? undefined : "cobalt-heatmap-col"}
+                  style={colStyle}
+                >
+                  {week.map((cell, dayIdx) => {
+                    if (!cell.date) return null;
+                    const style = HEATMAP_LEVEL_STYLES[cell.level];
+                    const x = DAY_LABEL_WIDTH + weekIdx * CELL_STEP;
+                    const y = MONTH_HEADER_HEIGHT + dayIdx * CELL_STEP;
+                    const isFocused = activeTooltip?.cell.date === cell.date;
+                    const tooltipText = buildTooltipText(cell);
+
+                    return (
+                      <rect
+                        key={cell.date}
+                        x={x}
+                        y={y}
+                        width={CELL_SIZE}
+                        height={CELL_SIZE}
+                        rx={2.5}
+                        ry={2.5}
+                        fill={style.fill}
+                        stroke={
+                          isFocused
+                            ? "var(--color-bone, #ece9e1)"
+                            : cell.isToday
+                              ? "var(--color-cobalt-ink, #79a8ff)"
+                              : style.border
+                        }
+                        strokeWidth={isFocused || cell.isToday ? 1.25 : 0.75}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={tooltipText}
+                        aria-describedby={isFocused ? tooltipId : undefined}
+                        className="cursor-pointer outline-none transition-[stroke] duration-75"
+                        onMouseEnter={(e) => showTooltipForElement(cell, e.currentTarget)}
+                        onMouseLeave={clearTooltip}
+                        onFocus={(e) => showTooltipForElement(cell, e.currentTarget)}
+                        onBlur={clearTooltip}
+                      />
+                    );
+                  })}
+                </g>
+              );
+            })}
           </svg>
         </div>
       </div>

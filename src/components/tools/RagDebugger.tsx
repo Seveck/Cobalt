@@ -56,6 +56,17 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
     };
   }, [setHighlightedNodeIds]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented && !loading) {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [loading, onClose]);
+
   const scopeOptions = useMemo<SelectOption<string>[]>(() => {
     const { regular, unsorted } = splitProjects(graph?.projects ?? []);
     const base: SelectOption<string>[] = [

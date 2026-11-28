@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
 import { useTranslation } from "react-i18next";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
@@ -66,7 +66,11 @@ import {
 const CAMERA_FOCUS_DURATION_SEC = 0.65;
 const CAMERA_TRANSITION_DURATION_SEC = 0.8;
 const AMBIENT_ROTATE_RESUME_DELAY_MS = 1_200;
+const AMBIENT_ROTATE_INERTIA_SEC = 1.2;
 const DEFAULT_AMBIENT_ROTATE_RAD_PER_SEC = 0.085;
+const BG_COLOR_CROSSFADE_SEC = 0.3;
+const ENCRYPTED_TINT_COLOR = new THREE.Color("#64748B");
+const FOCUS_TINT_COLOR = new THREE.Color("#FFFFFF");
 const FRUSTUM_CHECK_INTERVAL_MS = 160;
 const PULSE_DIM_OPACITY = 0.25;
 const PULSE_VISIBILITY_REPORT_MS = 100;
@@ -137,8 +141,8 @@ function FrameRateController({ maxFps }: FrameRateControllerProps) {
 }
 
 /**
- * Synchronizes WebGL viewport & camera aspect synchronously on container resize
- * (e.g. during smooth sidebar width transitions) so frames never stretch or flash blank.
+ * Synchronizes WebGL viewport & camera aspect cleanly on container resize
+ * (coalesced per animation frame so ResizeObserver never double-renders mid-layout).
  */
 function CanvasResizeSync({ manualFrameloop }: { manualFrameloop: boolean }) {
   const gl = useThree((state) => state.gl);
@@ -148,7 +152,10 @@ function CanvasResizeSync({ manualFrameloop }: { manualFrameloop: boolean }) {
     const parent = gl.domElement.parentElement;
     if (!parent || typeof ResizeObserver === "undefined") return;
 
-    const sync = () => {
+    let rafId = 0;
+
+    const applyResize = () => {
+      rafId = 0;
       const rect = parent.getBoundingClientRect();
       const width = Math.round(rect.width);
       const height = Math.round(rect.height);
@@ -170,9 +177,20 @@ function CanvasResizeSync({ manualFrameloop }: { manualFrameloop: boolean }) {
       }
     };
 
-    const observer = new ResizeObserver(sync);
+    const scheduleSync = () => {
+      if (rafId === 0) {
+        rafId = window.requestAnimationFrame(applyResize);
+      }
+    };
+
+    const observer = new ResizeObserver(scheduleSync);
     observer.observe(parent);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (rafId !== 0) {
+        window.cancelAnimationFrame(rafId);
+      }
+    };
   }, [get, gl, manualFrameloop]);
 
   return null;
@@ -364,7 +382,7 @@ function attachUniformEdgeColorAttribute(geometry: THREE.BufferGeometry, colorHe
   geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
 }
 
-export function BrainScene({
+export const BrainScene = memo(function BrainScene({
   graph,
   manifest,
   themeBasePath,
@@ -391,7 +409,8 @@ export function BrainScene({
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null);
   const camera = useThree((state) => state.camera);
   const gl = useThree((state) => state.gl);
-  const size = useThree((state) => state.size);
+  const scene = useThree((state) => state.scene);
+  const getThree = useThree((state) => state.get);
 
   const disableThemeShaders = useThemeStore((s) => s.disableThemeShaders);
   const shadersDisabledForSession = useThemeStore((s) => s.shadersDisabledForSession);
@@ -638,9 +657,6 @@ export function BrainScene({
     };
   }, []);
 
-  const sizeRef = useRef(size);
-  sizeRef.current = size;
-
   // ---------------------------------------------------------------------------
   // 3. Validated shader materials (node points, edges, full-screen background)
   // ---------------------------------------------------------------------------
@@ -766,17 +782,18 @@ export function BrainScene({
       return { material: null as THREE.ShaderMaterial | null, errorLog: validation.log };
     }
 
+    const currentSize = getThree().size;
     return {
       material: createBackgroundShaderMaterial(
         manifest.palette.background,
         customFragment,
-        sizeRef.current.width,
-        sizeRef.current.height,
+        currentSize.width,
+        currentSize.height,
         gl.getPixelRatio(),
       ),
       errorLog: null as string | null,
     };
-  }, [gl, loadedShaders?.backgroundFragment, manifest.palette.background, shadersAllowed]);
+  }, [getThree, gl, loadedShaders?.backgroundFragment, manifest.palette.background, shadersAllowed]);
 
   useEffect(() => {
     if (backgroundBundle.errorLog) {
@@ -902,7 +919,51 @@ export function BrainScene({
   const scratchWhiteColorRef = useRef(new THREE.Color("#FFFFFF"));
   const scratchRagColorRef = useRef(new THREE.Color("#78A8FF"));
   const bgColorRef = useRef(new THREE.Color(manifest.palette.background));
-  bgColorRef.current.set(manifest.palette.background);
+  const bgTransitionRef = useRef<{
+    current: THREE.Color;
+    start: THREE.Color;
+    target: THREE.Color;
+    elapsedSec: number;
+    active: boolean;
+  }>({
+    current: new THREE.Color(manifest.palette.background),
+    start: new THREE.Color(manifest.palette.background),
+    target: new THREE.Color(manifest.palette.background),
+    elapsedSec: BG_COLOR_CROSSFADE_SEC,
+    active: false,
+  });
+
+  // Initialize scene background color once and crossfade smoothly (~300 ms) when theme background changes
+  useEffect(() => {
+    bgColorRef.current.set(manifest.palette.background);
+    const bgState = bgTransitionRef.current;
+    const nextTarget = new THREE.Color(manifest.palette.background);
+
+    if (!(scene.background instanceof THREE.Color)) {
+      bgState.current.copy(nextTarget);
+      bgState.start.copy(nextTarget);
+      bgState.target.copy(nextTarget);
+      bgState.active = false;
+      scene.background = bgState.current;
+      return;
+    }
+
+    if (bgState.target.equals(nextTarget)) return;
+
+    if (prefersReducedMotionRef.current) {
+      bgState.current.copy(nextTarget);
+      bgState.start.copy(nextTarget);
+      bgState.target.copy(nextTarget);
+      bgState.active = false;
+      scene.background = bgState.current;
+      return;
+    }
+
+    bgState.start.copy(bgState.current);
+    bgState.target.copy(nextTarget);
+    bgState.elapsedSec = 0;
+    bgState.active = true;
+  }, [manifest.palette.background, scene]);
 
   // Smooth dimming, fade, & pulse tracking refs (zero-allocation per-frame updates)
   const dimFactorRef = useRef(1.0);
@@ -1195,9 +1256,9 @@ export function BrainScene({
 
       tmpColor.set(resolveNodeColorHex(node, manifest, activeLayout, projectColorMap));
       if (node.is_encrypted) {
-        tmpColor.lerp(new THREE.Color("#64748B"), 0.55);
+        tmpColor.lerp(ENCRYPTED_TINT_COLOR, 0.55);
       } else if (isHovered || isSelected) {
-        tmpColor.lerp(new THREE.Color("#FFFFFF"), 0.3);
+        tmpColor.lerp(FOCUS_TINT_COLOR, 0.3);
       }
 
       const i3 = i * 3;
@@ -1308,6 +1369,7 @@ export function BrainScene({
 
     const { sidebarCollapsed, layoutsPanelCollapsed } = useUiStore.getState();
     const insets = viewportInsetsRef.current;
+    const liveSize = getThree().size;
     const framing = computeLayoutCameraFraming({
       positions,
       containers:
@@ -1315,10 +1377,10 @@ export function BrainScene({
       isProjectIslands: isProjectIslandsRef.current,
       themeCamera: manifestCameraRef.current,
       viewport: {
-        canvasWidth: sizeRef.current.width,
-        canvasHeight: sizeRef.current.height,
-        windowWidth: typeof window !== "undefined" ? window.innerWidth : sizeRef.current.width,
-        windowHeight: typeof window !== "undefined" ? window.innerHeight : sizeRef.current.height,
+        canvasWidth: liveSize.width,
+        canvasHeight: liveSize.height,
+        windowWidth: typeof window !== "undefined" ? window.innerWidth : liveSize.width,
+        windowHeight: typeof window !== "undefined" ? window.innerHeight : liveSize.height,
         sidebarCollapsed,
         layoutsPanelCollapsed,
         topInset: insets.top,
@@ -1334,7 +1396,7 @@ export function BrainScene({
     }
 
     return framing;
-  }, []);
+  }, [getThree]);
 
   // Unified smooth camera transition state (node focus, reset camera, center view, theme change)
   const focusRequest = useMemoryStore((s) => s.focusRequest);
@@ -1409,6 +1471,7 @@ export function BrainScene({
   // Pause ambient auto-rotation & cancel camera transitions while the user drags or zooms
   const userInteractingRef = useRef(false);
   const lastUserInteractTsRef = useRef(0);
+  const ambientRotateProgressRef = useRef(autoRotatePaused || prefersReducedMotion ? 0 : 1);
   const scratchOrbitOffsetRef = useRef(new THREE.Vector3());
 
   useEffect(() => {
@@ -2117,6 +2180,22 @@ export function BrainScene({
       structuralEdgeMaterial.uniforms.uTime.value = timeSec;
     }
 
+    // Smooth ~300 ms WebGL background crossfade on theme change
+    const bgTransition = bgTransitionRef.current;
+    if (bgTransition.active) {
+      bgTransition.elapsedSec = Math.min(BG_COLOR_CROSSFADE_SEC, bgTransition.elapsedSec + delta);
+      const tBg = smoothstep(0, 1, bgTransition.elapsedSec / BG_COLOR_CROSSFADE_SEC);
+      bgTransition.current.lerpColors(bgTransition.start, bgTransition.target, tBg);
+      if (scene.background instanceof THREE.Color) {
+        scene.background.copy(bgTransition.current);
+      } else {
+        scene.background = bgTransition.current;
+      }
+      if (bgTransition.elapsedSec >= BG_COLOR_CROSSFADE_SEC) {
+        bgTransition.active = false;
+      }
+    }
+
     // Sync full-screen background quad uniforms
     const bgMat = backgroundBundle.material;
     if (bgMat) {
@@ -2272,32 +2351,42 @@ export function BrainScene({
         cameraAnimRef.current = null;
         lastFrustumCheckTsRef.current = 0;
       }
-    } else if (
-      !prefersReducedMotionRef.current &&
-      !autoRotatePausedRef.current &&
-      !userInteractingRef.current &&
-      now - lastUserInteractTsRef.current >= AMBIENT_ROTATE_RESUME_DELAY_MS &&
-      graph.nodes.length > 0 &&
-      controlsRef.current
-    ) {
-      // Slow ambient auto-rotation (frame-rate independent; stops while dragging/zooming or with reduced motion)
-      const configuredSpeed = manifestCameraRef.current.auto_rotate_speed;
-      const radPerSec =
-        configuredSpeed > 0
-          ? Math.min(0.25, configuredSpeed * 0.28)
-          : DEFAULT_AMBIENT_ROTATE_RAD_PER_SEC;
-      const angle = radPerSec * delta;
-      const target = controlsRef.current.target;
-      const offset = scratchOrbitOffsetRef.current.copy(camera.position).sub(target);
-      const cosA = Math.cos(angle);
-      const sinA = Math.sin(angle);
-      const nextX = offset.x * cosA - offset.z * sinA;
-      const nextZ = offset.x * sinA + offset.z * cosA;
-      offset.x = nextX;
-      offset.z = nextZ;
-      camera.position.copy(target).add(offset);
-      camera.lookAt(target);
-      controlsRef.current.update();
+      ambientRotateProgressRef.current = 0;
+    } else if (prefersReducedMotionRef.current || userInteractingRef.current || graph.nodes.length === 0) {
+      ambientRotateProgressRef.current = 0;
+    } else if (controlsRef.current) {
+      // Smooth ~1.2 s inertia decay/ramp on ambient rotation when pausing, resuming, or after user drag
+      const wantsRotate =
+        !autoRotatePausedRef.current &&
+        now - lastUserInteractTsRef.current >= AMBIENT_ROTATE_RESUME_DELAY_MS;
+      const step = delta / AMBIENT_ROTATE_INERTIA_SEC;
+      const prevProgress = ambientRotateProgressRef.current;
+      const nextProgress = wantsRotate
+        ? Math.min(1, prevProgress + step)
+        : Math.max(0, prevProgress - step);
+      ambientRotateProgressRef.current = nextProgress;
+
+      // Smoothstep velocity curve: zero slope at rest and full speed for natural coasting inertia
+      const speedFactor = nextProgress * nextProgress * (3 - 2 * nextProgress);
+      if (speedFactor > 0.0001) {
+        const configuredSpeed = manifestCameraRef.current.auto_rotate_speed;
+        const radPerSec =
+          configuredSpeed > 0
+            ? Math.min(0.25, configuredSpeed * 0.28)
+            : DEFAULT_AMBIENT_ROTATE_RAD_PER_SEC;
+        const angle = radPerSec * speedFactor * delta;
+        const target = controlsRef.current.target;
+        const offset = scratchOrbitOffsetRef.current.copy(camera.position).sub(target);
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+        const nextX = offset.x * cosA - offset.z * sinA;
+        const nextZ = offset.x * sinA + offset.z * cosA;
+        offset.x = nextX;
+        offset.z = nextZ;
+        camera.position.copy(target).add(offset);
+        camera.lookAt(target);
+        controlsRef.current.update();
+      }
     }
 
     // 1c. Detect whether any visible node is inside the camera view frustum (for "Center view" hint)
@@ -2601,7 +2690,6 @@ export function BrainScene({
     <>
       <FrameRateController maxFps={maxFps} />
       <CanvasResizeSync manualFrameloop={maxFps !== null} />
-      <color attach="background" args={[manifest.palette.background]} />
 
       {/* Full-screen custom theme background quad (THEME_SPEC §6.2) */}
       {backgroundBundle.material && (
@@ -2660,4 +2748,4 @@ export function BrainScene({
       />
     </>
   );
-}
+});

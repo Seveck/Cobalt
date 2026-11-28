@@ -326,7 +326,14 @@ export function OnboardingScreen() {
   const primaryGpu = profile?.gpus[0] ?? null;
 
   return (
-    <div className="cobalt-grid-bg flex min-h-full w-full items-center justify-center overflow-y-auto px-4 py-8 sm:px-8">
+    <div
+      onPointerDown={(e) => {
+        if (canGoBack && !busy && e.target === e.currentTarget) {
+          handleBack();
+        }
+      }}
+      className="cobalt-grid-bg flex min-h-full w-full items-center justify-center overflow-y-auto px-4 py-8 sm:px-8"
+    >
       <div className="w-full max-w-4xl border border-rule-strong bg-surface">
         {/* Top signature cobalt rule */}
         <div className="h-[2px] w-full bg-cobalt" aria-hidden />

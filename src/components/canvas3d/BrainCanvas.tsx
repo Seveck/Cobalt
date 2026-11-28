@@ -154,6 +154,8 @@ export function BrainCanvas() {
 
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   const [pointer, setPointer] = useState<TooltipPointer>({ x: 0, y: 0 });
+  const hoveredNodeRef = useRef<GraphNode | null>(null);
+  const pointerRef = useRef<TooltipPointer>({ x: 0, y: 0 });
   const [resetSignal, setResetSignal] = useState(0);
   const [centerViewSignal, setCenterViewSignal] = useState(0);
   const [anyNodeInView, setAnyNodeInView] = useState(true);
@@ -289,6 +291,10 @@ export function BrainCanvas() {
 
   const handleHoverNode = useCallback(
     (node: GraphNode | null) => {
+      hoveredNodeRef.current = node;
+      if (node) {
+        setPointer(pointerRef.current);
+      }
       setHoveredNode(node);
       setHoveredNodeId(node ? node.id : null);
     },
@@ -333,6 +339,10 @@ export function BrainCanvas() {
     setSelectedNodeId(null);
   }, [setSelectedNodeId]);
 
+  const handleCloseToolDrawer = useCallback(() => {
+    setActiveDrawer("none");
+  }, []);
+
   const toggleDrawer = (target: Exclude<ActiveDrawer, "none" | "inspector">) => {
     setActiveDrawer((prev) => (prev === target ? "none" : target));
   };
@@ -340,8 +350,21 @@ export function BrainCanvas() {
   const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setPointer({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    const next = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    pointerRef.current = next;
+    // Only trigger React state updates while a tooltip is actively visible
+    if (hoveredNodeRef.current) {
+      setPointer(next);
+    }
   };
+
+  const sceneViewportInsets = useMemo(
+    () => ({
+      top: indicatorSafeInsets.top,
+      bottom: indicatorSafeInsets.bottom,
+    }),
+    [indicatorSafeInsets.bottom, indicatorSafeInsets.top],
+  );
 
   const containerWidth = containerRef.current?.clientWidth ?? 800;
   const containerHeight = containerRef.current?.clientHeight ?? 600;
@@ -650,10 +673,7 @@ export function BrainCanvas() {
                   clusterSizeMetric={clusterSizeMetric}
                   showConnections={showConnections}
                   autoRotatePaused={autoRotatePaused}
-                  viewportInsets={{
-                    top: indicatorSafeInsets.top,
-                    bottom: indicatorSafeInsets.bottom,
-                  }}
+                  viewportInsets={sceneViewportInsets}
                   hardwareTier={hardwareTier}
                   filters={filters}
                   searchQuery={searchQuery}
@@ -837,13 +857,13 @@ export function BrainCanvas() {
       )}
       {activeDrawer === "rag" && (
         <RagDebugger
-          onClose={() => setActiveDrawer("none")}
+          onClose={handleCloseToolDrawer}
           onInspectMemory={handleInspectMemoryId}
         />
       )}
       {activeDrawer === "clean" && (
         <CleanBrainPanel
-          onClose={() => setActiveDrawer("none")}
+          onClose={handleCloseToolDrawer}
           onInspectMemory={handleInspectMemoryId}
         />
       )}

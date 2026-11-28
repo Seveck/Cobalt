@@ -340,13 +340,46 @@ export function resolvePreviewTokens(manifest: ThemeManifest): Omit<GeneratedUiT
   return DEFAULT_CHROME_PREVIEW_TOKENS;
 }
 
+const THEME_CROSSFADE_MS = 300;
+let themeTransitionTimer: number | null = null;
+let hasAppliedThemeOnce = false;
+
+export interface ApplyThemeOptions {
+  animate?: boolean;
+}
+
+function isReducedMotionPreferred(root: HTMLElement): boolean {
+  if (root.dataset.reducedMotion === "true") return true;
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 /**
  * Apply or clear whole-app theme CSS variables on `:root` live with zero reload.
  * Themes without `ui` (such as `cobalt-minimal`) restore the default obsidian chrome.
  */
-export function applyThemeToRoot(manifest: ThemeManifest): void {
+export function applyThemeToRoot(
+  manifest: ThemeManifest,
+  options?: ApplyThemeOptions,
+): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
+
+  const shouldAnimate =
+    Boolean(options?.animate) && hasAppliedThemeOnce && !isReducedMotionPreferred(root);
+
+  if (shouldAnimate && typeof window !== "undefined") {
+    root.dataset.themeTransition = "true";
+    if (themeTransitionTimer !== null) {
+      window.clearTimeout(themeTransitionTimer);
+    }
+    themeTransitionTimer = window.setTimeout(() => {
+      delete root.dataset.themeTransition;
+      themeTransitionTimer = null;
+    }, THEME_CROSSFADE_MS + 40);
+  }
+
+  hasAppliedThemeOnce = true;
 
   if (!manifest.ui) {
     for (const key of MANAGED_CSS_VARS) {

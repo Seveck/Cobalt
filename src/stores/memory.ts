@@ -62,7 +62,21 @@ export const useMemoryStore = create<MemoryState>((set) => ({
 
   setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
   setHoveredNodeId: (hoveredNodeId) => set({ hoveredNodeId }),
-  setHighlightedNodeIds: (ids) => set({ highlightedNodeIds: new Set(ids) }),
+  setHighlightedNodeIds: (ids) =>
+    set((state) => {
+      const next = new Set(ids);
+      if (next.size === state.highlightedNodeIds.size) {
+        let same = true;
+        for (const id of next) {
+          if (!state.highlightedNodeIds.has(id)) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return state;
+      }
+      return { highlightedNodeIds: next };
+    }),
   requestFocusNodes: (ids) => {
     const unique = Array.from(new Set(ids.filter(Boolean)));
     if (unique.length === 0) return;

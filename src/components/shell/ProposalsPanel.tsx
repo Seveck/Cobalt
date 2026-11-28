@@ -6,7 +6,7 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
-  ChevronRight,
+  ChevronUp,
   Clock,
   Compass,
   Inbox,
@@ -133,6 +133,8 @@ function ProposalCard({
 }: ProposalCardProps) {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const evidenceRef = useRef<HTMLDivElement>(null);
+  const [evidenceClamped, setEvidenceClamped] = useState(false);
 
   useEffect(() => {
     if (isEditing) {
@@ -149,9 +151,24 @@ function ProposalCard({
   const currentContent = draftText ?? proposal.content;
   const isModified =
     draftText !== undefined && draftText.trim() !== proposal.content.trim();
-  const hasEvidence = Boolean(proposal.evidence && proposal.evidence.trim().length > 0);
+  const trimmedEvidence = proposal.evidence?.trim() ?? "";
+  const hasEvidence = trimmedEvidence.length > 0;
   const actionsDisabled = readOnly || isBusy || isBulkBusy;
   const acceptDisabled = actionsDisabled || currentContent.trim().length === 0;
+
+  useEffect(() => {
+    if (!hasEvidence || isEvidenceExpanded) return;
+    const el = evidenceRef.current;
+    if (!el) return;
+    const measure = () => {
+      setEvidenceClamped(el.scrollHeight > el.clientHeight + 1);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasEvidence, isEvidenceExpanded, trimmedEvidence]);
 
   return (
     <article
@@ -283,28 +300,38 @@ function ProposalCard({
         </p>
       )}
 
-      {/* Collapsible "contexto" (evidence) */}
+      {/* Evidence / context with expandable "Ver más" / "Ver menos" */}
       {hasEvidence && (
-        <div className="border-t border-rule/80 pt-2">
-          <button
-            type="button"
-            aria-expanded={isEvidenceExpanded}
-            onClick={() => onToggleEvidence(proposal.id)}
-            className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.1em] text-bone-muted hover:text-bone focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
-          >
-            {isEvidenceExpanded ? (
-              <ChevronDown size={11} aria-hidden />
-            ) : (
-              <ChevronRight size={11} aria-hidden />
+        <div className="space-y-1.5 border-t border-rule/80 pt-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-bone-subtle">
+              {t("proposals.contextLabel")}
+            </span>
+            {(evidenceClamped || isEvidenceExpanded) && (
+              <button
+                type="button"
+                aria-expanded={isEvidenceExpanded}
+                onClick={() => onToggleEvidence(proposal.id)}
+                className="inline-flex items-center gap-1 rounded-[2px] font-mono text-[10px] font-medium text-cobalt-ink hover:underline focus-visible:ring-1 focus-visible:ring-cobalt-ink focus-visible:outline-none"
+              >
+                <span>{isEvidenceExpanded ? t("proposals.showLess") : t("proposals.showMore")}</span>
+                {isEvidenceExpanded ? (
+                  <ChevronUp size={11} aria-hidden />
+                ) : (
+                  <ChevronDown size={11} aria-hidden />
+                )}
+              </button>
             )}
-            <span>{t("proposals.contextLabel")}</span>
-          </button>
+          </div>
 
-          {isEvidenceExpanded && (
-            <div className="mt-2 rounded-[2px] border border-rule bg-void p-2.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words text-bone-muted">
-              {proposal.evidence}
-            </div>
-          )}
+          <div
+            ref={evidenceRef}
+            className={`rounded-[2px] border border-rule bg-void p-2.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words text-bone-muted ${
+              isEvidenceExpanded ? "" : "line-clamp-3"
+            }`}
+          >
+            {trimmedEvidence}
+          </div>
         </div>
       )}
 

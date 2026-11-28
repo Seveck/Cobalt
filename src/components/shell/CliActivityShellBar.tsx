@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronUp, Sparkles, Terminal, Trash2, X } from "lucide-react";
@@ -98,6 +98,7 @@ function buildCompactLine(
  */
 export function CliActivityShellBar() {
   const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const entries = useCliActivityStore((s) => s.entries);
   const visible = useCliActivityStore((s) => s.visible);
@@ -125,8 +126,17 @@ export function CliActivityShellBar() {
         setExpanded(false);
       }
     };
+    const onPointerDown = (e: PointerEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setExpanded(false);
+      }
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [expanded, setExpanded]);
 
   if (!visible || entries.length === 0) {
@@ -149,6 +159,7 @@ export function CliActivityShellBar() {
 
   return (
     <div
+      ref={containerRef}
       className="relative z-25 shrink-0 border-b border-rule bg-surface/95"
       role="region"
       aria-label={t("cliActivity.regionLabel")}

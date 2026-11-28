@@ -158,6 +158,18 @@ export function SynapticHud() {
     };
   }, [latestActivity, nodeById]);
 
+  useEffect(() => {
+    if (!hudExpanded) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
+        toggleHudExpanded();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [hudExpanded, toggleHudExpanded]);
+
   if (!hudVisible || !latestActivity) {
     return null;
   }
