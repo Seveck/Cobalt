@@ -25,6 +25,8 @@ import {
 } from "@/lib/projects";
 import { matchesVisualFilters, useFiltersStore, useSettingsStore, useUiStore } from "@/stores";
 import { CreateFolderDialog } from "@/components/projects/CreateFolderDialog";
+import { DeleteFolderDialog } from "@/components/projects/DeleteFolderDialog";
+import { FolderRowMenu } from "@/components/projects/FolderRowMenu";
 import {
   MEMORY_CATEGORIES,
   MEMORY_STATUSES,
@@ -45,10 +47,11 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectStats | null>(null);
   const readOnly = useSettingsStore((s) => s.settings.read_only);
 
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded || createFolderOpen || deleteTarget) return;
     const handlePointerDown = (e: PointerEvent) => {
       if (!containerRef.current?.contains(e.target as Node)) {
         setExpanded(false);
@@ -66,7 +69,7 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
       document.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [expanded]);
+  }, [createFolderOpen, deleteTarget, expanded]);
 
   const filters = useFiltersStore((s) => s.filters);
   const searchQuery = useFiltersStore((s) => s.searchQuery);
@@ -166,7 +169,8 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                 {t("filterDock.projects")}
               </span>
               <div className="flex flex-wrap items-center gap-1">
-                {regularProjects.map(({ project }) => {
+                {regularProjects.map((stat) => {
+                  const { project } = stat;
                   const count = stats.projectCounts.get(project.id) ?? 0;
                   const active = filters.projectIds.includes(project.id);
                   const soloed = isSolo("project", project.id);
@@ -216,6 +220,13 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                       >
                         <Crosshair size={10} aria-hidden />
                       </button>
+                      <FolderRowMenu
+                        folderName={project.name}
+                        compact
+                        disabled={readOnly}
+                        triggerClassName="rounded-none border-l border-rule hover:bg-transparent"
+                        onDelete={() => setDeleteTarget(stat)}
+                      />
                     </div>
                   );
                 })}
@@ -642,7 +653,18 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
       </div>
 
       {createFolderOpen && (
-        <CreateFolderDialog onClose={() => setCreateFolderOpen(false)} />
+        <CreateFolderDialog
+          onClose={() => setCreateFolderOpen(false)}
+          onSelectExisting={(proj) => setSolo({ dimension: "project", value: proj.id })}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteFolderDialog
+          target={deleteTarget}
+          availableProjects={projects}
+          onClose={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { backendCall } from "@/lib/backend";
+import { toStoreDisplayError, type DisplayError } from "@/lib/friendlyError";
 import {
   MAIN_BRANCH_ID,
   type Branch,
@@ -12,7 +13,7 @@ export interface BranchesState {
   activeBranchId: Uuid;
   loading: boolean;
   mutating: boolean;
-  error: string | null;
+  error: DisplayError | null;
   lastMergeReport: BranchMergeReport | null;
   loadBranches: () => Promise<void>;
   setActiveBranchId: (branchId: Uuid) => void;
@@ -43,8 +44,7 @@ export const useBranchesStore = create<BranchesState>((set, get) => ({
         loading: false,
       });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ loading: false, error: message });
+      set({ loading: false, error: toStoreDisplayError(err, "list_branches") });
     }
   },
 
@@ -61,8 +61,7 @@ export const useBranchesStore = create<BranchesState>((set, get) => ({
       set({ mutating: false });
       return created;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ mutating: false, error: message });
+      set({ mutating: false, error: toStoreDisplayError(err, "create_branch") });
       return null;
     }
   },
@@ -75,8 +74,7 @@ export const useBranchesStore = create<BranchesState>((set, get) => ({
       set({ activeBranchId: active.id, mutating: false });
       return active;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ mutating: false, error: message });
+      set({ mutating: false, error: toStoreDisplayError(err, "switch_branch") });
       return null;
     }
   },
@@ -89,8 +87,7 @@ export const useBranchesStore = create<BranchesState>((set, get) => ({
       set({ lastMergeReport: report, mutating: false });
       return report;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ mutating: false, error: message });
+      set({ mutating: false, error: toStoreDisplayError(err, "merge_branch") });
       return null;
     }
   },
@@ -103,8 +100,7 @@ export const useBranchesStore = create<BranchesState>((set, get) => ({
       set({ mutating: false });
       return true;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ mutating: false, error: message });
+      set({ mutating: false, error: toStoreDisplayError(err, "discard_branch") });
       return false;
     }
   },

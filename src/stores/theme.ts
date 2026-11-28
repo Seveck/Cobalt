@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { backendCall } from "@/lib/backend";
+import { toStoreDisplayError, type DisplayError } from "@/lib/friendlyError";
 import {
   applyReducedMotionToRoot,
   applyThemeToRoot,
@@ -127,7 +128,7 @@ export interface ThemeState {
   themeEditorDirty: boolean;
   themeToasts: ThemeToast[];
   loading: boolean;
-  error: string | null;
+  error: DisplayError | null;
   setActiveTheme: (themeId: string) => Promise<boolean>;
   setActiveLayout: (layout: LayoutType) => void;
   setClusterSizeMetric: (metric: ClusterSizeMetric) => void;
@@ -218,14 +219,13 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         });
         return true;
       }
-      const message = err instanceof Error ? err.message : String(err);
       set({
         activeThemeId: BUILTIN_THEME_ID,
         manifest: MINIMAL_THEME_MANIFEST,
         committedManifest: MINIMAL_THEME_MANIFEST,
         activeLayout: MINIMAL_THEME_MANIFEST.layout_type,
         loading: false,
-        error: message,
+        error: toStoreDisplayError(err, "get_theme_manifest"),
       });
       return false;
     }
@@ -334,8 +334,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       set({ installedThemes, loading: false });
       return installedThemes;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ loading: false, error: message });
+      set({ loading: false, error: toStoreDisplayError(err, "list_installed_themes") });
       return [];
     }
   },

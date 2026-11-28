@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Link2, Loader2, Pin, Search, SlidersHorizontal, X } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { staggerStyle } from "@/lib/motion";
 import {
   splitProjects,
@@ -14,7 +15,7 @@ import {
   useMemoryStore,
   useSettingsStore,
 } from "@/stores";
-import { OutdatedHitBanner, Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
+import { ErrorAlert, OutdatedHitBanner, Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import type { FileAvailability, ProjectScope, SearchResponse, Uuid } from "@/types/contracts";
 
 interface RagDebuggerProps {
@@ -44,7 +45,7 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
   const [ftsWeight, setFtsWeight] = useState<number>(defaultSearch.rrf.fts_weight);
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [docAvailability, setDocAvailability] = useState<Record<Uuid, FileAvailability>>({});
   const searchSeqRef = useRef(0);
@@ -171,7 +172,7 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
         });
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "search_memories"));
     } finally {
       setLoading(false);
     }
@@ -345,11 +346,7 @@ export function RagDebugger({ onClose, onInspectMemory }: RagDebuggerProps) {
 
       {/* Results list */}
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        {error && (
-          <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash p-2.5 text-xs text-cinnabar">
-            {error}
-          </div>
-        )}
+        <ErrorAlert error={error} compact />
 
         {loading && !result ? (
           <div className="space-y-3" aria-busy="true" aria-label={t("shell.loading")}>

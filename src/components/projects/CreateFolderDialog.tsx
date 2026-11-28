@@ -1,25 +1,47 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, FolderOpen, FolderPlus, Loader2, Plus, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  FolderOpen,
+  FolderPlus,
+  Info,
+  Loader2,
+  Plus,
+  X,
+} from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { pickSinglePath } from "@/lib/dialogs";
-import { pickNextFolderColor, PROJECT_COLORS } from "@/lib/projects";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
+import { findProjectByName, pickNextFolderColor, PROJECT_COLORS } from "@/lib/projects";
 import { useMemoryStore, useThemeStore } from "@/stores";
-import type { Project } from "@/types/contracts";
+import { ErrorAlert } from "@/components/ui";
+import type { Project, ProjectStats } from "@/types/contracts";
 
 export interface CreateFolderDialogProps {
   onClose: () => void;
   onCreated?: (project: Project) => void;
+  /** Called when the user submits a name that matches an existing folder instead of creating a duplicate. */
+  onSelectExisting?: (project: Project) => void;
 }
 
-export function CreateFolderDialog({ onClose, onCreated }: CreateFolderDialogProps) {
+export function CreateFolderDialog({
+  onClose,
+  onCreated,
+  onSelectExisting,
+}: CreateFolderDialogProps) {
   const { t } = useTranslation();
   const graphProjects = useMemoryStore((s) => s.graph?.projects);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const pushThemeToast = useThemeStore((s) => s.pushThemeToast);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef(false);
 
+  const [knownProjects, setKnownProjects] = useState<ProjectStats[]>(() => [
+    ...(graphProjects ?? []),
+  ]);
   const [name, setName] = useState("");
   const [color, setColor] = useState<string>(() =>
     pickNextFolderColor((graphProjects ?? []).map((s) => s.project)),
@@ -27,7 +49,21 @@ export function CreateFolderDialog({ onClose, onCreated }: CreateFolderDialogPro
   const [linkCodeOpen, setLinkCodeOpen] = useState(false);
   const [rootPath, setRootPath] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void backendCall("list_projects", { include_archived: true })
+      .then((list) => {
+        if (active) setKnownProjects(list);
+      })
+      .catch(() => {
+        // Keep seeded graph projects if fetch fails transiently.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const raf = window.requestAnimationFrame(() => {
@@ -48,10 +84,33 @@ export function CreateFolderDialog({ onClose, onCreated }: CreateFolderDialogPro
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [onClose, saving]);
 
+  const existingMatch = useMemo(
+    () => findProjectByName(knownProjects, name),
+    [knownProjects, name],
+  );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed || saving) return;
+    if (!trimmed || saving || submittingRef.current) return;
+
+    // If the typed name already exists (case-insensitive), select it instead of calling create_project
+    if (existingMatch) {
+      submittingRef.current = true;
+      pushThemeToast({
+        kind: "info",
+        message: t("folders.existingSelectedToast", { name: existingMatch.project.name }),
+      });
+      if (onSelectExisting) {
+        onSelectExisting(existingMatch.project);
+      } else {
+        onCreated?.(existingMatch.project);
+      }
+      onClose();
+      return;
+    }
+
+    submittingRef.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -68,8 +127,9 @@ export function CreateFolderDialog({ onClose, onCreated }: CreateFolderDialogPro
       onCreated?.(created);
       onClose();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "create_project"));
       setSaving(false);
+      submittingRef.current = false;
     }
   };
 
@@ -111,11 +171,7 @@ export function CreateFolderDialog({ onClose, onCreated }: CreateFolderDialogPro
         </div>
 
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4 p-4">
-          {error && (
-            <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-3 py-2 text-xs text-cinnabar">
-              {error}
-            </div>
-          )}
+          <ErrorAlert error={error} compact />
 
           <p className="text-xs leading-relaxed text-bone-muted">
             {t("folders.newFolderHint")}
@@ -134,84 +190,104 @@ export function CreateFolderDialog({ onClose, onCreated }: CreateFolderDialogPro
               type="text"
               value={name}
               disabled={saving}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (error) setError(null);
+              }}
               placeholder={t("folders.namePlaceholder")}
               className="h-9 w-full rounded-[2px] border border-rule-strong bg-void px-3 text-xs text-bone placeholder:text-bone-subtle focus:border-cobalt-ink focus:outline-none"
             />
-          </div>
-
-          <div className="space-y-1.5">
-            <span className="block font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-              {t("tools.projects.colorLabel")}
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              {PROJECT_COLORS.map((hex) => (
-                <button
-                  key={hex}
-                  type="button"
-                  onClick={() => setColor(hex)}
-                  aria-label={hex}
-                  className={`h-6 w-6 rounded-[2px] border transition-transform ${
-                    color === hex
-                      ? "scale-110 border-bone ring-1 ring-bone"
-                      : "border-rule-strong"
-                  }`}
-                  style={{ backgroundColor: hex }}
-                />
-              ))}
-              <input
-                type="color"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                aria-label={t("tools.projects.customColor")}
-                className="h-6 w-8 cursor-pointer rounded-[2px] border border-rule-strong bg-void p-0.5"
-              />
-            </div>
-          </div>
-
-          {/* Optional link to disk folder (for code projects) */}
-          <div className="border-t border-rule pt-3">
-            <button
-              type="button"
-              onClick={() => setLinkCodeOpen((v) => !v)}
-              className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-bone-subtle hover:text-bone"
-            >
-              {linkCodeOpen ? (
-                <ChevronDown size={11} aria-hidden />
-              ) : (
-                <ChevronRight size={11} aria-hidden />
-              )}
-              <span>{t("folders.linkCodeFolderOptional")}</span>
-            </button>
-
-            {linkCodeOpen && (
-              <div className="mt-2 flex gap-1.5">
-                <input
-                  type="text"
-                  value={rootPath}
-                  disabled={saving}
-                  onChange={(e) => setRootPath(e.target.value)}
-                  placeholder={t("tools.projects.folderPlaceholder")}
-                  className="h-8 flex-1 rounded-[2px] border border-rule-strong bg-void px-2.5 font-mono text-xs text-bone placeholder:text-bone-subtle focus:border-cobalt-ink focus:outline-none"
-                />
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() =>
-                    void pickSinglePath({
-                      title: t("tools.projects.pickFolder"),
-                      directory: true,
-                    }).then((p) => {
-                      if (p) setRootPath(p);
-                    })
-                  }
-                  className="inline-flex h-8 items-center rounded-[2px] border border-rule-strong bg-surface-2 px-2.5 text-bone-muted hover:text-bone"
-                >
-                  <FolderOpen size={12} aria-hidden />
-                </button>
+            {existingMatch && (
+              <div
+                role="status"
+                className="flex items-start gap-2 rounded-[2px] border border-cobalt-rule/70 bg-cobalt-wash/55 px-2.5 py-2 text-[11px] leading-snug text-bone"
+              >
+                <Info size={13} className="mt-0.5 shrink-0 text-cobalt-ink" aria-hidden />
+                <span>
+                  {t("folders.alreadyExistsSelectHint", {
+                    name: existingMatch.project.name,
+                  })}
+                </span>
               </div>
             )}
           </div>
+
+          {!existingMatch && (
+            <>
+              <div className="space-y-1.5">
+                <span className="block font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                  {t("tools.projects.colorLabel")}
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {PROJECT_COLORS.map((hex) => (
+                    <button
+                      key={hex}
+                      type="button"
+                      onClick={() => setColor(hex)}
+                      aria-label={hex}
+                      className={`h-6 w-6 rounded-[2px] border transition-transform ${
+                        color === hex
+                          ? "scale-110 border-bone ring-1 ring-bone"
+                          : "border-rule-strong"
+                      }`}
+                      style={{ backgroundColor: hex }}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                    aria-label={t("tools.projects.customColor")}
+                    className="h-6 w-8 cursor-pointer rounded-[2px] border border-rule-strong bg-void p-0.5"
+                  />
+                </div>
+              </div>
+
+              {/* Optional link to disk folder (for code projects) */}
+              <div className="border-t border-rule pt-3">
+                <button
+                  type="button"
+                  onClick={() => setLinkCodeOpen((v) => !v)}
+                  className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-bone-subtle hover:text-bone"
+                >
+                  {linkCodeOpen ? (
+                    <ChevronDown size={11} aria-hidden />
+                  ) : (
+                    <ChevronRight size={11} aria-hidden />
+                  )}
+                  <span>{t("folders.linkCodeFolderOptional")}</span>
+                </button>
+
+                {linkCodeOpen && (
+                  <div className="mt-2 flex gap-1.5">
+                    <input
+                      type="text"
+                      value={rootPath}
+                      disabled={saving}
+                      onChange={(e) => setRootPath(e.target.value)}
+                      placeholder={t("tools.projects.folderPlaceholder")}
+                      className="h-8 flex-1 rounded-[2px] border border-rule-strong bg-void px-2.5 font-mono text-xs text-bone placeholder:text-bone-subtle focus:border-cobalt-ink focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() =>
+                        void pickSinglePath({
+                          title: t("tools.projects.pickFolder"),
+                          directory: true,
+                        }).then((p) => {
+                          if (p) setRootPath(p);
+                        })
+                      }
+                      className="inline-flex h-8 items-center rounded-[2px] border border-rule-strong bg-surface-2 px-2.5 text-bone-muted hover:text-bone"
+                    >
+                      <FolderOpen size={12} aria-hidden />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           <div className="flex items-center justify-end gap-2 border-t border-rule pt-3">
             <button
@@ -229,10 +305,14 @@ export function CreateFolderDialog({ onClose, onCreated }: CreateFolderDialogPro
             >
               {saving ? (
                 <Loader2 size={12} className="animate-spin" aria-hidden />
+              ) : existingMatch ? (
+                <Check size={12} aria-hidden />
               ) : (
                 <Plus size={12} aria-hidden />
               )}
-              <span>{t("folders.createButton")}</span>
+              <span>
+                {existingMatch ? t("folders.selectExistingButton") : t("folders.createButton")}
+              </span>
             </button>
           </div>
         </form>

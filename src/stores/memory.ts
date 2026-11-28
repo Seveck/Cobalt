@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { backendCall } from "@/lib/backend";
+import { toStoreDisplayError, type DisplayError } from "@/lib/friendlyError";
 import type { GraphData, GraphQuery, Uuid } from "@/types/contracts";
 
 const DEFAULT_GRAPH_QUERY: GraphQuery = {
@@ -24,7 +25,7 @@ export interface MemoryState {
   highlightedNodeIds: ReadonlySet<Uuid>;
   focusRequest: CameraFocusRequest | null;
   loading: boolean;
-  error: string | null;
+  error: DisplayError | null;
   loadGraph: (query?: Partial<GraphQuery>) => Promise<void>;
   setSelectedNodeId: (id: Uuid | null) => void;
   toggleNodeSelection: (id: Uuid) => void;
@@ -75,8 +76,7 @@ export const useMemoryStore = create<MemoryState>((set) => ({
         };
       });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ loading: false, error: message });
+      set({ loading: false, error: toStoreDisplayError(err, "get_graph") });
     }
   },
 

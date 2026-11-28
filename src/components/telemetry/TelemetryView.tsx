@@ -25,6 +25,7 @@ import {
   Search,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { staggerStyle } from "@/lib/motion";
 import { splitProjects, UNSORTED_PROJECT_NAME } from "@/lib/projects";
 import { formatSavingsEstimate } from "@/lib/savings";
@@ -36,7 +37,7 @@ import {
   useTelemetryStore,
   useUiStore,
 } from "@/stores";
-import { AnimatedNumber, Select, Skeleton, type SelectOption } from "@/components/ui";
+import { AnimatedNumber, ErrorAlert, Select, Skeleton, type SelectOption } from "@/components/ui";
 import {
   OPERATION_COLORS,
   TELEMETRY_OPERATIONS,
@@ -114,7 +115,7 @@ export function TelemetryView() {
   const [offset, setOffset] = useState(0);
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
   const [replayingId, setReplayingId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
 
   const loadHistory = useCallback(
     async (overrideOffset?: number) => {
@@ -134,12 +135,12 @@ export function TelemetryView() {
         });
         setHistoryPage(page);
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(toDisplayError(err, t, "query_telemetry"));
       } finally {
         setHistoryLoading(false);
       }
     },
-    [clientFilter, offset, projectFilter, rangePreset, searchText, selectedOps],
+    [clientFilter, offset, projectFilter, rangePreset, searchText, selectedOps, t],
   );
 
   useEffect(() => {
@@ -198,7 +199,7 @@ export function TelemetryView() {
       resetVisualFilters();
       setActiveNav("brain");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "replay_activity"));
     } finally {
       setReplayingId(null);
     }
@@ -358,11 +359,7 @@ export function TelemetryView() {
           </div>
         </header>
 
-        {error && (
-          <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
-            {error}
-          </div>
-        )}
+        <ErrorAlert error={error} />
 
         {/* Brand-new install empty state (no telemetry recorded yet) */}
         {isCompletelyEmpty ? (

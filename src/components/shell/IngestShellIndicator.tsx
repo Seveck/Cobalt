@@ -19,6 +19,7 @@ import {
   ScanText,
   X,
 } from "lucide-react";
+import { getErrorSummary, toDisplayError } from "@/lib/friendlyError";
 import {
   analyzeIngestReport,
   extractFileName,
@@ -36,6 +37,7 @@ import {
   useUiStore,
   type IngestJob,
 } from "@/stores";
+import { ErrorAlert } from "@/components/ui";
 import type { Uuid } from "@/types/contracts";
 
 interface BackgroundProjectGroup {
@@ -226,7 +228,7 @@ function CompactSummaryLine({ job }: { job: IngestJob }) {
   const { t } = useTranslation();
 
   if (job.error) {
-    return <span className="truncate text-cinnabar">{job.error}</span>;
+    return <span className="truncate text-cinnabar">{getErrorSummary(job.error)}</span>;
   }
 
   if (!job.report) {
@@ -356,19 +358,22 @@ function IngestReportDetail({
       </div>
 
       {job.error && (
-        <div className="space-y-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash p-2.5 text-xs text-cinnabar">
-          <p>{job.error}</p>
-          {jobErrorIsOcr && (
-            <button
-              type="button"
-              onClick={onInstallOcr}
-              className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[11px] font-semibold text-bone transition-colors hover:bg-cobalt-bright"
-            >
-              <ScanText size={11} aria-hidden />
-              {t("ocr.installAction")}
-            </button>
-          )}
-        </div>
+        <ErrorAlert
+          error={job.error}
+          compact
+          actions={
+            jobErrorIsOcr ? (
+              <button
+                type="button"
+                onClick={onInstallOcr}
+                className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[11px] font-semibold text-bone transition-colors hover:bg-cobalt-bright"
+              >
+                <ScanText size={11} aria-hidden />
+                {t("ocr.installAction")}
+              </button>
+            ) : undefined
+          }
+        />
       )}
 
       {!analyzed && !job.error && (
@@ -514,12 +519,15 @@ function IngestReportDetail({
                 {analyzed.errorIssues.map((issue, idx) => (
                   <li
                     key={`${issue.path}-${idx}`}
-                    className="space-y-0.5 rounded-[2px] bg-void/70 px-2 py-1.5"
+                    className="space-y-1 rounded-[2px] bg-void/70 px-2 py-1.5"
                   >
                     <div className="truncate text-bone" title={issue.path}>
                       {extractFileName(issue.path) ?? issue.path}
                     </div>
-                    <div className="text-[10px] text-cinnabar">{issue.message}</div>
+                    <ErrorAlert
+                      error={toDisplayError(issue.message, t, "ingest_paths")}
+                      compact
+                    />
                   </li>
                 ))}
               </ul>

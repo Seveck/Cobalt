@@ -20,6 +20,7 @@ import {
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard } from "@/lib/dialogs";
 import { AI_CLIENT_LABELS, formatAiClientName } from "@/lib/format";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { staggerStyle } from "@/lib/motion";
 import {
   isInternalClient,
@@ -27,7 +28,7 @@ import {
   resolveClientPermission,
 } from "@/lib/savings";
 import { useSettingsStore } from "@/stores";
-import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
+import { ErrorAlert, Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import {
   AI_CLIENTS,
   type AiClient,
@@ -104,7 +105,7 @@ export function ConnectorsView() {
   const [runningDoctor, setRunningDoctor] = useState(false);
   const [fixingCheckId, setFixingCheckId] = useState<string | null>(null);
 
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [captureRefreshSignal, setCaptureRefreshSignal] = useState(0);
 
@@ -130,11 +131,11 @@ export function ConnectorsView() {
         setTelemetryClients(telemetryRes.value.by_client ?? []);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "list_connectors"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadConnectors();
@@ -219,7 +220,7 @@ export function ConnectorsView() {
           );
         }
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(toDisplayError(err, t, "update_settings"));
       } finally {
         setSavingPermClient(null);
       }
@@ -271,7 +272,7 @@ export function ConnectorsView() {
         );
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "toggle_connector"));
     } finally {
       setTogglingClient(null);
     }
@@ -284,7 +285,7 @@ export function ConnectorsView() {
       const report = await backendCall("run_doctor");
       setDoctorReport(report);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "run_doctor"));
     } finally {
       setRunningDoctor(false);
     }
@@ -299,7 +300,7 @@ export function ConnectorsView() {
       await loadConnectors();
       flashNotice(t("doctor.fixApplied"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "doctor_fix"));
     } finally {
       setFixingCheckId(null);
     }
@@ -422,11 +423,7 @@ export function ConnectorsView() {
           </button>
         </header>
 
-        {error && (
-          <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
-            {error}
-          </div>
-        )}
+        <ErrorAlert error={error} />
         {notice && (
           <div className="flex items-center gap-2 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-4 py-2.5 font-mono text-xs text-verdigris">
             <Check size={13} aria-hidden />
@@ -620,9 +617,11 @@ export function ConnectorsView() {
                         )}
 
                         {connector.error && (
-                          <div className="rounded-[2px] border border-cinnabar-rule/70 bg-cinnabar-wash/70 px-2 py-1 text-[11px] text-cinnabar">
-                            {connector.error}
-                          </div>
+                          <ErrorAlert
+                            error={connector.error}
+                            treatStringAsRaw
+                            compact
+                          />
                         )}
                       </div>
                     </div>

@@ -1,10 +1,13 @@
 import type { TFunction } from "i18next";
 import {
   UNSORTED_PROJECT_NAME,
+  type DeleteProjectContents,
+  type DeleteProjectReport,
   type GraphNode,
   type MoveReport,
   type MoveToProjectRequest,
   type Project,
+  type ProjectStats,
   type Uuid,
 } from "@/types/contracts";
 
@@ -294,6 +297,89 @@ export function formatMoveReportToast(
 
   if (report.merged > 0) {
     return `${base} · ${t("folders.moveReport.mergedSuffix", { count: report.merged })}`;
+  }
+
+  return base;
+}
+
+/** Case-insensitive match for an existing folder/project by name. */
+export function findProjectByName(
+  projects: readonly ProjectStats[],
+  rawName: string,
+): ProjectStats | null {
+  const normalized = rawName.trim().toLowerCase();
+  if (!normalized) return null;
+  return (
+    projects.find((stat) => stat.project.name.trim().toLowerCase() === normalized) ?? null
+  );
+}
+
+/** Count distinct indexed source documents belonging to a project in the loaded graph. */
+export function countProjectDocuments(
+  nodes: readonly GraphNode[] | null | undefined,
+  projectId: Uuid,
+): number {
+  if (!nodes || nodes.length === 0) return 0;
+  const docIds = new Set<Uuid>();
+  for (const node of nodes) {
+    if (node.project_id === projectId && node.source_doc_id) {
+      docIds.add(node.source_doc_id);
+    }
+  }
+  return docIds.size;
+}
+
+/** Format a friendly localized toast message describing a `DeleteProjectReport`. */
+export function formatDeleteProjectReportToast(
+  projectName: string,
+  contents: DeleteProjectContents,
+  targetName: string,
+  report: DeleteProjectReport,
+  t: TFunction,
+): string {
+  if (contents === "move") {
+    const movedMemories = report.moved.memories;
+    const movedDocs = report.moved.documents;
+    if (movedMemories === 0 && movedDocs === 0) {
+      return t("folders.deleteReport.deletedEmpty", { name: projectName });
+    }
+    const base =
+      movedDocs > 0
+        ? t("folders.deleteReport.movedWithDocs", {
+            name: projectName,
+            target: targetName,
+            memories: movedMemories,
+            docs: movedDocs,
+          })
+        : t("folders.deleteReport.movedMemories", {
+            name: projectName,
+            target: targetName,
+            count: movedMemories,
+          });
+    if (report.moved.merged > 0) {
+      return `${base} · ${t("folders.moveReport.mergedSuffix", { count: report.moved.merged })}`;
+    }
+    return base;
+  }
+
+  if (report.memories_deleted === 0 && report.documents_deleted === 0) {
+    return t("folders.deleteReport.deletedEmpty", { name: projectName });
+  }
+
+  const base =
+    report.documents_deleted > 0
+      ? t("folders.deleteReport.deletedWithDocs", {
+          name: projectName,
+          memories: report.memories_deleted,
+          docs: report.documents_deleted,
+        })
+      : t("folders.deleteReport.deletedMemories", {
+          name: projectName,
+          count: report.memories_deleted,
+        });
+
+  if (report.snapshot_id) {
+    return `${base} · ${t("folders.deleteReport.snapshotCreated")}`;
   }
 
   return base;

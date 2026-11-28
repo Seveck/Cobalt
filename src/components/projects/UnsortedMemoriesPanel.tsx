@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import {
   buildMoveSelectionSummary,
   formatMoveReportToast,
@@ -20,7 +21,7 @@ import {
   UNSORTED_PROJECT_NAME,
 } from "@/lib/projects";
 import { useMemoryStore, useThemeStore } from "@/stores";
-import { Select, Skeleton, type SelectOption } from "@/components/ui";
+import { ErrorAlert, Select, Skeleton, type SelectOption } from "@/components/ui";
 import type { GraphNode, ProjectStats, Uuid } from "@/types/contracts";
 
 export interface UnsortedMemoriesPanelProps {
@@ -70,7 +71,7 @@ export function UnsortedMemoriesPanel({
   const [movingBulk, setMovingBulk] = useState(false);
   const [movingSingleId, setMovingSingleId] = useState<Uuid | null>(null);
   const [openRowMoveId, setOpenRowMoveId] = useState<Uuid | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -192,7 +193,7 @@ export function UnsortedMemoriesPanel({
       setNotice(toastMsg);
       pushThemeToast({ kind: "saved", message: toastMsg });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "move_to_project"));
     } finally {
       setMovingBulk(false);
     }
@@ -220,7 +221,7 @@ export function UnsortedMemoriesPanel({
       setNotice(toastMsg);
       pushThemeToast({ kind: "saved", message: toastMsg });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "move_to_project"));
     } finally {
       setMovingSingleId(null);
     }
@@ -271,11 +272,7 @@ export function UnsortedMemoriesPanel({
         )}
       </div>
 
-      {error && (
-        <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-3 py-2 text-xs text-cinnabar">
-          {error}
-        </div>
-      )}
+      <ErrorAlert error={error} />
       {notice && (
         <div className="flex items-center gap-1.5 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-3 py-2 font-mono text-xs text-verdigris">
           <Check size={12} aria-hidden />

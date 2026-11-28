@@ -11,6 +11,7 @@ import {
   Palette,
   SlidersHorizontal,
 } from "lucide-react";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { useSettingsStore, useUiStore } from "@/stores";
 import { Toggle } from "@/components/ui";
 import { OPTIONAL_MCP_TOOLS } from "@/types/contracts";
@@ -35,7 +36,7 @@ const OPTIONAL_TOOL_ICONS: Record<OptionalMcpTool, typeof Library> = {
 
 interface AiToolsSectionProps {
   onNotice: (message: string) => void;
-  onError: (message: string | null) => void;
+  onError: (error: DisplayError | null) => void;
 }
 
 export function AiToolsSection({ onNotice, onError }: AiToolsSectionProps) {
@@ -109,7 +110,7 @@ export function AiToolsSection({ onNotice, onError }: AiToolsSectionProps) {
           );
         }
       } catch (err: unknown) {
-        onError(err instanceof Error ? err.message : String(err));
+        onError(toDisplayError(err, t, "update_settings"));
       } finally {
         setSavingTool(null);
       }

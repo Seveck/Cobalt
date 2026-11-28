@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { backendCall } from "@/lib/backend";
+import { toStoreDisplayError, type DisplayError } from "@/lib/friendlyError";
 import type { McpActivity, TelemetryRange, TelemetrySummary } from "@/types/contracts";
 
 const DEFAULT_RANGE: TelemetryRange = {
@@ -12,7 +13,7 @@ export interface TelemetryState {
   summary: TelemetrySummary | null;
   recentActivity: McpActivity[];
   loading: boolean;
-  error: string | null;
+  error: DisplayError | null;
   loadSummary: (range?: Partial<TelemetryRange>) => Promise<void>;
   pushActivity: (activity: McpActivity) => void;
 }
@@ -32,8 +33,7 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
       });
       set({ summary, loading: false });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ loading: false, error: message });
+      set({ loading: false, error: toStoreDisplayError(err, "get_telemetry_summary") });
     }
   },
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, ChevronDown, GitBranch, GitMerge, Plus, Trash2 } from "lucide-react";
 import { useBranchesStore, useMemoryStore, useSettingsStore } from "@/stores";
+import { ErrorAlert } from "@/components/ui";
 import { MAIN_BRANCH_ID } from "@/types/contracts";
 
 export function BranchSwitcher() {
@@ -134,11 +135,7 @@ export function BranchSwitcher() {
             </span>
           </div>
 
-          {error && (
-            <div className="mb-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-2 py-1.5 text-[11px] text-cinnabar">
-              {error}
-            </div>
-          )}
+          <ErrorAlert error={error} compact className="mb-2" />
 
           {lastMergeReport && (
             <div className="mb-2 flex items-center justify-between gap-2 rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-2 py-1.5 font-mono text-[10px] text-verdigris">

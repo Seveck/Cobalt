@@ -3,10 +3,11 @@ import { useTranslation } from "react-i18next";
 import { BarChart3, Clock, Info, Plug, RefreshCw } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { formatCompactNumber, formatTokenCount } from "@/lib/format";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { staggerStyle } from "@/lib/motion";
 import { formatSavingsEstimate } from "@/lib/savings";
 import { useSettingsStore, useUiStore } from "@/stores";
-import { AnimatedNumber, Skeleton } from "@/components/ui";
+import { AnimatedNumber, ErrorAlert, Skeleton } from "@/components/ui";
 import type { SavingsSettings, UsageStats, UsageTotals } from "@/types/contracts";
 import { FunFactsGrid } from "./FunFactsGrid";
 import { isUnsupportedError, parseCalendarDate } from "./statsHelpers";
@@ -81,7 +82,7 @@ export function StatsView() {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [unsupported, setUnsupported] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
   const requestIdRef = useRef<number>(0);
 
   const loadStats = useCallback(async (year: number) => {
@@ -104,14 +105,14 @@ export function StatsView() {
         setUnsupported(true);
         setStats(null);
       } else {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(toDisplayError(err, t, "get_usage_stats"));
       }
     } finally {
       if (requestIdRef.current === requestId) {
         setLoading(false);
       }
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadStats(selectedYear);
@@ -185,16 +186,20 @@ export function StatsView() {
             </div>
           </section>
         ) : error && !stats ? (
-          <section className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash p-5">
-            <p className="text-xs text-cinnabar">{error}</p>
-            <button
-              type="button"
-              onClick={() => void loadStats(selectedYear)}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-[2px] border border-cinnabar-rule bg-void px-3 py-1.5 font-mono text-xs text-bone hover:bg-surface"
-            >
-              <RefreshCw size={12} aria-hidden />
-              <span>{t("stats.retryAction")}</span>
-            </button>
+          <section className="space-y-3">
+            <ErrorAlert
+              error={error}
+              actions={
+                <button
+                  type="button"
+                  onClick={() => void loadStats(selectedYear)}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-cinnabar-rule bg-void px-3 py-1 font-mono text-xs text-bone hover:bg-surface"
+                >
+                  <RefreshCw size={12} aria-hidden />
+                  <span>{t("stats.retryAction")}</span>
+                </button>
+              }
+            />
           </section>
         ) : loading && !stats ? (
           <div className="space-y-6" aria-busy="true" aria-label={t("stats.loading")}>
@@ -241,11 +246,7 @@ export function StatsView() {
           </div>
         ) : stats ? (
           <>
-            {error && (
-              <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-4 py-2.5 text-xs text-cinnabar">
-                {error}
-              </div>
-            )}
+            <ErrorAlert error={error} />
 
             {/* Top 3 summary cards: Today / This week / This year */}
             <section

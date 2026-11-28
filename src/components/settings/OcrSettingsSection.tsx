@@ -10,7 +10,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { DownloadProgressBar } from "@/components/onboarding";
+import { ErrorAlert } from "@/components/ui";
 import { formatBytes, formatPercent, isEngineStateInstalled } from "@/lib/format";
+import type { DisplayError } from "@/lib/friendlyError";
 import { useHardwareStore, useSettingsStore, useUiStore } from "@/stores";
 import type { OcrArtifactBytes } from "@/stores/hardware";
 import {
@@ -139,7 +141,7 @@ export function OcrSettingsSection({ onSaved }: OcrSettingsSectionProps) {
   const sectionRef = useRef<HTMLElement | null>(null);
   const [highlight, setHighlight] = useState(false);
   const [switchingModelId, setSwitchingModelId] = useState<string | null>(null);
-  const [selectError, setSelectError] = useState<string | null>(null);
+  const [selectError, setSelectError] = useState<DisplayError | null>(null);
   const [removedNotice, setRemovedNotice] = useState<RemovedNotice | null>(null);
 
   useEffect(() => {
@@ -410,21 +412,7 @@ export function OcrSettingsSection({ onSaved }: OcrSettingsSectionProps) {
         )}
 
         {/* Selection error */}
-        {selectError && (
-          <div
-            role="alert"
-            className="flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-3.5 py-2.5 text-xs text-cinnabar"
-          >
-            <span>{selectError}</span>
-            <button
-              type="button"
-              onClick={() => setSelectError(null)}
-              className="font-mono text-[10px] underline decoration-cinnabar/50 underline-offset-2 hover:text-bone"
-            >
-              {t("common.close")}
-            </button>
-          </div>
-        )}
+        <ErrorAlert error={selectError} onDismiss={() => setSelectError(null)} />
 
         {/* Removed space freed confirmation */}
         {removedNotice && (

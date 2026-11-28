@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { backendCall, backendOn } from "@/lib/backend";
+import { toStoreDisplayError, type DisplayError } from "@/lib/friendlyError";
 import {
   DEFAULT_OCR_MODEL,
   type DownloadProgress,
@@ -71,12 +72,12 @@ export interface HardwareState {
   ocrInstallingByModel: Record<string, boolean>;
   ocrCancellingByModel: Record<string, boolean>;
   ocrRemovingByModel: Record<string, boolean>;
-  ocrErrorByModel: Record<string, string | null>;
+  ocrErrorByModel: Record<string, DisplayError | null>;
   swapProgress: EngineSwapProgress | null;
   swapReport: EngineSwapReport | null;
   isSwapping: boolean;
   loading: boolean;
-  error: string | null;
+  error: DisplayError | null;
   loadAll: () => Promise<void>;
   loadProfile: () => Promise<HardwareProfile | null>;
   loadModels: () => Promise<EmbeddingModelSpec[]>;
@@ -137,8 +138,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
         (await backendCall("get_ocr_status").catch(() => null));
       set({ profile, models, engineStatus, ocrModels, ocrStatus, loading: false });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ loading: false, error: message });
+      set({ loading: false, error: toStoreDisplayError(err) });
     }
   },
 
@@ -148,8 +148,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
       set({ profile });
       return profile;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ error: message });
+      set({ error: toStoreDisplayError(err, "get_hardware_profile") });
       return null;
     }
   },
@@ -160,8 +159,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
       set({ models });
       return models;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ error: message });
+      set({ error: toStoreDisplayError(err, "list_embedding_models") });
       return [];
     }
   },
@@ -172,8 +170,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
       set({ engineStatus });
       return engineStatus;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ error: message });
+      set({ error: toStoreDisplayError(err, "get_engine_status") });
       return null;
     }
   },
@@ -185,12 +182,12 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
       set({ ocrModels, ocrStatus });
       return ocrModels;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
+      const displayErr = toStoreDisplayError(err, "list_ocr_models");
       const fallbackModelId = get().ocrStatus?.model_id ?? DEFAULT_OCR_MODEL;
       set((state) => ({
         ocrErrorByModel: {
           ...state.ocrErrorByModel,
-          [fallbackModelId]: message,
+          [fallbackModelId]: displayErr,
         },
       }));
       return get().ocrModels;
@@ -208,11 +205,11 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
       set({ ocrStatus });
       return ocrStatus;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
+      const displayErr = toStoreDisplayError(err, "get_ocr_status");
       set((state) => ({
         ocrErrorByModel: {
           ...state.ocrErrorByModel,
-          [DEFAULT_OCR_MODEL]: message,
+          [DEFAULT_OCR_MODEL]: displayErr,
         },
       }));
       return null;
@@ -226,8 +223,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
       set({ engineStatus, isInstalling: false, isCancelling: false });
       return engineStatus;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ isInstalling: false, isCancelling: false, error: message });
+      set({ isInstalling: false, isCancelling: false, error: toStoreDisplayError(err, "install_engine") });
       return null;
     }
   },
@@ -239,8 +235,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
     try {
       await backendCall("cancel_download", { artifact_id: artifactId });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ error: message, isCancelling: false });
+      set({ error: toStoreDisplayError(err, "cancel_download"), isCancelling: false });
     }
   },
 
@@ -282,11 +277,11 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
         get().ocrModels.find((m) => m.model_id === installedStatus.model_id) ?? installedStatus
       );
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
+      const displayErr = toStoreDisplayError(err, "install_ocr");
       set((state) => ({
         ocrInstallingByModel: { ...state.ocrInstallingByModel, [targetModelId]: false },
         ocrCancellingByModel: { ...state.ocrCancellingByModel, [targetModelId]: false },
-        ocrErrorByModel: { ...state.ocrErrorByModel, [targetModelId]: message },
+        ocrErrorByModel: { ...state.ocrErrorByModel, [targetModelId]: displayErr },
       }));
       void get().loadOcrModels();
       return null;
@@ -303,9 +298,9 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
     try {
       await backendCall("cancel_download", { artifact_id: artifactId });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
+      const displayErr = toStoreDisplayError(err, "cancel_download");
       set((state) => ({
-        ocrErrorByModel: { ...state.ocrErrorByModel, [targetModelId]: message },
+        ocrErrorByModel: { ...state.ocrErrorByModel, [targetModelId]: displayErr },
         ocrCancellingByModel: { ...state.ocrCancellingByModel, [targetModelId]: false },
       }));
     }
@@ -328,10 +323,10 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
       }));
       return freedBytes;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
+      const displayErr = toStoreDisplayError(err, "remove_ocr");
       set((state) => ({
         ocrRemovingByModel: { ...state.ocrRemovingByModel, [modelId]: false },
-        ocrErrorByModel: { ...state.ocrErrorByModel, [modelId]: message },
+        ocrErrorByModel: { ...state.ocrErrorByModel, [modelId]: displayErr },
       }));
       return null;
     }
@@ -345,8 +340,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
       set({ swapReport: report, engineStatus, isSwapping: false });
       return report;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ isSwapping: false, error: message });
+      set({ isSwapping: false, error: toStoreDisplayError(err, "swap_engine") });
       return null;
     }
   },
@@ -366,8 +360,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
       }));
       return reclaimed;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ error: message });
+      set({ error: toStoreDisplayError(err, "remove_engine_artifacts") });
       return null;
     }
   },

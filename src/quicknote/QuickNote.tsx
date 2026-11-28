@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AlertTriangle, ArrowUpRight, Check, Loader2, X } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { isTauri } from "@/lib/ipc";
 import { isUnsortedProject } from "@/lib/projects";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@/lib/savings";
 import { applyThemeToRoot } from "@/lib/themeEngine";
 import { DesktopOnlyNotice } from "@/components/shell/DesktopOnlyNotice";
+import { ErrorAlert } from "@/components/ui";
 import { BUILTIN_THEME_ID, type ConflictHint, type ProjectStats, type Uuid } from "@/types/contracts";
 
 /**
@@ -36,7 +38,7 @@ function QuickNoteWindow() {
   const [submitting, setSubmitting] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [conflicts, setConflicts] = useState<ConflictHint[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -143,7 +145,7 @@ function QuickNoteWindow() {
         window.setTimeout(() => setSavedFlash(false), 1800);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "submit_quick_note"));
     } finally {
       setSubmitting(false);
     }
@@ -225,7 +227,7 @@ function QuickNoteWindow() {
 
           <div className="flex items-center justify-between gap-2">
             {error ? (
-              <span className="truncate font-mono text-[10px] text-cinnabar">{error}</span>
+              <ErrorAlert error={error} compact className="flex-1" />
             ) : savedFlash ? (
               <span className="inline-flex items-center gap-1 font-mono text-[10px] text-verdigris">
                 <Check size={11} aria-hidden />

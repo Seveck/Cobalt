@@ -8,6 +8,7 @@ import {
   FolderInput,
   FolderPlus,
   Globe,
+  Info,
   Loader2,
   Plus,
   Search,
@@ -15,9 +16,11 @@ import {
   X,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { extractFileName } from "@/lib/ingest";
 import {
   detectProjectForPaths,
+  findProjectByName,
   GENERAL_FOLDER_COLOR,
   GLOBAL_PROJECT_SENTINEL,
   isCodeProject,
@@ -28,8 +31,11 @@ import {
   toPatchProjectId,
   writeLastDropFolder,
 } from "@/lib/projects";
-import { useMemoryStore } from "@/stores";
+import { useMemoryStore, useSettingsStore } from "@/stores";
+import { ErrorAlert } from "@/components/ui";
 import type { Project, ProjectStats, Uuid } from "@/types/contracts";
+import { DeleteFolderDialog } from "./DeleteFolderDialog";
+import { FolderRowMenu } from "./FolderRowMenu";
 
 export interface FolderPickerDialogProps {
   mode: "drop" | "move";
@@ -74,10 +80,13 @@ export function FolderPickerDialog({
   const { t } = useTranslation();
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const graphProjects = useMemoryStore((s) => s.graph?.projects);
+  const readOnly = useSettingsStore((s) => s.settings.read_only);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const newNameInputRef = useRef<HTMLInputElement>(null);
   const selectionInitializedRef = useRef(false);
+  const submittingRef = useRef(false);
+  const creatingFolderRef = useRef(false);
 
   const [projects, setProjects] = useState<ProjectStats[]>(() => {
     const seed = initialProjects ?? graphProjects ?? [];
@@ -94,13 +103,17 @@ export function FolderPickerDialog({
       : (currentProjectId ?? GLOBAL_PROJECT_SENTINEL);
   });
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
+  const [hintNotice, setHintNotice] = useState<string | null>(null);
 
   // Inline "+ Nueva carpeta" state
   const [creatingOpen, setCreatingOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderColor, setNewFolderColor] = useState<string>(PROJECT_COLORS[0]);
   const [creatingFolder, setCreatingFolder] = useState(false);
+
+  // Delete folder modal state
+  const [deleteTarget, setDeleteTarget] = useState<ProjectStats | null>(null);
 
   const fetchProjects = useCallback(async () => {
     try {
@@ -173,8 +186,9 @@ export function FolderPickerDialog({
     return () => window.cancelAnimationFrame(raf);
   }, [activeRegularProjects, creatingOpen]);
 
-  // Escape cancels inline form first, then closes modal
+  // Escape cancels inline form first, then closes modal (when DeleteFolderDialog isn't open)
   useEffect(() => {
+    if (deleteTarget) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (submitting || creatingFolder) return;
@@ -190,7 +204,7 @@ export function FolderPickerDialog({
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [creatingFolder, creatingOpen, onCancel, submitting]);
+  }, [creatingFolder, creatingOpen, deleteTarget, onCancel, submitting]);
 
   const normalizedSearch = search.trim().toLowerCase();
 
@@ -209,6 +223,11 @@ export function FolderPickerDialog({
     );
   }, [activeRegularProjects, normalizedSearch]);
 
+  const existingFolderMatch = useMemo(
+    () => findProjectByName(activeRegularProjects, newFolderName),
+    [activeRegularProjects, newFolderName],
+  );
+
   const resolveTargetName = useCallback(
     (value: string): string => {
       if (value === GLOBAL_PROJECT_SENTINEL) return t("brain.globalScope");
@@ -222,7 +241,8 @@ export function FolderPickerDialog({
 
   const handleConfirmValue = useCallback(
     async (value: string) => {
-      if (submitting || creatingFolder) return;
+      if (submittingRef.current || submitting || creatingFolder) return;
+      submittingRef.current = true;
       const projectId = toPatchProjectId(value);
       const targetName = resolveTargetName(value);
       setSubmitting(true);
@@ -233,19 +253,36 @@ export function FolderPickerDialog({
         }
         await onConfirm(projectId, targetName);
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(toDisplayError(err, t, mode === "move" ? "move_to_project" : "ingest_paths"));
         setSubmitting(false);
+        submittingRef.current = false;
       }
     },
-    [creatingFolder, mode, onConfirm, resolveTargetName, submitting],
+    [creatingFolder, mode, onConfirm, resolveTargetName, submitting, t],
   );
 
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = newFolderName.trim();
-    if (!trimmed || creatingFolder) return;
+    if (!trimmed || creatingFolder || creatingFolderRef.current) return;
+
+    // If the typed name matches an existing folder (case-insensitive), select it directly
+    if (existingFolderMatch) {
+      setSelectedValue(existingFolderMatch.project.id);
+      setNewFolderName("");
+      setCreatingOpen(false);
+      setSearch("");
+      setError(null);
+      setHintNotice(
+        t("folders.existingSelectedHint", { name: existingFolderMatch.project.name }),
+      );
+      return;
+    }
+
+    creatingFolderRef.current = true;
     setCreatingFolder(true);
     setError(null);
+    setHintNotice(null);
     try {
       const created = await backendCall("create_project", {
         name: trimmed,
@@ -268,9 +305,10 @@ export function FolderPickerDialog({
       onFolderCreated?.(created);
       void loadGraph();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "create_project"));
     } finally {
       setCreatingFolder(false);
+      creatingFolderRef.current = false;
     }
   };
 
@@ -300,7 +338,7 @@ export function FolderPickerDialog({
   return (
     <div
       onPointerDown={(e) => {
-        if (e.target === e.currentTarget && !submitting && !creatingFolder) {
+        if (e.target === e.currentTarget && !submitting && !creatingFolder && !deleteTarget) {
           onCancel();
         }
       }}
@@ -368,9 +406,29 @@ export function FolderPickerDialog({
           </div>
         )}
 
+        {hintNotice && (
+          <div
+            role="status"
+            className="flex items-center justify-between gap-2 border-b border-cobalt-rule/60 bg-cobalt-wash/45 px-4 py-2 text-[11px] text-bone"
+          >
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <Info size={12} className="shrink-0 text-cobalt-ink" aria-hidden />
+              <span className="leading-snug">{hintNotice}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setHintNotice(null)}
+              aria-label={t("common.close")}
+              className="shrink-0 rounded-[2px] p-0.5 text-bone-subtle hover:text-bone"
+            >
+              <X size={11} aria-hidden />
+            </button>
+          </div>
+        )}
+
         {error && (
-          <div className="border-b border-cinnabar-rule bg-cinnabar-wash px-4 py-2 text-xs text-cinnabar">
-            {error}
+          <div className="border-b border-cinnabar-rule">
+            <ErrorAlert error={error} compact className="rounded-none border-0" />
           </div>
         )}
 
@@ -461,76 +519,88 @@ export function FolderPickerDialog({
           )}
 
           {/* Existing folders & code projects */}
-          {filteredProjects.map(({ project, vector_count }) => {
+          {filteredProjects.map((stat) => {
+            const { project, vector_count } = stat;
             const isSelected = selectedValue === project.id;
             const isCurrent = mode === "move" && currentProjectId === project.id;
             const isDetected = autoDetectedProject?.id === project.id;
             const isCode = isCodeProject(project);
 
             return (
-              <button
+              <div
                 key={project.id}
-                type="button"
-                disabled={submitting}
-                onClick={() => setSelectedValue(project.id)}
-                onDoubleClick={() => {
-                  if (!isCurrent) {
-                    void handleConfirmValue(project.id);
-                  }
-                }}
-                className={`flex w-full items-center justify-between gap-2.5 rounded-[2px] border px-3 py-2 text-left transition-colors ${
+                className={`group flex w-full items-center gap-1 rounded-[2px] border pr-1.5 transition-colors ${
                   isSelected
                     ? "border-cobalt-rule bg-cobalt-wash text-bone"
                     : "border-transparent bg-void/60 text-bone-muted hover:border-rule hover:bg-surface-2 hover:text-bone"
                 }`}
               >
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-[1px]"
-                    style={{ backgroundColor: project.color_hex }}
-                    aria-hidden
-                  />
-                  {isCode ? (
-                    <FolderCode
-                      size={14}
-                      className="shrink-0"
-                      style={{ color: project.color_hex }}
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => setSelectedValue(project.id)}
+                  onDoubleClick={() => {
+                    if (!isCurrent) {
+                      void handleConfirmValue(project.id);
+                    }
+                  }}
+                  className="flex min-w-0 flex-1 items-center justify-between gap-2.5 px-3 py-2 text-left"
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-[1px]"
+                      style={{ backgroundColor: project.color_hex }}
                       aria-hidden
                     />
-                  ) : (
-                    <Folder
-                      size={14}
-                      className="shrink-0"
-                      style={{ color: project.color_hex }}
-                      aria-hidden
-                    />
-                  )}
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-bone">
-                      <span className="truncate">{project.name}</span>
-                      {isDetected && (
-                        <span className="rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-1 py-0.25 font-mono text-[9px] uppercase text-verdigris">
-                          {t("folders.detectedBadge")}
-                        </span>
-                      )}
-                      {isCurrent && (
-                        <span className="rounded-[2px] border border-rule bg-surface px-1 py-0.25 font-mono text-[9px] uppercase text-bone-subtle">
-                          {t("folders.currentBadge")}
-                        </span>
-                      )}
-                    </div>
-                    <div className="truncate font-mono text-[10px] text-bone-subtle">
-                      {isCode
-                        ? project.root_path
-                        : t("folders.plainFolderCount", { count: vector_count })}
+                    {isCode ? (
+                      <FolderCode
+                        size={14}
+                        className="shrink-0"
+                        style={{ color: project.color_hex }}
+                        aria-hidden
+                      />
+                    ) : (
+                      <Folder
+                        size={14}
+                        className="shrink-0"
+                        style={{ color: project.color_hex }}
+                        aria-hidden
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-bone">
+                        <span className="truncate">{project.name}</span>
+                        {isDetected && (
+                          <span className="rounded-[2px] border border-verdigris-rule bg-verdigris-wash px-1 py-0.25 font-mono text-[9px] uppercase text-verdigris">
+                            {t("folders.detectedBadge")}
+                          </span>
+                        )}
+                        {isCurrent && (
+                          <span className="rounded-[2px] border border-rule bg-surface px-1 py-0.25 font-mono text-[9px] uppercase text-bone-subtle">
+                            {t("folders.currentBadge")}
+                          </span>
+                        )}
+                      </div>
+                      <div className="truncate font-mono text-[10px] text-bone-subtle">
+                        {isCode
+                          ? project.root_path
+                          : t("folders.plainFolderCount", { count: vector_count })}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {isSelected && (
-                  <Check size={14} className="shrink-0 text-cobalt-ink" aria-hidden />
-                )}
-              </button>
+                  {isSelected && (
+                    <Check size={14} className="shrink-0 text-cobalt-ink" aria-hidden />
+                  )}
+                </button>
+
+                <FolderRowMenu
+                  folderName={project.name}
+                  disabled={readOnly || submitting}
+                  triggerClassName="opacity-65 group-hover:opacity-100 focus-visible:opacity-100"
+                  onDelete={() => setDeleteTarget(stat)}
+                />
+              </div>
             );
           })}
 
@@ -571,28 +641,49 @@ export function FolderPickerDialog({
                   type="text"
                   value={newFolderName}
                   disabled={creatingFolder}
-                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onChange={(e) => {
+                    setNewFolderName(e.target.value);
+                    if (error) setError(null);
+                  }}
                   placeholder={t("folders.namePlaceholder")}
                   className="h-8 w-full rounded-[2px] border border-rule-strong bg-surface px-2.5 text-xs text-bone placeholder:text-bone-subtle focus:border-cobalt-ink focus:outline-none"
                 />
 
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-1">
-                    {PROJECT_COLORS.map((hex) => (
-                      <button
-                        key={hex}
-                        type="button"
-                        onClick={() => setNewFolderColor(hex)}
-                        aria-label={hex}
-                        className={`h-4 w-4 rounded-[2px] border transition-transform ${
-                          newFolderColor === hex
-                            ? "scale-110 border-bone ring-1 ring-bone"
-                            : "border-rule-strong"
-                        }`}
-                        style={{ backgroundColor: hex }}
-                      />
-                    ))}
+                {existingFolderMatch && (
+                  <div
+                    role="status"
+                    className="flex items-start gap-1.5 rounded-[2px] border border-cobalt-rule/70 bg-cobalt-wash/50 px-2 py-1.5 text-[11px] leading-snug text-bone"
+                  >
+                    <Info size={12} className="mt-0.5 shrink-0 text-cobalt-ink" aria-hidden />
+                    <span>
+                      {t("folders.alreadyExistsSelectHint", {
+                        name: existingFolderMatch.project.name,
+                      })}
+                    </span>
                   </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {!existingFolderMatch ? (
+                    <div className="flex items-center gap-1">
+                      {PROJECT_COLORS.map((hex) => (
+                        <button
+                          key={hex}
+                          type="button"
+                          onClick={() => setNewFolderColor(hex)}
+                          aria-label={hex}
+                          className={`h-4 w-4 rounded-[2px] border transition-transform ${
+                            newFolderColor === hex
+                              ? "scale-110 border-bone ring-1 ring-bone"
+                              : "border-rule-strong"
+                          }`}
+                          style={{ backgroundColor: hex }}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <span />
+                  )}
                   <button
                     type="submit"
                     disabled={creatingFolder || !newFolderName.trim()}
@@ -600,17 +691,21 @@ export function FolderPickerDialog({
                   >
                     {creatingFolder ? (
                       <Loader2 size={11} className="animate-spin" aria-hidden />
+                    ) : existingFolderMatch ? (
+                      <Check size={11} aria-hidden />
                     ) : (
                       <Plus size={11} aria-hidden />
                     )}
-                    {t("folders.createShort")}
+                    {existingFolderMatch
+                      ? t("folders.selectExistingShort")
+                      : t("folders.createShort")}
                   </button>
                 </div>
               </form>
             ) : (
               <button
                 type="button"
-                disabled={submitting}
+                disabled={submitting || readOnly}
                 onClick={() => setCreatingOpen(true)}
                 className="flex w-full items-center gap-2 rounded-[2px] border border-dashed border-rule-strong bg-void/40 px-3 py-2 text-left text-xs font-medium text-cobalt-ink transition-colors hover:border-cobalt-rule hover:bg-cobalt-wash/50 disabled:opacity-45"
               >
@@ -642,6 +737,21 @@ export function FolderPickerDialog({
           </button>
         </div>
       </section>
+
+      {deleteTarget && (
+        <DeleteFolderDialog
+          target={deleteTarget}
+          availableProjects={projects}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={async (deletedId) => {
+            setProjects((prev) => prev.filter((p) => p.project.id !== deletedId));
+            if (selectedValue === deletedId) {
+              setSelectedValue(GLOBAL_PROJECT_SENTINEL);
+            }
+            await fetchProjects();
+          }}
+        />
+      )}
     </div>
   );
 }

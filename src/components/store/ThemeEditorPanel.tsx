@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import {
   ACCENT_SWATCHES,
   BRAIN_BG_SWATCHES,
@@ -22,6 +23,7 @@ import {
   type UiSize,
 } from "@/lib/themeEngine";
 import { useSettingsStore, useThemeStore } from "@/stores";
+import { ErrorAlert } from "@/components/ui";
 import {
   MEMORY_CATEGORIES,
   type MemoryCategory,
@@ -65,7 +67,7 @@ export function ThemeEditorPanel() {
   const [savePromptOpen, setSavePromptOpen] = useState(false);
   const [themeName, setThemeName] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<DisplayError | string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -249,7 +251,7 @@ export function ThemeEditorPanel() {
         applied: true,
       });
     } catch (err: unknown) {
-      setSaveError(err instanceof Error ? err.message : String(err));
+      setSaveError(toDisplayError(err, t, "save_custom_theme"));
     } finally {
       setSaving(false);
     }
@@ -672,11 +674,7 @@ export function ThemeEditorPanel() {
               </div>
             </div>
 
-            {saveError && (
-              <div className="rounded-[2px] border border-cinnabar-rule bg-cinnabar-wash px-2.5 py-1.5 text-[11px] text-cinnabar">
-                {saveError}
-              </div>
-            )}
+            <ErrorAlert error={saveError} compact />
 
             <div className="flex items-center gap-2">
               <button

@@ -73,6 +73,7 @@ export interface FiltersState {
   setOnlyReusable: (onlyReusable: boolean) => void;
   setSolo: (solo: VisualFilters["solo"]) => void;
   setSearchQuery: (query: string) => void;
+  clearProjectReferences: (projectId: Uuid) => void;
   resetFilters: () => void;
 }
 
@@ -121,5 +122,21 @@ export const useFiltersStore = create<FiltersState>((set) => ({
 
   setSolo: (solo) => set((state) => ({ filters: { ...state.filters, solo } })),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
+  clearProjectReferences: (projectId) =>
+    set((state) => {
+      const hadInList = state.filters.projectIds.includes(projectId);
+      const hadSolo =
+        state.filters.solo?.dimension === "project" && state.filters.solo.value === projectId;
+      if (!hadInList && !hadSolo) return state;
+      return {
+        filters: {
+          ...state.filters,
+          projectIds: hadInList
+            ? state.filters.projectIds.filter((id) => id !== projectId)
+            : state.filters.projectIds,
+          solo: hadSolo ? null : state.filters.solo,
+        },
+      };
+    }),
   resetFilters: () => set({ filters: createInitialFilters(), searchQuery: "" }),
 }));

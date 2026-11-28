@@ -35,6 +35,7 @@ import {
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickSinglePath } from "@/lib/dialogs";
 import { formatAiClientName } from "@/lib/format";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { extractFileName } from "@/lib/ingest";
 import { IpcError } from "@/lib/ipc";
 import {
@@ -54,7 +55,7 @@ import {
   useThemeStore,
 } from "@/stores";
 import { FolderPickerDialog } from "@/components/projects/FolderPickerDialog";
-import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
+import { ErrorAlert, Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import {
   MEMORY_CATEGORIES,
   type ArchiveImpact,
@@ -131,7 +132,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
   const [archiveImpact, setArchiveImpact] = useState<ArchiveImpact | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
 
@@ -203,13 +204,13 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
         }
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "get_memory"));
       setMemory(null);
       setHistory([]);
     } finally {
       setLoading(false);
     }
-  }, [memoryId]);
+  }, [memoryId, t]);
 
   useEffect(() => {
     void loadDetails();
@@ -291,7 +292,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
       await loadGraph();
       flashNotice(t("inspector.saved"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "patch_memory"));
     } finally {
       setBusy(false);
     }
@@ -333,7 +334,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
         });
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "update_memory"));
     } finally {
       setBusy(false);
     }
@@ -353,7 +354,13 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
       await loadGraph();
       await loadDetails();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(
+        toDisplayError(
+          err,
+          t,
+          memory.status === "archived" ? "restore_memories" : "archive_memories",
+        ),
+      );
     } finally {
       setBusy(false);
     }
@@ -370,7 +377,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
       await loadGraph();
       onClose();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "delete_memory"));
       setBusy(false);
     }
   };
@@ -387,7 +394,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
       setSourceDoc(updated);
       flashNotice(t("inspector.saved"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "set_watched"));
     } finally {
       setBusy(false);
     }
@@ -414,7 +421,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
       setDiskStatus(status);
       flashNotice(t("library.relinkedNotice"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "relink_source_document"));
     } finally {
       setBusy(false);
     }
@@ -447,7 +454,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
       if (err instanceof IpcError && err.kind === "vault_locked") {
         await openVaultUnlockPrompt("reveal");
       } else {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(toDisplayError(err, t, "reveal_memory"));
       }
     } finally {
       setBusy(false);
@@ -472,7 +479,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
       if (err instanceof IpcError && err.kind === "vault_locked") {
         await openVaultUnlockPrompt(encrypted ? "encrypt" : "decrypt");
       } else {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(toDisplayError(err, t, "set_memory_encrypted"));
       }
     } finally {
       setBusy(false);
@@ -503,7 +510,13 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
         await handleSetEncrypted(false);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(
+        toDisplayError(
+          err,
+          t,
+          vaultStatus && !vaultStatus.initialized ? "vault_setup" : "vault_unlock",
+        ),
+      );
       setBusy(false);
     }
   };
@@ -563,8 +576,8 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
         </div>
       )}
       {error && (
-        <div className="border-b border-cinnabar-rule bg-cinnabar-wash px-4 py-2 text-xs text-cinnabar">
-          {error}
+        <div className="border-b border-cinnabar-rule">
+          <ErrorAlert error={error} compact className="rounded-none border-0" />
         </div>
       )}
       {notice && (

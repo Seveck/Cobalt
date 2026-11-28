@@ -12,12 +12,13 @@ import {
   X,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
+import { toDisplayError, type DisplayError } from "@/lib/friendlyError";
 import { isUnsupportedError } from "@/lib/ipc";
 import { staggerStyle } from "@/lib/motion";
 import { resolveProjectColor } from "@/lib/projects";
 import { conflictReasonI18nKey } from "@/lib/savings";
 import { useMemoryStore, useSettingsStore } from "@/stores";
-import { Skeleton } from "@/components/ui";
+import { ErrorAlert, Skeleton } from "@/components/ui";
 import type { ConflictPair, DuplicateCluster, Memory, Project, Uuid } from "@/types/contracts";
 
 type CleanTab = "duplicates" | "contradictions";
@@ -91,7 +92,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
   const [hoveredHighlightIds, setHoveredHighlightIds] = useState<readonly Uuid[] | null>(null);
   const [mergingIdx, setMergingIdx] = useState<number | null>(null);
   const [resolvingPairKey, setResolvingPairKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DisplayError | null>(null);
   const [mergedCount, setMergedCount] = useState(0);
   const [resolvedConflictsCount, setResolvedConflictsCount] = useState(0);
 
@@ -151,7 +152,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
       setKeepChoices(defaults);
     } catch (err: unknown) {
       if (!mountedRef.current || scanSeqRef.current !== seq) return;
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "find_duplicates"));
     } finally {
       if (mountedRef.current && scanSeqRef.current === seq) {
         setLoadingDuplicates(false);
@@ -179,7 +180,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
       if (isUnsupportedError(err)) {
         setConflicts([]);
       } else {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(toDisplayError(err, t, "find_conflicts"));
       }
     } finally {
       if (mountedRef.current && scanSeqRef.current === seq) {
@@ -196,7 +197,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
         setExtraProjects(list.map((s) => s.project));
       })
       .catch(() => {});
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -282,7 +283,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
       await loadGraph();
       await scan();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "merge_duplicates"));
     } finally {
       setMergingIdx(null);
     }
@@ -303,7 +304,7 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
       );
       await loadGraph();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toDisplayError(err, t, "archive_memories"));
     } finally {
       setResolvingPairKey(null);
     }
@@ -449,8 +450,8 @@ export function CleanBrainPanel({ onClose, onInspectMemory }: CleanBrainPanelPro
       </div>
 
       {error && (
-        <div className="border-b border-cinnabar-rule bg-cinnabar-wash px-4 py-2 text-xs text-cinnabar">
-          {error}
+        <div className="border-b border-cinnabar-rule">
+          <ErrorAlert error={error} compact className="rounded-none border-0" />
         </div>
       )}
 
