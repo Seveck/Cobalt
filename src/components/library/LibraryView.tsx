@@ -8,7 +8,9 @@ import {
   Copy,
   FileCheck2,
   FilePlus2,
+  FolderInput,
   FolderSync,
+  Inbox,
   Loader2,
   RefreshCw,
   Repeat,
@@ -24,17 +26,29 @@ import { copyToClipboard, pickSinglePath, useFileDrop } from "@/lib/dialogs";
 import { isOcrNotInstalledMessage } from "@/lib/ingest";
 import { staggerStyle } from "@/lib/motion";
 import {
+  fromMemoryProjectId,
+  GLOBAL_PROJECT_SENTINEL,
+  isUnsortedProjectName,
+  resolveProjectColorByName,
+  splitProjects,
+  toPatchProjectId,
+  UNSORTED_PROJECT_COLOR,
+  UNSORTED_PROJECT_NAME,
+} from "@/lib/projects";
+import {
   useFiltersStore,
   useLibraryStore,
   useMemoryStore,
   useSettingsStore,
   useUiStore,
 } from "@/stores";
-import { Select, Skeleton, type SelectOption } from "@/components/ui";
+import { UnsortedMemoriesPanel } from "@/components/projects/UnsortedMemoriesPanel";
+import { OutdatedHitBanner, Select, Skeleton, type SelectOption } from "@/components/ui";
 import {
   SOURCE_TYPES,
   type FileAvailability,
   type MemoryCategory,
+  type ProjectScope,
   type ProjectStats,
   type ReusableAsset,
   type SourceType,
@@ -84,6 +98,10 @@ export function LibraryView() {
   const [fetchedCategories, setFetchedCategories] = useState<Record<string, MemoryCategory>>({});
   const [verifyingIds, setVerifyingIds] = useState<ReadonlySet<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [movingAssetId, setMovingAssetId] = useState<Uuid | null>(null);
+  const [outrankedMap, setOutrankedMap] = useState<
+    Record<Uuid, { winnerId: Uuid; winnerPreview: string | null }>
+  >({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -180,6 +198,71 @@ export function LibraryView() {
     }
     return map;
   }, [graphNodes]);
+
+  const graphPreviewById = useMemo(() => {
+    const map = new Map<Uuid, string>();
+    for (const node of graphNodes ?? []) {
+      map.set(node.id, node.preview);
+    }
+    return map;
+  }, [graphNodes]);
+
+  // Resolve `SearchHit.outranked_by` markers whenever a library search query is active
+  useEffect(() => {
+    const trimmed = filter.query?.trim() ?? "";
+    if (!trimmed) {
+      setOutrankedMap({});
+      return;
+    }
+
+    let cancelled = false;
+    const scope: ProjectScope =
+      filter.project_ids.length === 1 && filter.project_ids[0]
+        ? { kind: "project", project_id: filter.project_ids[0] }
+        : { kind: "all" };
+
+    void backendCall("search_memories", {
+      query: trimmed,
+      scope,
+      branch_id: null,
+      top_k: 50,
+      include_archived: false,
+      filter: {
+        source_types: filter.source_types,
+        categories: [],
+        only_reusable: true,
+        min_confidence: null,
+      },
+      rrf_override: null,
+      record_hits: false,
+      expand_graph: false,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        const contentById = new Map<Uuid, string>();
+        for (const hit of res.hits) {
+          contentById.set(hit.memory.id, hit.memory.content);
+        }
+        const next: Record<Uuid, { winnerId: Uuid; winnerPreview: string | null }> = {};
+        for (const hit of res.hits) {
+          if (hit.outranked_by) {
+            next[hit.memory.id] = {
+              winnerId: hit.outranked_by,
+              winnerPreview:
+                contentById.get(hit.outranked_by) ?? graphPreviewById.get(hit.outranked_by) ?? null,
+            };
+          }
+        }
+        setOutrankedMap(next);
+      })
+      .catch(() => {
+        if (!cancelled) setOutrankedMap({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filter.project_ids, filter.query, filter.source_types, graphPreviewById]);
 
   // Fallback category lookup for any reusable asset not present in the current graph snapshot
   useEffect(() => {
@@ -354,15 +437,54 @@ export function LibraryView() {
     }
   };
 
+  const handleMoveAssetProject = async (asset: ReusableAsset, targetValue: string) => {
+    if (readOnly) return;
+    const nextProjectId = toPatchProjectId(targetValue);
+    if (nextProjectId === asset.origin_project_id) {
+      setMovingAssetId(null);
+      return;
+    }
+    const targetName =
+      nextProjectId === null
+        ? t("brain.globalScope")
+        : (regularProjects.find((p) => p.project.id === nextProjectId)?.project.name ??
+          t("brain.globalScope"));
+
+    setBusyId(asset.memory_id);
+    setError(null);
+    try {
+      await backendCall("patch_memory", {
+        id: asset.memory_id,
+        patch: { project_id: nextProjectId },
+      });
+      setMovingAssetId(null);
+      await Promise.all([loadLibrary(), loadProjects(), loadGraph()]);
+      flashNotice(t("unsorted.movedOneNotice", { project: targetName }));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const { regular: regularProjects, unsorted: unsortedProject } = useMemo(
+    () => splitProjects(projects),
+    [projects],
+  );
+
+  const unsortedFilterActive = Boolean(
+    unsortedProject && filter.project_ids.includes(unsortedProject.project.id),
+  );
+
   const projectOptions = useMemo<SelectOption<string>[]>(() => {
     return [
-      { value: "__global__", label: t("brain.globalScope") },
-      ...projects.map((p) => ({
+      { value: GLOBAL_PROJECT_SENTINEL, label: t("brain.globalScope") },
+      ...regularProjects.map((p) => ({
         value: p.project.id,
         label: p.project.name,
       })),
     ];
-  }, [projects, t]);
+  }, [regularProjects, t]);
 
   const availableSourceTypes = useMemo(() => {
     const present = new Set<SourceType>(assets.map((a) => a.source_type));
@@ -541,12 +663,12 @@ export function LibraryView() {
           {/* Filter chips */}
           <div className="space-y-2.5 border-t border-rule pt-3 text-xs">
             {/* Projects */}
-            {projects.length > 0 && (
+            {(regularProjects.length > 0 || unsortedProject) && (
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="w-24 shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
                   {t("filterDock.projects")}
                 </span>
-                {projects.map(({ project }) => {
+                {regularProjects.map(({ project }) => {
                   const active = filter.project_ids.includes(project.id);
                   return (
                     <button
@@ -568,6 +690,31 @@ export function LibraryView() {
                     </button>
                   );
                 })}
+                {unsortedProject && (
+                  <button
+                    type="button"
+                    onClick={() => toggleProject(unsortedProject.project.id)}
+                    aria-pressed={unsortedFilterActive}
+                    title={t("unsorted.explanation")}
+                    className={`inline-flex items-center gap-1.5 rounded-[2px] border border-dashed px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                      unsortedFilterActive
+                        ? "border-rule-strong bg-surface-3 text-bone"
+                        : "border-rule-strong bg-void/70 text-bone-subtle hover:border-bone-subtle hover:text-bone-muted"
+                    }`}
+                  >
+                    <Inbox
+                      size={11}
+                      style={{ color: UNSORTED_PROJECT_COLOR }}
+                      aria-hidden
+                    />
+                    <span>{UNSORTED_PROJECT_NAME}</span>
+                    {unsortedProject.vector_count > 0 && (
+                      <span className="inline-flex min-w-[1.2rem] items-center justify-center rounded-[2px] border border-rule-strong bg-surface-2 px-1 py-0.25 text-[9px] font-semibold tabular-nums text-bone-muted">
+                        {unsortedProject.vector_count}
+                      </span>
+                    )}
+                  </button>
+                )}
               </div>
             )}
 
@@ -625,6 +772,20 @@ export function LibraryView() {
           </div>
         </section>
 
+        {/* Inline Sin clasificar review & bulk-move view when Sin clasificar chip is active */}
+        {unsortedProject && unsortedFilterActive && (
+          <UnsortedMemoriesPanel
+            unsortedProject={unsortedProject}
+            regularProjects={regularProjects}
+            readOnly={readOnly}
+            onMoved={async () => {
+              await Promise.all([loadProjects(), loadLibrary()]);
+            }}
+            onInspectMemory={handleLocateIn3D}
+            onClose={() => toggleProject(unsortedProject.project.id)}
+          />
+        )}
+
         {/* Results Grid */}
         {loading && displayedAssets.length === 0 ? (
           <div
@@ -681,6 +842,21 @@ export function LibraryView() {
               const isOcr = category === "ocr";
               const isVerifying = verifyingIds.has(asset.memory_id);
               const isBusy = busyId === asset.memory_id;
+              const isUnsortedAsset = isUnsortedProjectName(asset.origin_project_name);
+              const outrankedInfo = outrankedMap[asset.memory_id] ?? null;
+              const moveOpen = movingAssetId === asset.memory_id;
+              const moveOptions: SelectOption<string>[] =
+                isUnsortedAsset && asset.origin_project_id
+                  ? [
+                      {
+                        value: asset.origin_project_id,
+                        label: UNSORTED_PROJECT_NAME,
+                        detail: t("unsorted.shortDetail"),
+                        disabled: true,
+                      },
+                      ...projectOptions,
+                    ]
+                  : projectOptions;
               const pathCopyKey = `${asset.memory_id}:path`;
               const snippetCopyKey = `${asset.memory_id}:snippet`;
 
@@ -688,17 +864,33 @@ export function LibraryView() {
                 <article
                   key={asset.memory_id}
                   style={staggerStyle(idx, 24, 8)}
-                  className="cobalt-stagger-item flex flex-col justify-between rounded-[2px] border border-rule bg-surface p-4 transition-colors hover:border-rule-strong"
+                  className={`cobalt-stagger-item flex flex-col justify-between rounded-[2px] border p-4 transition-colors hover:border-rule-strong ${
+                    outrankedInfo
+                      ? "border-ochre-rule/75 bg-surface/90"
+                      : "border-rule bg-surface"
+                  }`}
                 >
                   <div className="space-y-3">
                     {/* Top meta row */}
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-2 font-mono text-[11px] text-bone-muted">
+                      <div
+                        title={isUnsortedAsset ? t("unsorted.explanation") : undefined}
+                        className="flex min-w-0 items-center gap-2 font-mono text-[11px] text-bone-muted"
+                      >
                         <span
                           className="h-2.5 w-2.5 shrink-0 rounded-[1px]"
-                          style={{ backgroundColor: asset.origin_project_color ?? "#A4A096" }}
+                          style={{
+                            backgroundColor: resolveProjectColorByName(
+                              asset.origin_project_name,
+                              asset.origin_project_color,
+                            ),
+                          }}
                         />
-                        <span className="truncate font-medium text-bone">
+                        <span
+                          className={`truncate font-medium ${
+                            isUnsortedAsset ? "text-bone-subtle italic" : "text-bone"
+                          }`}
+                        >
                           {asset.origin_project_name ?? t("brain.globalScope")}
                         </span>
                         <span className="rounded-[2px] border border-rule bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase text-bone-muted">
@@ -747,6 +939,15 @@ export function LibraryView() {
                         )}
                       </div>
                     </div>
+
+                    {/* Outdated precedence banner (`SearchHit.outranked_by`) */}
+                    {outrankedInfo && (
+                      <OutdatedHitBanner
+                        outrankedById={outrankedInfo.winnerId}
+                        winnerPreview={outrankedInfo.winnerPreview}
+                        onOpenWinner={handleLocateIn3D}
+                      />
+                    )}
 
                     {/* Summary */}
                     <p className="text-sm leading-relaxed text-bone">{asset.summary}</p>
@@ -824,6 +1025,25 @@ export function LibraryView() {
                         {t("library.locate3D")}
                       </button>
 
+                      <button
+                        type="button"
+                        disabled={readOnly || isBusy}
+                        onClick={() =>
+                          setMovingAssetId((curr) =>
+                            curr === asset.memory_id ? null : asset.memory_id,
+                          )
+                        }
+                        aria-expanded={moveOpen}
+                        className={`inline-flex items-center gap-1 rounded-[2px] border px-2 py-1 font-mono text-[10px] transition-colors disabled:opacity-45 ${
+                          moveOpen
+                            ? "border-cobalt-rule bg-cobalt-wash text-cobalt-ink"
+                            : "border-rule-strong bg-surface-2 text-bone-muted hover:border-cobalt-ink/60 hover:text-bone"
+                        }`}
+                      >
+                        <FolderInput size={11} aria-hidden />
+                        {t("unsorted.moveAction")}
+                      </button>
+
                       {asset.source_doc_id && (
                         <button
                           type="button"
@@ -850,6 +1070,33 @@ export function LibraryView() {
                         {t("library.retire")}
                       </button>
                     </div>
+
+                    {moveOpen && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-rule bg-void/80 px-2.5 py-2">
+                        <span className="font-mono text-[10px] text-bone-subtle">
+                          {t("unsorted.moveDestination")}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <Select<string>
+                            value={fromMemoryProjectId(asset.origin_project_id)}
+                            options={moveOptions}
+                            size="sm"
+                            align="right"
+                            className="w-44"
+                            disabled={readOnly || isBusy}
+                            ariaLabel={t("unsorted.moveAction")}
+                            onChange={(val) => void handleMoveAssetProject(asset, val)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setMovingAssetId(null)}
+                            className="rounded-[2px] border border-rule px-2 py-1 font-mono text-[10px] text-bone-subtle hover:text-bone"
+                          >
+                            {t("common.cancel")}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </article>
               );

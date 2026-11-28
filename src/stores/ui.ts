@@ -51,6 +51,7 @@ function writeCollapsedFlag(storageKey: string, collapsed: boolean): void {
 export interface UiState {
   activeNav: NavSection;
   toolsTab: ToolsTab;
+  unsortedViewOpen: boolean;
   settingsFocusSection: SettingsSectionId | null;
   settingsFocusAutoInstall: boolean;
   sidebarCollapsed: boolean;
@@ -61,6 +62,8 @@ export interface UiState {
   setActiveNav: (nav: NavSection) => void;
   setToolsTab: (tab: ToolsTab) => void;
   openToolsTab: (tab: ToolsTab) => void;
+  openUnsortedView: () => void;
+  setUnsortedViewOpen: (open: boolean) => void;
   openSettingsSection: (
     section: SettingsSectionId,
     options?: OpenSettingsSectionOptions,
@@ -78,6 +81,7 @@ export interface UiState {
 export const useUiStore = create<UiState>((set) => ({
   activeNav: "brain",
   toolsTab: "projects",
+  unsortedViewOpen: false,
   settingsFocusSection: null,
   settingsFocusAutoInstall: false,
   sidebarCollapsed: readInitialCollapsedFlag(
@@ -94,6 +98,9 @@ export const useUiStore = create<UiState>((set) => ({
   setActiveNav: (activeNav) => set({ activeNav }),
   setToolsTab: (toolsTab) => set({ toolsTab }),
   openToolsTab: (toolsTab) => set({ activeNav: "tools", toolsTab }),
+  openUnsortedView: () =>
+    set({ activeNav: "tools", toolsTab: "projects", unsortedViewOpen: true }),
+  setUnsortedViewOpen: (unsortedViewOpen) => set({ unsortedViewOpen }),
   openSettingsSection: (settingsFocusSection, options) =>
     set({
       activeNav: "settings",

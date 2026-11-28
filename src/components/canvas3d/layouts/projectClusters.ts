@@ -1,3 +1,4 @@
+import { resolveProjectColor } from "@/lib/projects";
 import type {
   GraphNode,
   LayoutFn,
@@ -26,7 +27,7 @@ export const projectClustersLayout: LayoutFn = ({ nodes, projects, params, sizeM
       stat.project.id,
       {
         label: stat.project.name,
-        color: stat.project.color_hex,
+        color: resolveProjectColor(stat.project),
       },
     ]),
   );

@@ -1,7 +1,23 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronUp, Crosshair, Filter, Repeat, RotateCcw, Search, X } from "lucide-react";
-import { matchesVisualFilters, useFiltersStore } from "@/stores";
+import {
+  ChevronDown,
+  ChevronUp,
+  Crosshair,
+  Filter,
+  FolderInput,
+  Inbox,
+  Repeat,
+  RotateCcw,
+  Search,
+  X,
+} from "lucide-react";
+import {
+  splitProjects,
+  UNSORTED_PROJECT_COLOR,
+  UNSORTED_PROJECT_NAME,
+} from "@/lib/projects";
+import { matchesVisualFilters, useFiltersStore, useUiStore } from "@/stores";
 import {
   MEMORY_CATEGORIES,
   MEMORY_STATUSES,
@@ -31,6 +47,12 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
   const setSolo = useFiltersStore((s) => s.setSolo);
   const setSearchQuery = useFiltersStore((s) => s.setSearchQuery);
   const resetFilters = useFiltersStore((s) => s.resetFilters);
+  const openUnsortedView = useUiStore((s) => s.openUnsortedView);
+
+  const { regular: regularProjects, unsorted: unsortedProject } = useMemo(
+    () => splitProjects(projects),
+    [projects],
+  );
 
   const stats = useMemo(() => {
     const sourceTypeCounts = new Map<SourceType, number>();
@@ -113,7 +135,7 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                 {t("filterDock.projects")}
               </span>
               <div className="flex flex-wrap items-center gap-1">
-                {projects.map(({ project }) => {
+                {regularProjects.map(({ project }) => {
                   const count = stats.projectCounts.get(project.id) ?? 0;
                   const active = filters.projectIds.includes(project.id);
                   const soloed = isSolo("project", project.id);
@@ -206,6 +228,72 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                     </div>
                   );
                 })()}
+                {/* Distinct grey "Sin clasificar" chip */}
+                {unsortedProject &&
+                  (() => {
+                    const unsortedId = unsortedProject.project.id;
+                    const count = stats.projectCounts.get(unsortedId) ?? unsortedProject.vector_count;
+                    const active = filters.projectIds.includes(unsortedId);
+                    const soloed = isSolo("project", unsortedId);
+                    return (
+                      <div
+                        title={t("unsorted.explanation")}
+                        className={`inline-flex items-center rounded-[2px] border border-dashed font-mono text-[10px] transition-colors ${
+                          soloed
+                            ? "border-ochre bg-ochre-wash text-ochre"
+                            : active
+                              ? "border-rule-strong bg-surface-3 text-bone"
+                              : "border-rule-strong bg-void/70 text-bone-subtle hover:border-bone-subtle hover:text-bone-muted"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            if (e.shiftKey) {
+                              toggleSoloChip("project", unsortedId);
+                            } else {
+                              toggleProjectId(unsortedId);
+                            }
+                          }}
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5"
+                        >
+                          <Inbox
+                            size={10}
+                            style={{ color: UNSORTED_PROJECT_COLOR }}
+                            aria-hidden
+                          />
+                          <span>{UNSORTED_PROJECT_NAME}</span>
+                          {count > 0 && (
+                            <span className="rounded-[2px] border border-rule-strong bg-surface-2 px-1 py-0.25 text-[9px] font-semibold tabular-nums text-bone-muted">
+                              {count}
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleSoloChip("project", unsortedId)}
+                          title={t("filterDock.soloAction")}
+                          className={`border-l px-1 py-0.5 transition-colors ${
+                            soloed
+                              ? "border-ochre-rule text-ochre"
+                              : "border-rule text-bone-subtle hover:text-bone"
+                          }`}
+                        >
+                          <Crosshair size={10} aria-hidden />
+                        </button>
+                        {count > 0 && (
+                          <button
+                            type="button"
+                            onClick={openUnsortedView}
+                            title={t("unsorted.reviewAndMove")}
+                            className="border-l border-rule px-1.5 py-0.5 text-bone-subtle transition-colors hover:text-cobalt-ink"
+                          >
+                            <FolderInput size={10} aria-hidden />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
               </div>
             </div>
 

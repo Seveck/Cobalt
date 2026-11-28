@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { isTauri } from "@/lib/ipc";
+import { resolveProjectColor } from "@/lib/projects";
 import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 import {
   matchesVisualFilters,
@@ -573,7 +574,7 @@ export function BrainScene({
   const projectColorMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of graph.projects) {
-      map.set(p.project.id, p.project.color_hex);
+      map.set(p.project.id, resolveProjectColor(p.project));
     }
     return map;
   }, [graph.projects]);

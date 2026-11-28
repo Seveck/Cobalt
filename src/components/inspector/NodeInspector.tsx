@@ -9,9 +9,11 @@ import {
   Eye,
   EyeOff,
   FileCheck2,
+  FolderInput,
   FolderSync,
   GitBranch,
   History,
+  Inbox,
   KeyRound,
   Lock,
   LockOpen,
@@ -31,6 +33,16 @@ import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickSinglePath } from "@/lib/dialogs";
 import { formatAiClientName } from "@/lib/format";
 import { IpcError } from "@/lib/ipc";
+import {
+  fromMemoryProjectId,
+  GLOBAL_PROJECT_SENTINEL,
+  isUnsortedProject,
+  resolveProjectColor,
+  splitProjects,
+  toPatchProjectId,
+  UNSORTED_PROJECT_COLOR,
+  UNSORTED_PROJECT_NAME,
+} from "@/lib/projects";
 import { cacheSourceDocPath } from "@/lib/sourceDocCache";
 import {
   useBranchesStore,
@@ -45,6 +57,7 @@ import {
   type FileAvailability,
   type Memory,
   type MemoryCategory,
+  type ProjectStats,
   type SourceDocument,
   type Uuid,
 } from "@/types/contracts";
@@ -95,6 +108,7 @@ function parseArchivedByReason(
 export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
   const { t } = useTranslation();
 
+  const graph = useMemoryStore((s) => s.graph);
   const graphRevision = useMemoryStore((s) => s.graphRevision);
   const loadGraph = useMemoryStore((s) => s.loadGraph);
   const setSelectedNodeId = useMemoryStore((s) => s.setSelectedNodeId);
@@ -107,6 +121,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
 
   const [memory, setMemory] = useState<Memory | null>(null);
   const [history, setHistory] = useState<Memory[]>([]);
+  const [extraProjects, setExtraProjects] = useState<ProjectStats[]>([]);
   const [sourceDoc, setSourceDoc] = useState<SourceDocument | null>(null);
   const [diskStatus, setDiskStatus] = useState<FileAvailability | null>(null);
   const [archiveImpact, setArchiveImpact] = useState<ArchiveImpact | null>(null);
@@ -194,6 +209,75 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
   useEffect(() => {
     void loadDetails();
   }, [loadDetails, graphRevision]);
+
+  useEffect(() => {
+    void backendCall("list_projects", { include_archived: false })
+      .then(setExtraProjects)
+      .catch(() => {});
+  }, [graphRevision]);
+
+  const allProjects = useMemo(() => {
+    const byId = new Map<Uuid, ProjectStats>();
+    for (const stat of extraProjects) byId.set(stat.project.id, stat);
+    for (const stat of graph?.projects ?? []) byId.set(stat.project.id, stat);
+    return [...byId.values()];
+  }, [extraProjects, graph?.projects]);
+
+  const { regular: regularProjects } = useMemo(() => splitProjects(allProjects), [allProjects]);
+
+  const currentProject = useMemo(() => {
+    if (!memory?.project_id) return null;
+    return allProjects.find((s) => s.project.id === memory.project_id)?.project ?? null;
+  }, [allProjects, memory?.project_id]);
+
+  const isInUnsorted = isUnsortedProject(currentProject);
+
+  const projectOptions = useMemo<SelectOption<string>[]>(() => {
+    const opts: SelectOption<string>[] = [];
+    if (isInUnsorted && currentProject) {
+      opts.push({
+        value: currentProject.id,
+        label: UNSORTED_PROJECT_NAME,
+        detail: t("unsorted.shortDetail"),
+        disabled: true,
+      });
+    }
+    opts.push({ value: GLOBAL_PROJECT_SENTINEL, label: t("brain.globalScope") });
+    for (const stat of regularProjects) {
+      if (stat.project.is_archived && stat.project.id !== memory?.project_id) continue;
+      opts.push({
+        value: stat.project.id,
+        label: stat.project.name,
+      });
+    }
+    return opts;
+  }, [currentProject, isInUnsorted, memory?.project_id, regularProjects, t]);
+
+  const handleMoveToProject = async (targetValue: string) => {
+    if (!memory || readOnly) return;
+    const nextProjectId = toPatchProjectId(targetValue);
+    if (nextProjectId === memory.project_id) return;
+    const targetName =
+      nextProjectId === null
+        ? t("brain.globalScope")
+        : (regularProjects.find((p) => p.project.id === nextProjectId)?.project.name ??
+          t("brain.globalScope"));
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await backendCall("patch_memory", {
+        id: memory.id,
+        patch: { project_id: nextProjectId },
+      });
+      setMemory(updated);
+      await loadGraph();
+      flashNotice(t("unsorted.movedOneNotice", { project: targetName }));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const categoryOptions = useMemo<SelectOption<MemoryCategory>[]>(
     () =>
@@ -583,9 +667,62 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
               </div>
             )}
 
+            {/* Distinct grey callout when memory is in "Sin clasificar" */}
+            {isInUnsorted && (
+              <div className="space-y-2.5 rounded-[2px] border border-dashed border-rule-strong bg-surface-2/70 p-3">
+                <div className="flex items-start gap-2 text-xs text-bone-muted">
+                  <Inbox
+                    size={14}
+                    className="mt-0.5 shrink-0"
+                    style={{ color: UNSORTED_PROJECT_COLOR }}
+                    aria-hidden
+                  />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-bone-muted">{UNSORTED_PROJECT_NAME}</div>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-bone-subtle">
+                      {t("unsorted.explanation")}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-2 border-t border-rule pt-2">
+                  <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-bone-subtle">
+                    <FolderInput size={11} aria-hidden />
+                    {t("unsorted.moveAction")}
+                  </span>
+                  <Select<string>
+                    value={fromMemoryProjectId(memory.project_id)}
+                    options={projectOptions}
+                    disabled={readOnly || busy}
+                    size="sm"
+                    align="right"
+                    className="w-44"
+                    ariaLabel={t("unsorted.moveAction")}
+                    onChange={(val) => void handleMoveToProject(val)}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Quick badges & telemetry strip */}
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+                <span
+                  title={isInUnsorted ? t("unsorted.explanation") : undefined}
+                  className={`inline-flex items-center gap-1.5 rounded-[2px] border px-1.5 py-0.5 ${
+                    isInUnsorted
+                      ? "border-dashed border-rule-strong bg-void text-bone-subtle"
+                      : "border-rule bg-void text-bone-muted"
+                  }`}
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-[1px]"
+                    style={{ backgroundColor: resolveProjectColor(currentProject) }}
+                    aria-hidden
+                  />
+                  <span className="max-w-[140px] truncate">
+                    {currentProject ? currentProject.name : t("brain.globalScope")}
+                  </span>
+                </span>
                 <span className="rounded-[2px] border border-rule-strong bg-surface-2 px-1.5 py-0.5 uppercase text-bone-muted">
                   {memory.source_type}
                 </span>
@@ -923,6 +1060,24 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
               <h3 className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-bone-subtle">
                 {t("inspector.governanceSection")}
               </h3>
+
+              {/* Move to project (`patch_memory` project_id) */}
+              <div className="flex items-center justify-between gap-3">
+                <span className="inline-flex items-center gap-1.5 text-xs text-bone-muted">
+                  <FolderInput size={12} className="text-cobalt-ink" aria-hidden />
+                  {t("unsorted.moveAction")}
+                </span>
+                <Select<string>
+                  value={fromMemoryProjectId(memory.project_id)}
+                  options={projectOptions}
+                  disabled={readOnly || busy}
+                  size="sm"
+                  align="right"
+                  className="w-40"
+                  ariaLabel={t("unsorted.moveAction")}
+                  onChange={(val) => void handleMoveToProject(val)}
+                />
+              </div>
 
               {/* Category */}
               <div className="flex items-center justify-between gap-3">
