@@ -5,7 +5,7 @@ use chrono::TimeDelta;
 use cobalt_core::enums::{DuplicateKind, MemoryStatus};
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::{Id, Timestamp, timestamp_to_sql};
-use cobalt_core::model::{DecayReport, DuplicateCluster, Memory};
+use cobalt_core::model::{ConflictPair, DecayReport, DuplicateCluster, Memory};
 use cobalt_core::traits::GovernanceService;
 use rusqlite::{Connection, params};
 
@@ -48,6 +48,28 @@ pub(crate) fn cosine(a: &[f32], b: &[f32]) -> f64 {
 
 #[async_trait]
 impl GovernanceService for SqliteStore {
+    async fn find_conflicts(&self, limit: u32) -> Result<Vec<ConflictPair>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let _gate = self.engine_gate.read().await;
+        let retrieval = self.configured_retrieval()?;
+        self.db
+            .read(move |conn| {
+                let tx = conn.unchecked_transaction().map_err(sql_error)?;
+                let branch = branch(&tx, None)?;
+                let settings = load_settings(&tx)?.search;
+                crate::conflicts::scan(
+                    &tx,
+                    branch.id,
+                    retrieval.as_deref(),
+                    settings.duplicate_threshold,
+                    limit,
+                )
+            })
+            .await
+    }
+
     async fn run_decay(&self, now: Timestamp) -> Result<DecayReport> {
         self.db
             .write(move |conn| {

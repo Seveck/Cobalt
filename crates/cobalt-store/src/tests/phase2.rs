@@ -732,6 +732,7 @@ async fn handoff_theme_and_telemetry_repositories_persist_real_data() {
     store
         .search(SearchRequest {
             record_hits: true,
+            expand_graph: false,
             ..search_request("alpha")
         })
         .await

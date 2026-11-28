@@ -207,7 +207,7 @@ async fn deleting_project_cascades_to_its_proposals() {
 }
 
 #[tokio::test]
-async fn v3_database_and_snapshot_migrate_to_v4() {
+async fn v3_database_and_snapshot_migrate_to_v5() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("cobalt.db");
     let store = SqliteStore::open_at(path.clone()).await.unwrap();
@@ -233,7 +233,7 @@ async fn v3_database_and_snapshot_migrate_to_v4() {
     let version: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 4);
+    assert_eq!(version, SCHEMA_VERSION);
     drop(conn);
     assert_eq!(
         store.get_project(project.id).await.unwrap(),
@@ -249,6 +249,101 @@ async fn v3_database_and_snapshot_migrate_to_v4() {
     );
     assert!(store.list_proposals(None, 10).await.unwrap().is_empty());
     add(&store, "After snapshot migration", Some(project.id)).await;
+}
+
+#[tokio::test]
+async fn v4_database_and_snapshot_rebuild_proposals_without_losing_rows_or_links() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cobalt.db");
+    let store = sqlite_store(&dir).await;
+    let memory = store
+        .save_memory(new_memory("Backup policy"))
+        .await
+        .unwrap()
+        .memory;
+    let global = add(&store, "Retain the current backup", None).await;
+    let global = store
+        .set_proposal_status(global.id, ProposalStatus::Accepted, Some(memory.id))
+        .await
+        .unwrap();
+    let project = store
+        .create_project(NewProject {
+            name: "Legacy project".into(),
+            root_path: None,
+            color_hex: None,
+        })
+        .await
+        .unwrap();
+    let scoped = add(&store, "Retain the current backup", Some(project.id)).await;
+    let snapshot = store.create_snapshot("Legacy proposal rows").await.unwrap();
+    drop(store);
+    let old_schema = include_str!("../memory_proposals.sql").replace(",'suspicious'", "");
+    for path in [&path, std::path::Path::new(&snapshot.file_path)] {
+        let legacy = Connection::open(path).unwrap();
+        legacy
+            .execute_batch(
+                "ALTER TABLE memory_proposals RENAME TO proposals_fixture;
+             DROP INDEX idx_memory_proposals_status;
+             DROP INDEX idx_memory_proposals_global_key;",
+            )
+            .unwrap();
+        legacy.execute_batch(&old_schema).unwrap();
+        legacy
+            .execute_batch(
+                "INSERT INTO memory_proposals SELECT * FROM proposals_fixture;
+             DROP TABLE proposals_fixture;
+             PRAGMA user_version = 4;",
+            )
+            .unwrap();
+        assert!(
+            legacy
+                .execute("UPDATE memory_proposals SET kind = 'suspicious'", [])
+                .is_err()
+        );
+    }
+    let store = sqlite_store(&dir).await;
+    for restore in [false, true] {
+        if restore {
+            store.restore_snapshot(snapshot.id).await.unwrap();
+        }
+        let conn = Connection::open(&path).unwrap();
+        let version = conn
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(
+            store.get_proposal(global.id).await.unwrap(),
+            Some(global.clone())
+        );
+        assert_eq!(
+            store.get_proposal(scoped.id).await.unwrap(),
+            Some(scoped.clone())
+        );
+        assert_eq!(
+            store
+                .add_proposal(new_proposal("retain the current backup", None))
+                .await
+                .unwrap(),
+            None
+        );
+        let mut suspicious = new_proposal("An unexpected write", Some(project.id));
+        suspicious.kind = ProposalKind::Suspicious;
+        let saved = store.add_proposal(suspicious).await.unwrap().unwrap();
+        assert_eq!(
+            store.get_proposal(saved.id).await.unwrap().unwrap().kind,
+            ProposalKind::Suspicious
+        );
+    }
+    store.delete_memory(memory.id).await.unwrap();
+    assert_eq!(
+        store
+            .get_proposal(global.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .memory_id,
+        None
+    );
 }
 
 #[tokio::test]

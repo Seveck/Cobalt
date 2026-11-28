@@ -5,8 +5,8 @@ use cobalt_core::enums::{EdgeType, MemoryStatus, SourceType, WriteAction};
 use cobalt_core::error::{CobaltError, Result};
 use cobalt_core::ids::{Id, new_id};
 use cobalt_core::model::{
-    GraphData, GraphNode, GraphQuery, Memory, MemoryEdge, MemoryPatch, NewMemory, SaveOutcome,
-    UpdateMemoryRequest,
+    ConflictHint, GraphData, GraphNode, GraphQuery, Memory, MemoryEdge, MemoryPatch, NewMemory,
+    SaveOutcome, UpdateMemoryRequest,
 };
 use cobalt_core::search::{ProjectScope, SearchFilter, VectorFilter};
 use cobalt_core::traits::MemoryRepository;
@@ -716,6 +716,7 @@ fn outcome(
         matched_similarity,
         redacted_secrets: 0,
         truncated: false,
+        possible_conflicts: Vec::new(),
     }
 }
 
@@ -833,7 +834,23 @@ pub(crate) fn semantic_match(
     project_id: Option<Id>,
     embedding: &[f32],
 ) -> Result<Option<(Memory, f64)>> {
-    let scope = Scope::new(
+    document_neighbors(conn, retrieval, branch_id, project_id, embedding, None, 1)?
+        .into_iter()
+        .next()
+        .map(|(id, similarity)| Ok((required_memory(conn, id)?, similarity)))
+        .transpose()
+}
+
+pub(crate) fn document_neighbors(
+    conn: &Connection,
+    retrieval: &Retrieval,
+    branch_id: Id,
+    project_id: Option<Id>,
+    embedding: &[f32],
+    exclude: Option<Id>,
+    limit: usize,
+) -> Result<Vec<(Id, f64)>> {
+    let mut scope = Scope::new(
         branch_id,
         &VectorFilter {
             scope: project_id.map_or(ProjectScope::Global, ProjectScope::Project),
@@ -841,22 +858,25 @@ pub(crate) fn semantic_match(
         },
         &SearchFilter::default(),
     );
-    let best = retrieval
+    if let Some(id) = exclude {
+        scope.clause.push_str(" AND m.id <> ?");
+        scope.params.push(id.to_string().into());
+    }
+    Ok(retrieval
         .index
-        .scoped(conn, embedding, 1, scope)?
+        .scoped(conn, embedding, limit, scope)?
         .into_iter()
-        .next();
-    best.map(|hit| {
-        Ok((
-            required_memory(conn, hit.memory_id)?,
-            calibrated_similarity(
-                &retrieval.embedder.spec().id,
-                SimilarityKind::Document,
-                f64::from(hit.similarity),
-            ),
-        ))
-    })
-    .transpose()
+        .map(|hit| {
+            (
+                hit.memory_id,
+                calibrated_similarity(
+                    &retrieval.embedder.spec().id,
+                    SimilarityKind::Document,
+                    f64::from(hit.similarity),
+                ),
+            )
+        })
+        .collect())
 }
 
 pub(crate) enum WriteMode {
@@ -907,6 +927,47 @@ pub(crate) fn write_memory(
         WriteMode::CountedDocument(count) => Some(*count),
         _ => None,
     };
+    let exclude = match &mode {
+        WriteMode::Version(previous, _) => Some(previous.id),
+        _ => None,
+    };
+    let mut possible_conflicts = Vec::new();
+    let mut best_match = None;
+    for (id, similarity) in document_neighbors(
+        conn,
+        retrieval,
+        branch_id,
+        new.project_id,
+        embedding,
+        exclude,
+        crate::conflicts::NEIGHBOR_LIMIT,
+    )? {
+        let in_conflict_band = crate::conflicts::in_band(similarity, settings.duplicate_threshold);
+        let may_dedup = matches!(mode, WriteMode::Normal)
+            && best_match.is_none()
+            && similarity > settings.dedup_threshold;
+        if !may_dedup && (!in_conflict_band || possible_conflicts.len() == 3) {
+            continue;
+        }
+        let existing = required_memory(conn, id)?;
+        let reason = if in_conflict_band {
+            crate::conflicts::reason(&new.content, &existing.content)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            if possible_conflicts.len() < 3 {
+                possible_conflicts.push(ConflictHint {
+                    memory_id: id,
+                    similarity,
+                    reason: reason.into(),
+                    preview: existing.content.chars().take(160).collect(),
+                });
+            }
+        } else if may_dedup {
+            best_match = Some((existing, similarity));
+        }
+    }
     let (previous, reason, similarity, action) = match mode {
         WriteMode::Version(previous, reason) => {
             (Some(*previous), Some(reason), None, WriteAction::Superseded)
@@ -915,8 +976,8 @@ pub(crate) fn write_memory(
             (None, None, None, WriteAction::Inserted)
         }
         WriteMode::Normal => {
-            match semantic_match(conn, retrieval, branch_id, new.project_id, embedding)? {
-                Some((previous, score)) if score > settings.dedup_threshold => {
+            match best_match {
+                Some((previous, score)) => {
                     // The higher duplicate threshold denotes a near-identical meaning. A match
                     // between the thresholds is retained as a separate version for inspection.
                     if score >= settings.duplicate_threshold {
@@ -1002,5 +1063,8 @@ pub(crate) fn write_memory(
         settings.semantic_edge_threshold,
     )?;
     retrieval.index.insert(conn, key, embedding)?;
-    Ok(outcome(action, memory, previous_id, similarity))
+    Ok(SaveOutcome {
+        possible_conflicts,
+        ..outcome(action, memory, previous_id, similarity)
+    })
 }

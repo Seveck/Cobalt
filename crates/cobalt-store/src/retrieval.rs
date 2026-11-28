@@ -17,6 +17,7 @@ use cobalt_embeddings::TiktokenCounter;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 
 use crate::db::sql_error;
+use crate::governance::cosine;
 use crate::memory::memory;
 use crate::repositories::{
     branch, id, optional_timestamp, source_availability, source_by_id, stamp,
@@ -382,6 +383,7 @@ fn collect_hits(
                 fts_rank,
                 similarity_score: candidate.vector.map_or(0.0, |entry| entry.similarity),
                 bm25: candidate.fts.map(|(_, score)| score),
+                related_to: None,
             },
         ));
     }
@@ -399,6 +401,100 @@ fn collect_hits(
     });
     hits.truncate(top_k as usize);
     Ok(hits.into_iter().map(|(_, hit)| hit).collect())
+}
+
+fn expand_hits(
+    conn: &Connection,
+    hits: &mut Vec<SearchHit>,
+    top_k: usize,
+    scope: Scope,
+    (retrieval, query): (&Retrieval, &[f32]),
+    min_similarity: f64,
+) -> Result<()> {
+    if hits.is_empty() || hits.len() >= top_k {
+        return Ok(());
+    }
+    // Follow one relationship per hit, resolving any historical endpoint to its live version.
+    let mut neighbors = conn
+        .prepare(&format!(
+            "WITH RECURSIVE adjacent(id, weight, successor) AS (
+                 SELECT target_id, weight, 0 FROM memory_edges
+                 WHERE source_id = ?1 AND edge_type IN ('semantic', 'same_project')
+                 UNION ALL
+                 SELECT source_id, weight, edge_type = 'supersedes' FROM memory_edges
+                 WHERE target_id = ?1
+             ), versions(id, weight, successor) AS (
+                 SELECT id, weight, successor FROM adjacent
+                 UNION
+                 SELECT m.superseded_by, v.weight, 1 FROM versions v JOIN memories m ON m.id = v.id
+                 WHERE m.status = 'superseded' AND m.superseded_by IS NOT NULL
+             )
+             SELECT m.*, max(weight) AS edge_weight FROM versions JOIN memories m ON m.id = versions.id
+             WHERE {} AND m.is_core_pin = 0 AND weight > 0
+             GROUP BY m.id ORDER BY max(successor) DESC, edge_weight DESC, m.id",
+            scope.clause
+        ))
+        .map_err(sql_error)?;
+    let mut seen: HashSet<_> = hits.iter().map(|hit| hit.memory.id).collect();
+    let direct_count = hits.len();
+    for index in 0..direct_count {
+        let parent = hits[index].memory.id;
+        let parent_score = hits[index].score;
+        let args = [Value::Text(parent.to_string())]
+            .into_iter()
+            .chain(scope.params.iter().cloned());
+        let mut rows = neighbors
+            .query_map(params_from_iter(args), |row| {
+                Ok((memory(row)?, row.get::<_, f64>("edge_weight")?))
+            })
+            .map_err(sql_error)?;
+        let mut remaining = (top_k - hits.len()).min(2);
+        while remaining > 0 {
+            let mut batch = Vec::new();
+            for row in rows.by_ref().take(16) {
+                batch.push(row.map_err(sql_error)?);
+            }
+            if batch.is_empty() {
+                break;
+            }
+            batch.retain(|(candidate, weight)| !seen.contains(&candidate.id) && weight.is_finite());
+            if batch.is_empty() {
+                continue;
+            }
+            let ids: Vec<_> = batch.iter().map(|(candidate, _)| candidate.id).collect();
+            let vectors = retrieval.index.vectors(conn, &ids)?;
+            for ((memory, weight), vector) in batch.into_iter().zip(vectors) {
+                let Some(vector) = vector else { continue };
+                let similarity = calibrated_similarity(
+                    &retrieval.embedder.spec().id,
+                    SimilarityKind::Query,
+                    cosine(query, &vector),
+                );
+                if similarity < min_similarity {
+                    continue;
+                }
+                seen.insert(memory.id);
+                hits.push(SearchHit {
+                    memory,
+                    score: parent_score * weight,
+                    similarity_score: similarity,
+                    vector_rank: None,
+                    fts_rank: None,
+                    bm25: None,
+                    rrf_score: 0.0,
+                    related_to: Some(parent),
+                });
+                remaining -= 1;
+                if remaining == 0 {
+                    break;
+                }
+            }
+        }
+        if hits.len() == top_k {
+            break;
+        }
+    }
+    Ok(())
 }
 
 fn savings<'a>(
@@ -435,6 +531,7 @@ impl SearchService for SqliteStore {
         let top_k = req.top_k.unwrap_or(settings.top_k);
         let weights = req.rrf_override.as_ref().unwrap_or(&settings.rrf);
         checked_weights(weights)?;
+        let use_vector = weights.vector_weight > 0.0;
         if req
             .filter
             .min_confidence
@@ -446,7 +543,9 @@ impl SearchService for SqliteStore {
         }
         let vector = match self.configured_retrieval()? {
             Some(retrieval)
-                if top_k > 0 && weights.vector_weight > 0.0 && !req.query.trim().is_empty() =>
+                if top_k > 0
+                    && (use_vector || req.expand_graph)
+                    && !req.query.trim().is_empty() =>
             {
                 let query = retrieval.embedder.embed_query(&req.query).await?;
                 Some((retrieval, query))
@@ -466,17 +565,34 @@ impl SearchService for SqliteStore {
                     only_reusable: req.filter.only_reusable,
                 };
                 let core_rules = core_rules(&tx, branch_id, &filter)?;
-                let hits = collect_hits(
+                let query_vector = vector
+                    .as_ref()
+                    .map(|(retrieval, query)| (retrieval.as_ref(), query.as_slice()));
+                let mut hits = collect_hits(
                     &tx,
                     &req,
                     &settings,
-                    vector
-                        .as_ref()
-                        .map(|(index, query)| (index.as_ref(), query.as_slice())),
+                    query_vector.filter(|_| use_vector),
                     branch_id,
                     &filter,
                     top_k,
                 )?;
+                if req.expand_graph
+                    && let Some(vector) = query_vector
+                {
+                    let active_filter = VectorFilter {
+                        include_archived: false,
+                        ..filter
+                    };
+                    expand_hits(
+                        &tx,
+                        &mut hits,
+                        top_k as usize,
+                        Scope::new(branch_id, &active_filter, &req.filter),
+                        vector,
+                        settings.min_similarity,
+                    )?;
+                }
                 let savings = savings(
                     &tx,
                     core_rules.iter().chain(hits.iter().map(|hit| &hit.memory)),
@@ -663,6 +779,7 @@ impl SearchService for SqliteStore {
                 filter: SearchFilter::default(),
                 rrf_override: None,
                 record_hits: false,
+                expand_graph: false,
             })
             .await?;
         let mut seen = HashSet::new();
@@ -715,6 +832,7 @@ fn asset_request(
         },
         rrf_override: None,
         record_hits: false,
+        expand_graph: false,
     }
 }
 

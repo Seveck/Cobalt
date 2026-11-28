@@ -98,6 +98,7 @@ fn search_request(query: &str) -> SearchRequest {
         filter: SearchFilter::default(),
         rrf_override: None,
         record_hits: false,
+        expand_graph: false,
     }
 }
 
@@ -507,6 +508,7 @@ async fn hybrid_search_requires_relevance_in_a_bilingual_dev_corpus() {
         let response = store
             .search(SearchRequest {
                 record_hits: true,
+                expand_graph: false,
                 ..search_request(query)
             })
             .await
@@ -1028,3 +1030,5 @@ async fn pruning_removes_archived_ingest_vectors_and_keeps_linked_vectors() {
 
 mod proposals;
 mod similarity;
+
+mod stage4;

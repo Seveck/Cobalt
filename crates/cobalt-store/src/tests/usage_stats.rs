@@ -306,9 +306,9 @@ async fn importing_portable_telemetry_counts_each_log_once() {
     let target = SqliteStore::open_at(target_dir.path().join("cobalt.db"))
         .await
         .unwrap();
-    for _ in 0..2 {
+    for version in [3, 4, SCHEMA_VERSION] {
         target
-            .insert_portable_history_for_schema(3, vec![], vec![], vec![], vec![log.clone()])
+            .insert_portable_history_for_schema(version, vec![], vec![], vec![], vec![log.clone()])
             .await
             .unwrap();
     }
