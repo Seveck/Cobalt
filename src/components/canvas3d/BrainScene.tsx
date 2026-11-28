@@ -65,7 +65,6 @@ import {
 
 const CAMERA_FOCUS_DURATION_SEC = 0.65;
 const CAMERA_TRANSITION_DURATION_SEC = 0.8;
-const AMBIENT_ROTATE_RESUME_DELAY_MS = 1_200;
 const AMBIENT_ROTATE_INERTIA_SEC = 1.2;
 const DEFAULT_AMBIENT_ROTATE_RAD_PER_SEC = 0.085;
 const BG_COLOR_CROSSFADE_SEC = 0.3;
@@ -1476,36 +1475,43 @@ export const BrainScene = memo(function BrainScene({
     [camera],
   );
 
-  // Pause ambient auto-rotation & cancel camera transitions while the user drags or zooms
-  const userInteractingRef = useRef(false);
-  const lastUserInteractTsRef = useRef(0);
+  // Pause ambient auto-rotation (synced to theme store) & cancel camera transitions on user input
+  const latestNodesRef = useRef(graph.nodes);
+  latestNodesRef.current = graph.nodes;
   const ambientRotateProgressRef = useRef(autoRotatePaused || prefersReducedMotion ? 0 : 1);
   const scratchOrbitOffsetRef = useRef(new THREE.Vector3());
 
+  const pauseAmbientRotationOnInteraction = useCallback(() => {
+    cameraAnimRef.current = null;
+    ambientRotateProgressRef.current = 0;
+    if (
+      !prefersReducedMotionRef.current &&
+      latestNodesRef.current.length > 0 &&
+      !autoRotatePausedRef.current
+    ) {
+      autoRotatePausedRef.current = true;
+      useThemeStore.getState().setAutoRotatePaused(true);
+    }
+  }, []);
+
   useEffect(() => {
-    const controls = controlsRef.current;
     const dom = gl.domElement;
-    if (!controls) return;
-    const handleStart = () => {
-      userInteractingRef.current = true;
-      cameraAnimRef.current = null;
-    };
-    const handleEnd = () => {
-      userInteractingRef.current = false;
-      lastUserInteractTsRef.current = performance.now();
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0 && e.button !== 1 && e.button !== 2) {
+        return;
+      }
+      pauseAmbientRotationOnInteraction();
     };
     const handleWheel = () => {
-      lastUserInteractTsRef.current = performance.now();
+      pauseAmbientRotationOnInteraction();
     };
-    controls.addEventListener("start", handleStart);
-    controls.addEventListener("end", handleEnd);
+    dom.addEventListener("pointerdown", handlePointerDown, { passive: true });
     dom.addEventListener("wheel", handleWheel, { passive: true });
     return () => {
-      controls.removeEventListener("start", handleStart);
-      controls.removeEventListener("end", handleEnd);
+      dom.removeEventListener("pointerdown", handlePointerDown);
       dom.removeEventListener("wheel", handleWheel);
     };
-  }, [gl.domElement]);
+  }, [gl.domElement, pauseAmbientRotationOnInteraction]);
 
   // Apply bounding-sphere framing ONLY on first load (immediate) and theme switch (smooth ~0.8 s ease).
   // Switching layouts NEVER touches camera position, target, zoom, FOV, or auto-rotate state (f25).
@@ -1671,9 +1677,7 @@ export const BrainScene = memo(function BrainScene({
     );
   }, [camera, focusRequest, startCameraAnimation]);
 
-  // Keep latest callbacks/nodes in refs for zero-rebind DOM pointer listeners
-  const latestNodesRef = useRef(graph.nodes);
-  latestNodesRef.current = graph.nodes;
+  // Keep latest callbacks in refs for zero-rebind DOM pointer listeners
   const onHoverRef = useRef(onHoverNode);
   onHoverRef.current = onHoverNode;
   const onSelectRef = useRef(onSelectNode);
@@ -2360,13 +2364,11 @@ export const BrainScene = memo(function BrainScene({
         lastFrustumCheckTsRef.current = 0;
       }
       ambientRotateProgressRef.current = 0;
-    } else if (prefersReducedMotionRef.current || userInteractingRef.current || graph.nodes.length === 0) {
+    } else if (prefersReducedMotionRef.current || graph.nodes.length === 0) {
       ambientRotateProgressRef.current = 0;
     } else if (controlsRef.current) {
-      // Smooth ~1.2 s inertia decay/ramp on ambient rotation when pausing, resuming, or after user drag
-      const wantsRotate =
-        !autoRotatePausedRef.current &&
-        now - lastUserInteractTsRef.current >= AMBIENT_ROTATE_RESUME_DELAY_MS;
+      // Smooth ~1.2 s inertia decay/ramp on ambient rotation when pausing or resuming
+      const wantsRotate = !autoRotatePausedRef.current;
       const step = delta / AMBIENT_ROTATE_INERTIA_SEC;
       const prevProgress = ambientRotateProgressRef.current;
       const nextProgress = wantsRotate
@@ -2749,10 +2751,12 @@ export const BrainScene = memo(function BrainScene({
       <OrbitControls
         ref={controlsRef}
         makeDefault
+        autoRotate={false}
         enableDamping
         dampingFactor={0.08}
         minDistance={14}
         maxDistance={maxOrbitDistanceRef.current}
+        onStart={pauseAmbientRotationOnInteraction}
       />
     </>
   );
