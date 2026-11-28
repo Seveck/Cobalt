@@ -11,10 +11,11 @@ use crate::daemon::Daemon;
 pub const MAX_PER_TURN: usize = 3;
 const MIN_CHARS: usize = 25;
 const MAX_CHARS: usize = 320;
-/// Characters of the AI's message kept around the proposal as evidence.
-const EVIDENCE_AROUND_CHARS: usize = 450;
+/// Characters of the AI's message kept around the proposal as evidence (the inbox shows a
+/// preview with "Ver más").
+const EVIDENCE_AROUND_CHARS: usize = 1_600;
 /// Characters of the user's request kept as evidence.
-const EVIDENCE_REQUEST_CHARS: usize = 300;
+const EVIDENCE_REQUEST_CHARS: usize = 2_000;
 
 const DECISION_CUES: &[&str] = &[
     "decidimos",
