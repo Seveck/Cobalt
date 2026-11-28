@@ -844,6 +844,9 @@ export interface McpSettings {
   optional_tools: string[];
 }
 
+/** Project collecting memories AIs saved without a known project (v1.16.0). */
+export const UNSORTED_PROJECT_NAME = "Sin clasificar";
+
 /** MCP tools advertised only when enabled in Conectores (v1.17.0). */
 export const OPTIONAL_MCP_TOOLS = ["search_reusable_assets", "archive_memory", "create_theme"] as const;
 
