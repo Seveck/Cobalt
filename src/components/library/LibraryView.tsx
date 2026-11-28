@@ -3,13 +3,18 @@ import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   Check,
+  CheckSquare,
   Code2,
   Compass,
   Copy,
   FileCheck2,
   FilePlus2,
+  Folder,
+  FolderCode,
   FolderInput,
+  FolderPlus,
   FolderSync,
+  Globe,
   Inbox,
   Loader2,
   RefreshCw,
@@ -18,20 +23,24 @@ import {
   ScanText,
   Search,
   ShieldAlert,
+  Square,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickSinglePath, useFileDrop } from "@/lib/dialogs";
-import { isOcrNotInstalledMessage } from "@/lib/ingest";
+import { extractFileName, isOcrNotInstalledMessage } from "@/lib/ingest";
 import { staggerStyle } from "@/lib/motion";
 import {
-  fromMemoryProjectId,
+  buildMoveSelectionSummary,
+  countDocumentFragments,
+  formatMoveReportToast,
   GLOBAL_PROJECT_SENTINEL,
+  isCodeProject,
   isUnsortedProjectName,
   resolveProjectColorByName,
   splitProjects,
-  toPatchProjectId,
   UNSORTED_PROJECT_COLOR,
   UNSORTED_PROJECT_NAME,
 } from "@/lib/projects";
@@ -40,8 +49,11 @@ import {
   useLibraryStore,
   useMemoryStore,
   useSettingsStore,
+  useThemeStore,
   useUiStore,
 } from "@/stores";
+import { CreateFolderDialog } from "@/components/projects/CreateFolderDialog";
+import { FolderPickerDialog } from "@/components/projects/FolderPickerDialog";
 import { UnsortedMemoriesPanel } from "@/components/projects/UnsortedMemoriesPanel";
 import { OutdatedHitBanner, Select, Skeleton, type SelectOption } from "@/components/ui";
 import {
@@ -91,6 +103,7 @@ export function LibraryView() {
   const resetVisualFilters = useFiltersStore((s) => s.resetFilters);
   const setActiveNav = useUiStore((s) => s.setActiveNav);
   const openSettingsSection = useUiStore((s) => s.openSettingsSection);
+  const pushThemeToast = useThemeStore((s) => s.pushThemeToast);
 
   const [projects, setProjects] = useState<ProjectStats[]>([]);
   const [searchInput, setSearchInput] = useState(filter.query ?? "");
@@ -98,7 +111,13 @@ export function LibraryView() {
   const [fetchedCategories, setFetchedCategories] = useState<Record<string, MemoryCategory>>({});
   const [verifyingIds, setVerifyingIds] = useState<ReadonlySet<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [movingAssetId, setMovingAssetId] = useState<Uuid | null>(null);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<ReadonlySet<Uuid>>(() => new Set());
+  const [moveTarget, setMoveTarget] = useState<
+    | { mode: "single"; asset: ReusableAsset }
+    | { mode: "bulk"; assets: ReusableAsset[] }
+    | null
+  >(null);
+  const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [outrankedMap, setOutrankedMap] = useState<
     Record<Uuid, { winnerId: Uuid; winnerPreview: string | null }>
   >({});
@@ -437,38 +456,52 @@ export function LibraryView() {
     }
   };
 
-  const handleMoveAssetProject = async (asset: ReusableAsset, targetValue: string) => {
-    if (readOnly) return;
-    const nextProjectId = toPatchProjectId(targetValue);
-    if (nextProjectId === asset.origin_project_id) {
-      setMovingAssetId(null);
-      return;
-    }
-    const targetName =
-      nextProjectId === null
-        ? t("brain.globalScope")
-        : (regularProjects.find((p) => p.project.id === nextProjectId)?.project.name ??
-          t("brain.globalScope"));
-
-    setBusyId(asset.memory_id);
+  const handleConfirmMoveToFolder = async (
+    targetProjectId: Uuid | null,
+    targetName: string,
+  ) => {
+    if (readOnly || !moveTarget) return;
     setError(null);
-    try {
-      await backendCall("patch_memory", {
-        id: asset.memory_id,
-        patch: { project_id: nextProjectId },
-      });
-      setMovingAssetId(null);
-      await Promise.all([loadLibrary(), loadProjects(), loadGraph()]);
-      flashNotice(t("unsorted.movedOneNotice", { project: targetName }));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusyId(null);
+
+    const request =
+      moveTarget.mode === "single"
+        ? {
+            ...(moveTarget.asset.source_doc_id
+              ? { source_doc_ids: [moveTarget.asset.source_doc_id] }
+              : { memory_ids: [moveTarget.asset.memory_id] }),
+            project_id: targetProjectId,
+          }
+        : {
+            ...buildMoveSelectionSummary(
+              moveTarget.assets.map((a) => ({
+                id: a.memory_id,
+                source_doc_id: a.source_doc_id,
+              })),
+              graphNodes,
+            ).request,
+            project_id: targetProjectId,
+          };
+
+    const report = await backendCall("move_to_project", request);
+    const wasBulk = moveTarget.mode === "bulk";
+    setMoveTarget(null);
+    if (wasBulk) {
+      setSelectedAssetIds(new Set());
     }
+    await Promise.all([loadLibrary(), loadProjects(), loadGraph()]);
+    pushThemeToast({
+      kind: "saved",
+      message: formatMoveReportToast(report, targetName, t),
+    });
   };
 
   const { regular: regularProjects, unsorted: unsortedProject } = useMemo(
     () => splitProjects(projects),
+    [projects],
+  );
+
+  const projectById = useMemo(
+    () => new Map(projects.map((p) => [p.project.id, p.project])),
     [projects],
   );
 
@@ -505,6 +538,90 @@ export function LibraryView() {
       return filter.availability.includes(status);
     });
   }, [assets, filter.availability, verifiedMap]);
+
+  // Prune selection when displayed assets change
+  useEffect(() => {
+    const valid = new Set(displayedAssets.map((a) => a.memory_id));
+    setSelectedAssetIds((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Set<Uuid>();
+      for (const id of prev) {
+        if (valid.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [displayedAssets]);
+
+  const selectedAssetsList = useMemo(
+    () => displayedAssets.filter((a) => selectedAssetIds.has(a.memory_id)),
+    [displayedAssets, selectedAssetIds],
+  );
+
+  const allDisplayedSelected =
+    displayedAssets.length > 0 && selectedAssetsList.length === displayedAssets.length;
+
+  const toggleAssetSelection = (id: Uuid) => {
+    setSelectedAssetIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllDisplayed = () => {
+    if (allDisplayedSelected) {
+      setSelectedAssetIds(new Set());
+    } else {
+      setSelectedAssetIds(new Set(displayedAssets.map((a) => a.memory_id)));
+    }
+  };
+
+  const moveDialogInfo = useMemo(() => {
+    if (!moveTarget) return { banner: null as string | null, fileName: null as string | null };
+    if (moveTarget.mode === "single") {
+      if (!moveTarget.asset.source_doc_id) {
+        return { banner: null, fileName: null };
+      }
+      const fragments = countDocumentFragments(graphNodes, moveTarget.asset.source_doc_id);
+      return {
+        banner: t("folders.moveWholeDocumentNotice", { count: fragments }),
+        fileName: extractFileName(moveTarget.asset.file_path),
+      };
+    }
+    const summary = buildMoveSelectionSummary(
+      moveTarget.assets.map((a) => ({ id: a.memory_id, source_doc_id: a.source_doc_id })),
+      graphNodes,
+    );
+    if (summary.sourceDocIds.length === 0) {
+      return { banner: null, fileName: null };
+    }
+    if (summary.sourceDocIds.length === 1 && summary.standaloneMemoryIds.length === 0) {
+      return {
+        banner: t("folders.moveWholeDocumentNotice", { count: summary.documentFragmentsCount }),
+        fileName: null,
+      };
+    }
+    if (summary.standaloneMemoryIds.length === 0) {
+      return {
+        banner: t("folders.moveWholeDocumentsNotice", {
+          docs: summary.sourceDocIds.length,
+          fragments: summary.documentFragmentsCount,
+        }),
+        fileName: null,
+      };
+    }
+    return {
+      banner: t("folders.moveMixedSelectionNotice", {
+        docs: summary.sourceDocIds.length,
+        fragments: summary.documentFragmentsCount,
+        standalone: summary.standaloneMemoryIds.length,
+      }),
+      fileName: null,
+    };
+  }, [graphNodes, moveTarget, t]);
 
   return (
     <div className="relative h-full overflow-y-auto bg-void p-6 lg:p-8">
@@ -662,61 +779,73 @@ export function LibraryView() {
 
           {/* Filter chips */}
           <div className="space-y-2.5 border-t border-rule pt-3 text-xs">
-            {/* Projects */}
-            {(regularProjects.length > 0 || unsortedProject) && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="w-24 shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
-                  {t("filterDock.projects")}
-                </span>
-                {regularProjects.map(({ project }) => {
-                  const active = filter.project_ids.includes(project.id);
-                  return (
-                    <button
-                      key={project.id}
-                      type="button"
-                      onClick={() => toggleProject(project.id)}
-                      aria-pressed={active}
-                      className={`inline-flex items-center gap-1.5 rounded-[2px] border px-2 py-0.5 font-mono text-[11px] transition-colors ${
-                        active
-                          ? "border-cobalt-rule bg-cobalt-wash text-bone"
-                          : "border-rule bg-void text-bone-muted hover:border-rule-strong hover:text-bone"
-                      }`}
-                    >
-                      <span
-                        className="h-2 w-2 rounded-[1px]"
-                        style={{ backgroundColor: project.color_hex }}
-                      />
-                      <span>{project.name}</span>
-                    </button>
-                  );
-                })}
-                {unsortedProject && (
+            {/* Folders & Projects */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="w-24 shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-bone-subtle">
+                {t("filterDock.projects")}
+              </span>
+              {regularProjects.map(({ project }) => {
+                const active = filter.project_ids.includes(project.id);
+                return (
                   <button
+                    key={project.id}
                     type="button"
-                    onClick={() => toggleProject(unsortedProject.project.id)}
-                    aria-pressed={unsortedFilterActive}
-                    title={t("unsorted.explanation")}
-                    className={`inline-flex items-center gap-1.5 rounded-[2px] border border-dashed px-2 py-0.5 font-mono text-[11px] transition-colors ${
-                      unsortedFilterActive
-                        ? "border-rule-strong bg-surface-3 text-bone"
-                        : "border-rule-strong bg-void/70 text-bone-subtle hover:border-bone-subtle hover:text-bone-muted"
+                    onClick={() => toggleProject(project.id)}
+                    aria-pressed={active}
+                    className={`inline-flex items-center gap-1.5 rounded-[2px] border px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                      active
+                        ? "border-cobalt-rule bg-cobalt-wash text-bone"
+                        : "border-rule bg-void text-bone-muted hover:border-rule-strong hover:text-bone"
                     }`}
                   >
-                    <Inbox
-                      size={11}
-                      style={{ color: UNSORTED_PROJECT_COLOR }}
-                      aria-hidden
+                    <span
+                      className="h-2 w-2 rounded-[1px]"
+                      style={{ backgroundColor: project.color_hex }}
                     />
-                    <span>{UNSORTED_PROJECT_NAME}</span>
-                    {unsortedProject.vector_count > 0 && (
-                      <span className="inline-flex min-w-[1.2rem] items-center justify-center rounded-[2px] border border-rule-strong bg-surface-2 px-1 py-0.25 text-[9px] font-semibold tabular-nums text-bone-muted">
-                        {unsortedProject.vector_count}
-                      </span>
+                    {isCodeProject(project) ? (
+                      <FolderCode size={10} className="shrink-0 opacity-80" aria-hidden />
+                    ) : (
+                      <Folder size={10} className="shrink-0 opacity-80" aria-hidden />
                     )}
+                    <span>{project.name}</span>
                   </button>
-                )}
-              </div>
-            )}
+                );
+              })}
+              {unsortedProject && (
+                <button
+                  type="button"
+                  onClick={() => toggleProject(unsortedProject.project.id)}
+                  aria-pressed={unsortedFilterActive}
+                  title={t("unsorted.explanation")}
+                  className={`inline-flex items-center gap-1.5 rounded-[2px] border border-dashed px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                    unsortedFilterActive
+                      ? "border-rule-strong bg-surface-3 text-bone"
+                      : "border-rule-strong bg-void/70 text-bone-subtle hover:border-bone-subtle hover:text-bone-muted"
+                  }`}
+                >
+                  <Inbox
+                    size={11}
+                    style={{ color: UNSORTED_PROJECT_COLOR }}
+                    aria-hidden
+                  />
+                  <span>{UNSORTED_PROJECT_NAME}</span>
+                  {unsortedProject.vector_count > 0 && (
+                    <span className="inline-flex min-w-[1.2rem] items-center justify-center rounded-[2px] border border-rule-strong bg-surface-2 px-1 py-0.25 text-[9px] font-semibold tabular-nums text-bone-muted">
+                      {unsortedProject.vector_count}
+                    </span>
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={readOnly}
+                onClick={() => setCreateFolderOpen(true)}
+                className="inline-flex items-center gap-1 rounded-[2px] border border-dashed border-cobalt-rule/70 bg-cobalt-wash/40 px-2 py-0.5 font-mono text-[10px] font-medium text-cobalt-ink transition-colors hover:border-cobalt-rule hover:bg-cobalt-wash disabled:opacity-45"
+              >
+                <FolderPlus size={10} aria-hidden />
+                <span>{t("folders.newFolder")}</span>
+              </button>
+            </div>
 
             {/* Availability */}
             <div className="flex flex-wrap items-center gap-1.5">
@@ -786,6 +915,54 @@ export function LibraryView() {
           />
         )}
 
+        {/* Multi-select action bar */}
+        {selectedAssetsList.length > 0 && (
+          <div className="cobalt-panel-enter-up flex flex-wrap items-center justify-between gap-2.5 rounded-[2px] border border-cobalt-rule bg-surface px-4 py-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={toggleSelectAllDisplayed}
+                className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-2 py-1 font-mono text-[11px] text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:text-bone"
+              >
+                {allDisplayedSelected ? (
+                  <CheckSquare size={12} className="text-cobalt-ink" aria-hidden />
+                ) : (
+                  <Square size={12} aria-hidden />
+                )}
+                <span>
+                  {allDisplayedSelected ? t("unsorted.deselectAll") : t("unsorted.selectAll")}
+                </span>
+              </button>
+              <span className="font-mono text-xs tabular-nums text-bone">
+                {t("unsorted.selectedCount", {
+                  selected: selectedAssetsList.length,
+                  total: displayedAssets.length,
+                })}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={readOnly}
+                onClick={() => setMoveTarget({ mode: "bulk", assets: selectedAssetsList })}
+                className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-3 py-1.5 font-mono text-xs font-semibold text-on-accent transition-colors hover:bg-cobalt-bright disabled:opacity-45"
+              >
+                <FolderInput size={12} aria-hidden />
+                <span>{t("folders.moveSelectionAction")}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedAssetIds(new Set())}
+                aria-label={t("folders.clearSelection")}
+                title={t("folders.clearSelection")}
+                className="rounded-[2px] border border-rule-strong bg-surface-2 p-1.5 text-bone-muted hover:text-bone"
+              >
+                <X size={12} aria-hidden />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Results Grid */}
         {loading && displayedAssets.length === 0 ? (
           <div
@@ -843,20 +1020,11 @@ export function LibraryView() {
               const isVerifying = verifyingIds.has(asset.memory_id);
               const isBusy = busyId === asset.memory_id;
               const isUnsortedAsset = isUnsortedProjectName(asset.origin_project_name);
+              const originProject = asset.origin_project_id
+                ? (projectById.get(asset.origin_project_id) ?? null)
+                : null;
               const outrankedInfo = outrankedMap[asset.memory_id] ?? null;
-              const moveOpen = movingAssetId === asset.memory_id;
-              const moveOptions: SelectOption<string>[] =
-                isUnsortedAsset && asset.origin_project_id
-                  ? [
-                      {
-                        value: asset.origin_project_id,
-                        label: UNSORTED_PROJECT_NAME,
-                        detail: t("unsorted.shortDetail"),
-                        disabled: true,
-                      },
-                      ...projectOptions,
-                    ]
-                  : projectOptions;
+              const isSelected = selectedAssetIds.has(asset.memory_id);
               const pathCopyKey = `${asset.memory_id}:path`;
               const snippetCopyKey = `${asset.memory_id}:snippet`;
 
@@ -865,9 +1033,11 @@ export function LibraryView() {
                   key={asset.memory_id}
                   style={staggerStyle(idx, 24, 8)}
                   className={`cobalt-stagger-item flex flex-col justify-between rounded-[2px] border p-4 transition-colors hover:border-rule-strong ${
-                    outrankedInfo
-                      ? "border-ochre-rule/75 bg-surface/90"
-                      : "border-rule bg-surface"
+                    isSelected
+                      ? "border-cobalt-rule bg-cobalt-wash/25"
+                      : outrankedInfo
+                        ? "border-ochre-rule/75 bg-surface/90"
+                        : "border-rule bg-surface"
                   }`}
                 >
                   <div className="space-y-3">
@@ -877,6 +1047,19 @@ export function LibraryView() {
                         title={isUnsortedAsset ? t("unsorted.explanation") : undefined}
                         className="flex min-w-0 items-center gap-2 font-mono text-[11px] text-bone-muted"
                       >
+                        <button
+                          type="button"
+                          onClick={() => toggleAssetSelection(asset.memory_id)}
+                          aria-pressed={isSelected}
+                          aria-label={t("unsorted.selectMemoryAria")}
+                          className="shrink-0 text-bone-subtle transition-colors hover:text-bone"
+                        >
+                          {isSelected ? (
+                            <CheckSquare size={14} className="text-cobalt-ink" aria-hidden />
+                          ) : (
+                            <Square size={14} aria-hidden />
+                          )}
+                        </button>
                         <span
                           className="h-2.5 w-2.5 shrink-0 rounded-[1px]"
                           style={{
@@ -886,6 +1069,15 @@ export function LibraryView() {
                             ),
                           }}
                         />
+                        {!asset.origin_project_id ? (
+                          <Globe size={11} className="shrink-0 text-bone-subtle" aria-hidden />
+                        ) : isUnsortedAsset ? (
+                          <Inbox size={11} className="shrink-0 text-bone-subtle" aria-hidden />
+                        ) : isCodeProject(originProject) ? (
+                          <FolderCode size={11} className="shrink-0 text-bone-subtle" aria-hidden />
+                        ) : (
+                          <Folder size={11} className="shrink-0 text-bone-subtle" aria-hidden />
+                        )}
                         <span
                           className={`truncate font-medium ${
                             isUnsortedAsset ? "text-bone-subtle italic" : "text-bone"
@@ -1028,20 +1220,11 @@ export function LibraryView() {
                       <button
                         type="button"
                         disabled={readOnly || isBusy}
-                        onClick={() =>
-                          setMovingAssetId((curr) =>
-                            curr === asset.memory_id ? null : asset.memory_id,
-                          )
-                        }
-                        aria-expanded={moveOpen}
-                        className={`inline-flex items-center gap-1 rounded-[2px] border px-2 py-1 font-mono text-[10px] transition-colors disabled:opacity-45 ${
-                          moveOpen
-                            ? "border-cobalt-rule bg-cobalt-wash text-cobalt-ink"
-                            : "border-rule-strong bg-surface-2 text-bone-muted hover:border-cobalt-ink/60 hover:text-bone"
-                        }`}
+                        onClick={() => setMoveTarget({ mode: "single", asset })}
+                        className="inline-flex items-center gap-1 rounded-[2px] border border-rule-strong bg-surface-2 px-2 py-1 font-mono text-[10px] text-bone-muted transition-colors hover:border-cobalt-ink/60 hover:text-bone disabled:opacity-45"
                       >
                         <FolderInput size={11} aria-hidden />
-                        {t("unsorted.moveAction")}
+                        {t("folders.moveAction")}
                       </button>
 
                       {asset.source_doc_id && (
@@ -1070,33 +1253,6 @@ export function LibraryView() {
                         {t("library.retire")}
                       </button>
                     </div>
-
-                    {moveOpen && (
-                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-rule bg-void/80 px-2.5 py-2">
-                        <span className="font-mono text-[10px] text-bone-subtle">
-                          {t("unsorted.moveDestination")}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <Select<string>
-                            value={fromMemoryProjectId(asset.origin_project_id)}
-                            options={moveOptions}
-                            size="sm"
-                            align="right"
-                            className="w-44"
-                            disabled={readOnly || isBusy}
-                            ariaLabel={t("unsorted.moveAction")}
-                            onChange={(val) => void handleMoveAssetProject(asset, val)}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setMovingAssetId(null)}
-                            className="rounded-[2px] border border-rule px-2 py-1 font-mono text-[10px] text-bone-subtle hover:text-bone"
-                          >
-                            {t("common.cancel")}
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </article>
               );
@@ -1104,6 +1260,33 @@ export function LibraryView() {
           </div>
         )}
       </div>
+
+      {moveTarget && (
+        <FolderPickerDialog
+          mode="move"
+          title={
+            moveTarget.mode === "bulk"
+              ? t("folders.moveSelectionDialogTitle", { count: moveTarget.assets.length })
+              : t("folders.moveAction")
+          }
+          infoBanner={moveDialogInfo.banner}
+          infoFileName={moveDialogInfo.fileName}
+          currentProjectId={
+            moveTarget.mode === "single" ? moveTarget.asset.origin_project_id : undefined
+          }
+          initialProjects={projects}
+          onConfirm={handleConfirmMoveToFolder}
+          onCancel={() => setMoveTarget(null)}
+          onFolderCreated={() => void loadProjects()}
+        />
+      )}
+
+      {createFolderOpen && (
+        <CreateFolderDialog
+          onClose={() => setCreateFolderOpen(false)}
+          onCreated={() => void loadProjects()}
+        />
+      )}
     </div>
   );
 }

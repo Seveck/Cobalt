@@ -5,7 +5,11 @@ import {
   ChevronUp,
   Crosshair,
   Filter,
+  Folder,
+  FolderCode,
   FolderInput,
+  FolderPlus,
+  Globe,
   Inbox,
   Repeat,
   RotateCcw,
@@ -13,11 +17,14 @@ import {
   X,
 } from "lucide-react";
 import {
+  GENERAL_FOLDER_COLOR,
+  isCodeProject,
   splitProjects,
   UNSORTED_PROJECT_COLOR,
   UNSORTED_PROJECT_NAME,
 } from "@/lib/projects";
-import { matchesVisualFilters, useFiltersStore, useUiStore } from "@/stores";
+import { matchesVisualFilters, useFiltersStore, useSettingsStore, useUiStore } from "@/stores";
+import { CreateFolderDialog } from "@/components/projects/CreateFolderDialog";
 import {
   MEMORY_CATEGORIES,
   MEMORY_STATUSES,
@@ -37,6 +44,8 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
+  const [createFolderOpen, setCreateFolderOpen] = useState(false);
+  const readOnly = useSettingsStore((s) => s.settings.read_only);
 
   useEffect(() => {
     if (!expanded) return;
@@ -187,6 +196,11 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                           className="h-2 w-2 rounded-[1px]"
                           style={{ backgroundColor: project.color_hex }}
                         />
+                        {isCodeProject(project) ? (
+                          <FolderCode size={10} className="shrink-0 opacity-80" aria-hidden />
+                        ) : (
+                          <Folder size={10} className="shrink-0 opacity-80" aria-hidden />
+                        )}
                         <span>{project.name}</span>
                         <span className="tabular-nums opacity-70">{count}</span>
                       </button>
@@ -205,7 +219,7 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                     </div>
                   );
                 })}
-                {/* Global project chip */}
+                {/* General (project_id === null) chip */}
                 {(() => {
                   const globalCount = stats.projectCounts.get("global") ?? 0;
                   const active = filters.projectIds.includes(null);
@@ -231,7 +245,11 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                         }}
                         className="inline-flex items-center gap-1.5 px-2 py-0.5"
                       >
-                        <span className="h-2 w-2 rounded-[1px] bg-bone-subtle" />
+                        <span
+                          className="h-2 w-2 rounded-[1px]"
+                          style={{ backgroundColor: GENERAL_FOLDER_COLOR }}
+                        />
+                        <Globe size={10} className="shrink-0 opacity-80" aria-hidden />
                         <span>{t("brain.globalScope")}</span>
                         <span className="tabular-nums opacity-70">{globalCount}</span>
                       </button>
@@ -316,6 +334,16 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
                       </div>
                     );
                   })()}
+                {/* "+ Nueva carpeta" button */}
+                <button
+                  type="button"
+                  disabled={readOnly}
+                  onClick={() => setCreateFolderOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-[2px] border border-dashed border-cobalt-rule/70 bg-cobalt-wash/40 px-2 py-0.5 font-mono text-[10px] font-medium text-cobalt-ink transition-colors hover:border-cobalt-rule hover:bg-cobalt-wash disabled:opacity-45"
+                >
+                  <FolderPlus size={10} aria-hidden />
+                  <span>{t("folders.newFolder")}</span>
+                </button>
               </div>
             </div>
 
@@ -581,7 +609,13 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
           >
             <Crosshair size={10} aria-hidden />
             <span>
-              {t("filterDock.soloBadge")}: {filters.solo.value}
+              {t("filterDock.soloBadge")}:{" "}
+              {filters.solo.dimension === "project"
+                ? filters.solo.value === "global"
+                  ? t("brain.globalScope")
+                  : (projects.find((p) => p.project.id === filters.solo?.value)?.project.name ??
+                    filters.solo.value)
+                : filters.solo.value}
             </span>
             <X size={10} aria-hidden />
           </button>
@@ -606,6 +640,10 @@ export function FilterDock({ nodes, projects }: FilterDockProps) {
           </button>
         )}
       </div>
+
+      {createFolderOpen && (
+        <CreateFolderDialog onClose={() => setCreateFolderOpen(false)} />
+      )}
     </div>
   );
 }

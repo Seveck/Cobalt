@@ -1,4 +1,4 @@
-import { resolveProjectColor } from "@/lib/projects";
+import { GENERAL_FOLDER_COLOR, resolveProjectColor } from "@/lib/projects";
 import type {
   GraphNode,
   LayoutFn,
@@ -9,7 +9,7 @@ import type {
 } from "@/types/contracts";
 
 const GLOBAL_KEY = "__global__";
-const GLOBAL_COLOR = "#94A3B8";
+const GLOBAL_COLOR = GENERAL_FOLDER_COLOR;
 
 /**
  * Pure deterministic `project_clusters` layout (`LayoutFn`).
@@ -51,7 +51,7 @@ export const projectClustersLayout: LayoutFn = ({ nodes, projects, params, sizeM
     const metricVal = sizeMetric === "tokens" ? Math.max(1, totalTokens) : Math.max(1, vectorCount);
     const meta =
       key === GLOBAL_KEY
-        ? { label: "Global", color: GLOBAL_COLOR }
+        ? { label: "General", color: GLOBAL_COLOR }
         : (projectMeta.get(key) ?? { label: key.slice(0, 8), color: "#3B82F6" });
     return {
       key,

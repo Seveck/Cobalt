@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { Pin, Repeat } from "lucide-react";
-import { isUnsortedProject, resolveProjectColor } from "@/lib/projects";
+import { Folder, FolderCode, Globe, Inbox, Pin, Repeat } from "lucide-react";
+import { isCodeProject, isUnsortedProject, resolveProjectColor } from "@/lib/projects";
 import type { GraphNode, Project } from "@/types/contracts";
 
 export interface TooltipPointer {
@@ -52,6 +52,15 @@ export function NodeTooltip({
             className="h-2 w-2 shrink-0 rounded-[1px]"
             style={{ backgroundColor: resolveProjectColor(project) }}
           />
+          {!project ? (
+            <Globe size={11} className="shrink-0 text-bone-subtle" aria-hidden />
+          ) : isUnsortedProject(project) ? (
+            <Inbox size={11} className="shrink-0 text-bone-subtle" aria-hidden />
+          ) : isCodeProject(project) ? (
+            <FolderCode size={11} className="shrink-0 text-bone-subtle" aria-hidden />
+          ) : (
+            <Folder size={11} className="shrink-0 text-bone-subtle" aria-hidden />
+          )}
           <span
             className={`truncate font-mono text-[11px] font-medium ${
               isUnsortedProject(project) ? "text-bone-subtle italic" : "text-bone-muted"

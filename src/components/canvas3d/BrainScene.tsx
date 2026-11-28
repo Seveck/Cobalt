@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { isTauri } from "@/lib/ipc";
-import { resolveProjectColor } from "@/lib/projects";
+import { GENERAL_FOLDER_COLOR, resolveProjectColor } from "@/lib/projects";
 import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 import {
   matchesVisualFilters,
@@ -210,11 +210,12 @@ export interface BrainSceneProps {
   searchQuery: string;
   hoveredNodeId: Uuid | null;
   selectedNodeId: Uuid | null;
+  selectedNodeIds: ReadonlySet<Uuid>;
   highlightedNodeIds: ReadonlySet<Uuid>;
   resetSignal: number;
   centerViewSignal: number;
   onHoverNode: (node: GraphNode | null) => void;
-  onSelectNode: (node: GraphNode | null) => void;
+  onSelectNode: (node: GraphNode | null, additive?: boolean) => void;
   onContainersChange?: (containers: readonly ProjectContainer[]) => void;
   onPulseVisibilityChange?: (summary: PulseVisibilitySummary | null) => void;
   onNodesInViewChange?: (anyInView: boolean) => void;
@@ -227,9 +228,13 @@ function resolveNodeColorHex(
   projectColors: ReadonlyMap<string, string>,
 ): string {
   if (node.is_core_pin) return manifest.palette.core_pin;
-  if (activeLayout === "project_clusters" && node.project_id) {
-    const projHex = projectColors.get(node.project_id);
-    if (projHex) return projHex;
+  if (activeLayout === "project_clusters") {
+    if (node.project_id) {
+      const projHex = projectColors.get(node.project_id);
+      if (projHex) return projHex;
+    } else {
+      return GENERAL_FOLDER_COLOR;
+    }
   }
   if (node.is_reusable) return manifest.palette.reusable;
   return manifest.palette.category_colors[node.category] ?? manifest.palette.node;
@@ -396,6 +401,7 @@ export const BrainScene = memo(function BrainScene({
   searchQuery,
   hoveredNodeId,
   selectedNodeId,
+  selectedNodeIds,
   highlightedNodeIds,
   resetSignal,
   centerViewSignal,
@@ -1242,7 +1248,7 @@ export const BrainScene = memo(function BrainScene({
 
       const visible = matchesVisualFilters(node, filters, searchQuery);
       const isHovered = node.id === hoveredNodeId;
-      const isSelected = node.id === selectedNodeId;
+      const isSelected = node.id === selectedNodeId || selectedNodeIds.has(node.id);
       const isHighlighted = highlightedNodeIds.has(node.id);
 
       if (!visible) {
@@ -1298,6 +1304,7 @@ export const BrainScene = memo(function BrainScene({
     projectColorMap,
     searchQuery,
     selectedNodeId,
+    selectedNodeIds,
   ]);
 
   // Synchronize volumetric InstancedMesh buffers whenever nodes/filters/focus/layout/shape change
@@ -1324,6 +1331,7 @@ export const BrainScene = memo(function BrainScene({
     manifest,
     searchQuery,
     selectedNodeId,
+    selectedNodeIds,
     writeVolumetricInstance,
   ]);
 
@@ -1740,7 +1748,7 @@ export const BrainScene = memo(function BrainScene({
       if (dist > 5) return;
 
       const node = pickAtEvent(e);
-      onSelectRef.current(node);
+      onSelectRef.current(node, e.shiftKey || e.ctrlKey || e.metaKey);
     };
 
     const handlePointerLeave = () => {

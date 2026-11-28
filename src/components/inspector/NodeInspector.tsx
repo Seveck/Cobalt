@@ -9,9 +9,12 @@ import {
   Eye,
   EyeOff,
   FileCheck2,
+  Folder,
+  FolderCode,
   FolderInput,
   FolderSync,
   GitBranch,
+  Globe,
   History,
   Inbox,
   KeyRound,
@@ -32,14 +35,14 @@ import {
 import { backendCall } from "@/lib/backend";
 import { copyToClipboard, pickSinglePath } from "@/lib/dialogs";
 import { formatAiClientName } from "@/lib/format";
+import { extractFileName } from "@/lib/ingest";
 import { IpcError } from "@/lib/ipc";
 import {
-  fromMemoryProjectId,
-  GLOBAL_PROJECT_SENTINEL,
+  countDocumentFragments,
+  formatMoveReportToast,
+  isCodeProject,
   isUnsortedProject,
   resolveProjectColor,
-  splitProjects,
-  toPatchProjectId,
   UNSORTED_PROJECT_COLOR,
   UNSORTED_PROJECT_NAME,
 } from "@/lib/projects";
@@ -50,6 +53,7 @@ import {
   useSettingsStore,
   useThemeStore,
 } from "@/stores";
+import { FolderPickerDialog } from "@/components/projects/FolderPickerDialog";
 import { Select, Skeleton, Toggle, type SelectOption } from "@/components/ui";
 import {
   MEMORY_CATEGORIES,
@@ -140,6 +144,7 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
   const [confidenceDraft, setConfidenceDraft] = useState(1);
   const [snippetDraft, setSnippetDraft] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
 
   // Vault / Encryption state
   const [revealedPlaintext, setRevealedPlaintext] = useState<string | null>(null);
@@ -223,8 +228,6 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
     return [...byId.values()];
   }, [extraProjects, graph?.projects]);
 
-  const { regular: regularProjects } = useMemo(() => splitProjects(allProjects), [allProjects]);
-
   const currentProject = useMemo(() => {
     if (!memory?.project_id) return null;
     return allProjects.find((s) => s.project.id === memory.project_id)?.project ?? null;
@@ -232,51 +235,29 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
 
   const isInUnsorted = isUnsortedProject(currentProject);
 
-  const projectOptions = useMemo<SelectOption<string>[]>(() => {
-    const opts: SelectOption<string>[] = [];
-    if (isInUnsorted && currentProject) {
-      opts.push({
-        value: currentProject.id,
-        label: UNSORTED_PROJECT_NAME,
-        detail: t("unsorted.shortDetail"),
-        disabled: true,
-      });
-    }
-    opts.push({ value: GLOBAL_PROJECT_SENTINEL, label: t("brain.globalScope") });
-    for (const stat of regularProjects) {
-      if (stat.project.is_archived && stat.project.id !== memory?.project_id) continue;
-      opts.push({
-        value: stat.project.id,
-        label: stat.project.name,
-      });
-    }
-    return opts;
-  }, [currentProject, isInUnsorted, memory?.project_id, regularProjects, t]);
+  const docFragmentCount = useMemo(() => {
+    if (!memory?.source_doc_id) return 0;
+    return countDocumentFragments(graph?.nodes, memory.source_doc_id);
+  }, [graph?.nodes, memory?.source_doc_id]);
 
-  const handleMoveToProject = async (targetValue: string) => {
+  const handleConfirmMoveToFolder = async (
+    targetProjectId: Uuid | null,
+    targetName: string,
+  ) => {
     if (!memory || readOnly) return;
-    const nextProjectId = toPatchProjectId(targetValue);
-    if (nextProjectId === memory.project_id) return;
-    const targetName =
-      nextProjectId === null
-        ? t("brain.globalScope")
-        : (regularProjects.find((p) => p.project.id === nextProjectId)?.project.name ??
-          t("brain.globalScope"));
-    setBusy(true);
     setError(null);
-    try {
-      const updated = await backendCall("patch_memory", {
-        id: memory.id,
-        patch: { project_id: nextProjectId },
-      });
-      setMemory(updated);
-      await loadGraph();
-      flashNotice(t("unsorted.movedOneNotice", { project: targetName }));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
+    const report = await backendCall("move_to_project", {
+      ...(memory.source_doc_id
+        ? { source_doc_ids: [memory.source_doc_id] }
+        : { memory_ids: [memory.id] }),
+      project_id: targetProjectId,
+    });
+    setMoveDialogOpen(false);
+    await Promise.all([loadGraph(), loadDetails()]);
+    pushThemeToast({
+      kind: "saved",
+      message: formatMoveReportToast(report, targetName, t),
+    });
   };
 
   const categoryOptions = useMemo<SelectOption<MemoryCategory>[]>(
@@ -684,21 +665,16 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center justify-between gap-2 border-t border-rule pt-2">
-                  <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-bone-subtle">
-                    <FolderInput size={11} aria-hidden />
-                    {t("unsorted.moveAction")}
-                  </span>
-                  <Select<string>
-                    value={fromMemoryProjectId(memory.project_id)}
-                    options={projectOptions}
+                <div className="flex items-center justify-end border-t border-rule pt-2">
+                  <button
+                    type="button"
                     disabled={readOnly || busy}
-                    size="sm"
-                    align="right"
-                    className="w-44"
-                    ariaLabel={t("unsorted.moveAction")}
-                    onChange={(val) => void handleMoveToProject(val)}
-                  />
+                    onClick={() => setMoveDialogOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-[2px] border border-cobalt-rule bg-cobalt px-2.5 py-1 font-mono text-[11px] font-semibold text-on-accent transition-colors hover:bg-cobalt-bright disabled:opacity-45"
+                  >
+                    <FolderInput size={11} aria-hidden />
+                    <span>{t("folders.moveAction")}</span>
+                  </button>
                 </div>
               </div>
             )}
@@ -719,10 +695,28 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                     style={{ backgroundColor: resolveProjectColor(currentProject) }}
                     aria-hidden
                   />
+                  {!currentProject ? (
+                    <Globe size={10} className="shrink-0 opacity-80" aria-hidden />
+                  ) : isInUnsorted ? (
+                    <Inbox size={10} className="shrink-0 opacity-80" aria-hidden />
+                  ) : isCodeProject(currentProject) ? (
+                    <FolderCode size={10} className="shrink-0 opacity-80" aria-hidden />
+                  ) : (
+                    <Folder size={10} className="shrink-0 opacity-80" aria-hidden />
+                  )}
                   <span className="max-w-[140px] truncate">
                     {currentProject ? currentProject.name : t("brain.globalScope")}
                   </span>
                 </span>
+                <button
+                  type="button"
+                  disabled={readOnly || busy}
+                  onClick={() => setMoveDialogOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-[2px] border border-rule-strong bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-bone-muted transition-colors hover:border-cobalt-rule hover:bg-cobalt-wash hover:text-cobalt-ink disabled:opacity-45"
+                >
+                  <FolderInput size={10} aria-hidden />
+                  <span>{t("folders.moveAction")}</span>
+                </button>
                 <span className="rounded-[2px] border border-rule-strong bg-surface-2 px-1.5 py-0.5 uppercase text-bone-muted">
                   {memory.source_type}
                 </span>
@@ -1083,22 +1077,21 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
                 {t("inspector.governanceSection")}
               </h3>
 
-              {/* Move to project (`patch_memory` project_id) */}
+              {/* Move to folder (`move_to_project`) */}
               <div className="flex items-center justify-between gap-3">
                 <span className="inline-flex items-center gap-1.5 text-xs text-bone-muted">
                   <FolderInput size={12} className="text-cobalt-ink" aria-hidden />
-                  {t("unsorted.moveAction")}
+                  {t("folders.folderLabel")}
                 </span>
-                <Select<string>
-                  value={fromMemoryProjectId(memory.project_id)}
-                  options={projectOptions}
+                <button
+                  type="button"
                   disabled={readOnly || busy}
-                  size="sm"
-                  align="right"
-                  className="w-40"
-                  ariaLabel={t("unsorted.moveAction")}
-                  onChange={(val) => void handleMoveToProject(val)}
-                />
+                  onClick={() => setMoveDialogOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-[2px] border border-rule-strong bg-surface-2 px-2.5 py-1 font-mono text-[11px] text-bone transition-colors hover:border-cobalt-rule hover:bg-cobalt-wash hover:text-cobalt-ink disabled:opacity-45"
+                >
+                  <FolderInput size={11} aria-hidden />
+                  <span>{t("folders.moveAction")}</span>
+                </button>
               </div>
 
               {/* Category */}
@@ -1357,6 +1350,23 @@ export function NodeInspector({ memoryId, onClose }: NodeInspectorProps) {
             await handleArchiveToggle();
           }}
           onConfirmDelete={handleDelete}
+        />
+      )}
+
+      {moveDialogOpen && memory && (
+        <FolderPickerDialog
+          mode="move"
+          title={t("folders.moveAction")}
+          infoBanner={
+            memory.source_doc_id
+              ? t("folders.moveWholeDocumentNotice", { count: docFragmentCount })
+              : null
+          }
+          infoFileName={sourceDoc ? extractFileName(sourceDoc.file_path) : null}
+          currentProjectId={memory.project_id}
+          initialProjects={allProjects}
+          onConfirm={handleConfirmMoveToFolder}
+          onCancel={() => setMoveDialogOpen(false)}
         />
       )}
     </aside>
