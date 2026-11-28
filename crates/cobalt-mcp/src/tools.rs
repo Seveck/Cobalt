@@ -1,4 +1,4 @@
-//! The 9 MCP tools (`docs/MCP_SPEC.md` §2): docstrings, JSON input schemas and handlers.
+//! The 10 MCP tools (`docs/MCP_SPEC.md` §2): docstrings, JSON input schemas and handlers.
 //! Every handler applies the same pipeline: read-only check (writes) → Secret Scrubber →
 //! Token Firewall → store → telemetry → live `cobalt://mcp-activity` event.
 
@@ -38,7 +38,7 @@ pub struct ToolSpec {
     pub read_only: bool,
 }
 
-pub const TOOLS: [ToolSpec; 9] = [
+pub const TOOLS: [ToolSpec; 10] = [
     ToolSpec {
         name: TOOL_SEARCH_MEMORY,
         read_only: true,
@@ -83,6 +83,11 @@ pub const TOOLS: [ToolSpec; 9] = [
         name: TOOL_CREATE_THEME,
         read_only: false,
         description: "Design a Cobalt app theme when the user asks (data only, validated by Cobalt). Send a full manifest: id, name, layout_type, palette colors and ui {mode, base_hue, base_tint, contrast, accent, radius, density}. Spec: GET http://127.0.0.1:7437/api/v1/guide section 7. apply=true only if the user asked to switch now.",
+    },
+    ToolSpec {
+        name: TOOL_ORGANIZE,
+        read_only: false,
+        description: "Only when the user asks, organize memory into folders: list_folders, create_folder, move (memory_ids from search_memory; moves whole files) or import (absolute paths). Ask first if the folder or items are ambiguous.",
     },
 ];
 
@@ -195,6 +200,16 @@ pub fn input_schema(name: &str) -> Value {
             },
             "required": ["manifest"], "additionalProperties": false
         }),
+        TOOL_ORGANIZE => json!({
+            "type": "object",
+            "properties": {
+                "action": { "type": "string", "enum": ["list_folders", "create_folder", "move", "import"] },
+                "folder": { "type": "string", "description": "Folder name or 'global'; must exist for move/import." },
+                "memory_ids": { "type": "array", "items": { "type": "string", "format": "uuid" }, "maxItems": 200 },
+                "paths": { "type": "array", "items": { "type": "string" }, "maxItems": 20 }
+            },
+            "required": ["action"], "additionalProperties": false
+        }),
         TOOL_RESUME_HANDOFF | TOOL_LIST_PROJECT_RULES => json!({
             "type": "object",
             "properties": { "project": project_prop() },
@@ -264,6 +279,7 @@ impl Daemon {
             TOOL_LIST_PROJECT_RULES => self.tool_list_project_rules(parse(args)?, ctx).await,
             TOOL_ARCHIVE_MEMORY => self.tool_archive_memory(parse(args)?, ctx).await,
             TOOL_CREATE_THEME => self.tool_create_theme(parse(args)?, ctx).await,
+            TOOL_ORGANIZE => self.tool_organize(parse(args)?, ctx).await,
             other => Err(CobaltError::NotFound(format!("tool '{other}'"))),
         }
     }
@@ -711,6 +727,190 @@ impl Daemon {
                 out.name
             )
         };
+        structured(text, &out)
+    }
+
+    async fn tool_organize(&self, args: OrganizeInput, ctx: &ClientContext) -> Result<ToolOutput> {
+        let started = Instant::now();
+        if args.action == OrganizeAction::ListFolders {
+            self.guard_read(ctx)?;
+            let folders: Vec<FolderSummary> = self
+                .store()
+                .list_projects(false)
+                .await?
+                .into_iter()
+                .map(folder_summary)
+                .collect();
+            let mut text = format!("[cobalt] {} folders (plus 'global'):", folders.len());
+            for f in &folders {
+                text.push_str(&format!("\n- {} ({} memories)", f.name, f.memory_count));
+            }
+            let out = OrganizeOutput {
+                action: args.action,
+                folder: None,
+                folders,
+                created: false,
+                moved: None,
+                imported: None,
+            };
+            return structured(text, &out);
+        }
+        self.guard_writable(ctx)?;
+        let name = args
+            .folder
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .ok_or_else(|| CobaltError::InvalidInput("'folder' is required".into()))?;
+        let global = name.eq_ignore_ascii_case("global");
+        let existing = if global {
+            None
+        } else {
+            self.store().find_project_by_name(name).await?
+        };
+        let mut created = false;
+        let project = match (args.action, existing) {
+            (_, Some(p)) => Some(p),
+            (OrganizeAction::CreateFolder, None) if !global => {
+                created = true;
+                Some(
+                    self.store()
+                        .create_project(cobalt_core::model::NewProject {
+                            name: name.to_owned(),
+                            root_path: None,
+                            color_hex: None,
+                        })
+                        .await?,
+                )
+            }
+            (_, None) if global => None,
+            (_, None) => {
+                return Err(CobaltError::NotFound(format!(
+                    "folder '{name}' (use list_folders, or create_folder if the user asked for a new one)"
+                )));
+            }
+        };
+        let project_id = project.as_ref().map(|p| p.id);
+        let label = project
+            .as_ref()
+            .map_or("global", |p| p.name.as_str())
+            .to_owned();
+        let mut out = OrganizeOutput {
+            action: args.action,
+            folder: None,
+            folders: Vec::new(),
+            created,
+            moved: None,
+            imported: None,
+        };
+        let text = match args.action {
+            OrganizeAction::ListFolders => unreachable!("handled above"),
+            OrganizeAction::CreateFolder => {
+                if created {
+                    format!("[cobalt] folder \"{label}\" created.")
+                } else {
+                    format!("[cobalt] folder \"{label}\" already exists.")
+                }
+            }
+            OrganizeAction::Move => {
+                if args.memory_ids.is_empty() {
+                    return Err(CobaltError::InvalidInput("'memory_ids' is required".into()));
+                }
+                let mut req = cobalt_core::model::MoveToProjectRequest {
+                    project_id,
+                    ..Default::default()
+                };
+                for id in &args.memory_ids {
+                    let memory = self
+                        .store()
+                        .get_memory(*id)
+                        .await?
+                        .ok_or_else(|| CobaltError::NotFound(format!("memory {id}")))?;
+                    match memory.source_doc_id {
+                        Some(doc) if !req.source_doc_ids.contains(&doc) => {
+                            req.source_doc_ids.push(doc);
+                        }
+                        Some(_) => {}
+                        None => req.memory_ids.push(memory.id),
+                    }
+                }
+                let report = {
+                    let _slot = self.write_slot().await;
+                    self.store().move_to_project(req).await?
+                };
+                self.emit_memory_changed(MemoryChanged {
+                    kind: MemoryChangeKind::Updated,
+                    memory_ids: args.memory_ids.clone(),
+                    source_client: Some(ctx.client_name.clone()),
+                });
+                let text = format!(
+                    "[cobalt] moved to \"{label}\": {} memories, {} files{}.",
+                    report.memories,
+                    report.documents,
+                    if report.merged > 0 {
+                        format!(" ({} were already there and were merged)", report.merged)
+                    } else {
+                        String::new()
+                    }
+                );
+                out.moved = Some(report);
+                text
+            }
+            OrganizeAction::Import => {
+                if args.paths.is_empty() {
+                    return Err(CobaltError::InvalidInput("'paths' is required".into()));
+                }
+                for path in &args.paths {
+                    check_importable(path)?;
+                }
+                let importer = self.file_importer().ok_or_else(|| {
+                    CobaltError::Unsupported(
+                        "files can only be imported while the Cobalt app runs".into(),
+                    )
+                })?;
+                let report = importer
+                    .import_files(args.paths.clone(), project_id, &ctx.client_name)
+                    .await?;
+                let mut text = format!(
+                    "[cobalt] imported into \"{label}\": {} new files, {} updated, {} unchanged, {} memories.",
+                    report.documents_created,
+                    report.documents_updated,
+                    report.documents_unchanged,
+                    report.memories_created
+                );
+                for issue in report.errors.iter().take(5) {
+                    text.push_str(&format!("\n! {}: {}", issue.path, issue.message));
+                }
+                out.imported = Some(report);
+                text
+            }
+        };
+        if let Some(p) = &project {
+            out.folder = self
+                .store()
+                .list_projects(false)
+                .await?
+                .into_iter()
+                .find(|s| s.project.id == p.id)
+                .map(folder_summary);
+        }
+        let operation = if args.action == OrganizeAction::Import {
+            TelemetryOperation::Write
+        } else {
+            TelemetryOperation::Update
+        };
+        let query = format!("organize {}: {label}", action_name(args.action));
+        self.record(
+            ctx,
+            operation,
+            Some(query),
+            Vec::new(),
+            0,
+            0,
+            started,
+            project_id,
+        )
+        .await?;
         structured(text, &out)
     }
 
@@ -1191,6 +1391,71 @@ impl Daemon {
     }
 }
 
+fn folder_summary(stats: cobalt_core::model::ProjectStats) -> FolderSummary {
+    FolderSummary {
+        id: stats.project.id,
+        name: stats.project.name,
+        root_path: stats.project.root_path,
+        memory_count: stats.vector_count,
+    }
+}
+
+fn action_name(action: OrganizeAction) -> &'static str {
+    match action {
+        OrganizeAction::ListFolders => "list_folders",
+        OrganizeAction::CreateFolder => "create_folder",
+        OrganizeAction::Move => "move",
+        OrganizeAction::Import => "import",
+    }
+}
+
+/// File names never imported by an AI: keys, credentials and environment files.
+const SECRET_NAMES: [&str; 8] = [
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
+    "credentials",
+    "known_hosts",
+    "authorized_keys",
+    "secrets",
+    "keychain",
+];
+const SECRET_EXTENSIONS: [&str; 8] = ["pem", "key", "p12", "pfx", "kdbx", "gpg", "asc", "keystore"];
+
+/// `organize` import guard: absolute existing paths, no hidden components (`.ssh`, `.env`, …)
+/// and no key/credential files, so an AI cannot pull secrets into memory other AIs can read.
+fn check_importable(raw: &str) -> Result<()> {
+    let path = Path::new(raw);
+    if !path.is_absolute() {
+        return Err(CobaltError::InvalidInput(format!(
+            "'{raw}' is not an absolute path"
+        )));
+    }
+    let hidden = path.components().any(
+        |c| matches!(c, std::path::Component::Normal(s) if s.to_string_lossy().starts_with('.')),
+    );
+    let name = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let ext = path
+        .extension()
+        .map(|s| s.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if hidden
+        || SECRET_NAMES.iter().any(|s| name == *s)
+        || SECRET_EXTENSIONS.contains(&ext.as_str())
+    {
+        return Err(CobaltError::PermissionDenied(format!(
+            "'{raw}' looks private (hidden path or key/credential file); the user can import it from the Cobalt app"
+        )));
+    }
+    if !path.exists() {
+        return Err(CobaltError::NotFound(format!("'{raw}' does not exist")));
+    }
+    Ok(())
+}
+
 fn savings_of(log: &TelemetryLog) -> TokenSavings {
     TokenSavings {
         injected_tokens: log.injected_tokens,
@@ -1233,7 +1498,8 @@ mod schema_budget {
         serde_json::to_string(&json!({ "tools": tools })).unwrap()
     }
 
-    /// Guards the fixed per-session cost of Cobalt's tool schemas (v1.17.0). ~4 chars/token.
+    /// Guards the fixed per-session cost of Cobalt's tool schemas (v1.17.0; `organize` v1.18.0).
+    /// ~4 chars/token.
     #[test]
     fn default_tool_schemas_stay_small() {
         let core = advertised_json(&CORE_TOOLS);
@@ -1251,7 +1517,7 @@ mod schema_budget {
             core.len()
         );
         assert!(
-            all.len() <= 7_000,
+            all.len() <= 7_400,
             "all tool schemas grew to {} chars",
             all.len()
         );

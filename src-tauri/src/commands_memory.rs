@@ -256,6 +256,29 @@ pub async fn find_duplicates(state: State<'_, AppState>) -> CmdResult<Vec<Duplic
     state.store().find_duplicates().await
 }
 
+/// Pairs of memories that look contradictory (Limpiar cerebro → Contradicciones, v1.15.0).
+#[tauri::command]
+pub async fn find_conflicts(
+    state: State<'_, AppState>,
+) -> CmdResult<Vec<cobalt_core::model::ConflictPair>> {
+    state.store().find_conflicts(50).await
+}
+
+/// Moves memories and whole documents to another folder/project (v1.18.0).
+#[tauri::command]
+pub async fn move_to_project(
+    state: State<'_, AppState>,
+    args: cobalt_core::model::MoveToProjectRequest,
+) -> CmdResult<cobalt_core::model::MoveReport> {
+    let ids = args.memory_ids.clone();
+    let report = {
+        let _slot = state.daemon.write_slot().await;
+        state.store().move_to_project(args).await?
+    };
+    changed(&state, MemoryChangeKind::Updated, ids);
+    Ok(report)
+}
+
 #[tauri::command]
 pub async fn merge_duplicates(
     state: State<'_, AppState>,

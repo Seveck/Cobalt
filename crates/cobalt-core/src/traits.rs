@@ -96,6 +96,18 @@ pub trait ProjectRepository: Send + Sync {
     ) -> Result<Option<Project>>;
     async fn create_project(&self, new: NewProject) -> Result<Project>;
     async fn update_project(&self, id: Id, patch: ProjectPatch) -> Result<Project>;
+    /// Moves memories and whole source documents (with all their memories) to `project_id`
+    /// (`None` = global), keeping search indexes in sync (v1.18.0). A moved memory whose exact
+    /// content already exists in the target is superseded by that copy (never duplicated).
+    async fn move_to_project(
+        &self,
+        req: crate::model::MoveToProjectRequest,
+    ) -> Result<crate::model::MoveReport> {
+        let _ = req;
+        Err(crate::error::CobaltError::Unsupported(
+            "moving memories between projects".into(),
+        ))
+    }
 }
 
 #[async_trait]
@@ -354,6 +366,20 @@ pub trait ThemeService: Send + Sync {
         apply: bool,
         source_client: &str,
     ) -> Result<crate::model::InstalledTheme>;
+}
+
+/// Imports files for the MCP `organize` tool (contract v1.18.0). Implemented by the desktop app,
+/// which owns the ingest pipeline; the daemon calls it for `organize` action `import`.
+#[async_trait]
+pub trait FileImporter: Send + Sync {
+    /// Ingests `paths` (files or folders, `.memoryignore` honored) into `project_id`
+    /// (`None` = global) under the daemon's write slot and announces the change to the UI.
+    async fn import_files(
+        &self,
+        paths: Vec<String>,
+        project_id: Option<Id>,
+        source_client: &str,
+    ) -> Result<crate::transfer::IngestReport>;
 }
 
 // ===================================================================== ingestion

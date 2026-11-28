@@ -189,6 +189,11 @@ pub fn run() {
                 .set_theme_service(Arc::new(commands_admin::AppThemeService {
                     app: handle.clone(),
                 }));
+            state
+                .daemon
+                .set_file_importer(Arc::new(commands_ingest::AppFileImporter {
+                    app: handle.clone(),
+                }));
             if let Err(err) = tauri::async_runtime::block_on(state.start_servers()) {
                 tracing::error!(%err, "daemon servers not started");
             }
@@ -253,6 +258,8 @@ pub fn run() {
             commands_memory::delete_snapshot,
             commands_memory::find_duplicates,
             commands_memory::merge_duplicates,
+            commands_memory::find_conflicts,
+            commands_memory::move_to_project,
             commands_memory::archive_memories,
             commands_memory::restore_memories,
             commands_memory::get_read_only,

@@ -1,4 +1,11 @@
-# Cobalt — Frozen Contracts (v1.17.0)
+# Cobalt — Frozen Contracts (v1.18.0)
+
+> v1.18.0 (additive): folders — a "carpeta" is a project (`root_path` may be `null`).
+> `ProjectRepository::move_to_project(MoveToProjectRequest) -> MoveReport` (memories and whole
+> source documents, indexes kept in sync, exact duplicates in the target supersede the moved
+> copy), IPC `move_to_project`, trait `FileImporter` (desktop app; used by MCP), optional MCP tool
+> `organize` (`list_folders` | `create_folder` | `move` | `import`, MCP_SPEC §2.10); IPC
+> `find_conflicts` is now registered.
 
 > v1.17.0: MCP tool profile — `CORE_TOOLS` always advertised, `OPTIONAL_TOOLS` only when listed
 > in `McpSettings.optional_tools`; shorter tool descriptions/schemas (≈60 % fewer schema tokens).

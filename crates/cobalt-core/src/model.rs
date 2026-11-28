@@ -82,6 +82,27 @@ pub struct NewProject {
     pub color_hex: Option<String>,
 }
 
+/// IPC `move_to_project` (v1.18.0): "carpetas" are projects; this moves items between them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct MoveToProjectRequest {
+    #[serde(default)]
+    pub memory_ids: Vec<Id>,
+    /// Whole documents: the document and every memory extracted from it move together.
+    #[serde(default)]
+    pub source_doc_ids: Vec<Id>,
+    /// `None` = global.
+    pub project_id: Option<Id>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct MoveReport {
+    /// Memories now in the target (including those of moved documents).
+    pub memories: u64,
+    pub documents: u64,
+    /// Moved memories superseded by an identical memory already in the target.
+    pub merged: u64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProjectPatch {
     pub name: Option<String>,

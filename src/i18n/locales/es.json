@@ -709,6 +709,10 @@
         "create_theme": {
           "label": "Crear temas",
           "desc": "Permite pedirle a tu IA que diseñe un tema para Cobalt."
+        },
+        "organize": {
+          "label": "Organizar en carpetas",
+          "desc": "Permite pedirle a tu IA que cree carpetas, mueva memorias y documentos entre ellas o importe archivos de tu equipo. La IA puede equivocarse: sé muy específico con lo que le pides (qué archivos y qué carpeta)."
         }
       }
     }

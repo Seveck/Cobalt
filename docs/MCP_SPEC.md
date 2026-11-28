@@ -27,7 +27,7 @@ Owner: **[CLAUDE]** (`crates/cobalt-mcp`). Rust DTOs: `cobalt_core::mcp`.
 To keep the fixed per-session schema cost low, `tools/list` advertises the six **core** tools
 (`search_memory`, `save_memory`, `update_memory`, `create_handoff`, `resume_handoff`,
 `list_project_rules`; ≈1,000 tokens). The **optional** tools (`search_reusable_assets`,
-`archive_memory`, `create_theme`) appear only when the user enables them in Cobalt > Conectores
+`archive_memory`, `create_theme`, `organize`) appear only when the user enables them in Cobalt > Conectores
 (`McpSettings.optional_tools`); calling a disabled one returns `permission_denied`. Annotations
 are sent only where they differ from MCP defaults. A unit test caps the advertised size.
 
@@ -226,6 +226,35 @@ calm sunset theme"). Themes are data only; send a complete manifest (THEME_SPEC 
   `cobalt://themes-changed` so the UI shows "Tema creado por <client>".
 - Blocked in Read-Only mode; `unsupported` when only the headless daemon runs.
 - Output: `CreateThemeOutput { theme_id, name, applied }`.
+
+### 2.10 `organize` (contract v1.18.0, optional)
+
+**Docstring** (abridged): only when the user asks, organize their memory into folders. A folder
+is a project (`global` = shared space). Ask the user when the folder or items are ambiguous.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": { "enum": ["list_folders", "create_folder", "move", "import"] },
+    "folder": { "type": "string" },
+    "memory_ids": { "type": "array", "items": { "format": "uuid" }, "maxItems": 200 },
+    "paths": { "type": "array", "items": { "type": "string" }, "maxItems": 20 }
+  },
+  "required": ["action"]
+}
+```
+- `list_folders` needs read access; the other actions need read_write and fail in Read-Only mode.
+- `move`/`import` never create folders implicitly (`not_found` → the AI must `create_folder`
+  only if the user asked for a new one). `move` resolves each memory: one extracted from a file
+  moves the whole document with all its memories (`ProjectRepository::move_to_project`).
+- `import` goes through the desktop app's `FileImporter` (same pipeline and progress events as a
+  drag & drop; `unsupported` when only the headless daemon runs). Paths must be absolute and
+  exist; hidden components (`.ssh`, `.env`, …) and key/credential files (`*.pem`, `*.key`,
+  `id_rsa`, …) are refused with `permission_denied`, so an AI cannot pull secrets into memory
+  that other AIs can read.
+- Output: `OrganizeOutput { action, folder, folders, created, moved, imported }`; telemetry
+  `update` (`write` for import), shown in live activity.
 
 ## 3. Errors
 

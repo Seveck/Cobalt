@@ -709,6 +709,10 @@
         "create_theme": {
           "label": "Create themes",
           "desc": "Lets you ask your AI to design a theme for Cobalt."
+        },
+        "organize": {
+          "label": "Organize into folders",
+          "desc": "Lets you ask your AI to create folders, move memories and documents between them, or import files from your computer. AI can make mistakes: be very specific about what you ask (which files and which folder)."
         }
       }
     }

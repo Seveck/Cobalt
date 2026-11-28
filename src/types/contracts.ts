@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.17.0";
+export const CONTRACT_VERSION = "1.18.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -848,7 +848,12 @@ export interface McpSettings {
 export const UNSORTED_PROJECT_NAME = "Sin clasificar";
 
 /** MCP tools advertised only when enabled in Conectores (v1.17.0). */
-export const OPTIONAL_MCP_TOOLS = ["search_reusable_assets", "archive_memory", "create_theme"] as const;
+export const OPTIONAL_MCP_TOOLS = [
+  "search_reusable_assets",
+  "archive_memory",
+  "create_theme",
+  "organize",
+] as const;
 
 /** What one AI client may do with the user's memory (v1.15.0). */
 export type ClientPermission = "none" | "read" | "read_write";
@@ -1315,6 +1320,21 @@ export interface ConflictPair {
   reason: string;
 }
 
+/** "Carpetas" are projects (a project without `root_path` is a plain folder). Moves memories
+ * and whole documents (with all their memories) to `project_id` (`null` = global) (v1.18.0). */
+export interface MoveToProjectRequest {
+  memory_ids?: Uuid[];
+  source_doc_ids?: Uuid[];
+  project_id: Uuid | null;
+}
+
+export interface MoveReport {
+  memories: number;
+  documents: number;
+  /** Moved memories superseded by an identical memory already in the target. */
+  merged: number;
+}
+
 export interface ListProposalsArgs {
   status?: ProposalStatus | null;
 }
@@ -1495,6 +1515,8 @@ export interface IpcCommandMap {
   reject_proposal: { args: IdArgs; result: MemoryProposal };
   /** Pairs of memories that look contradictory (v1.15.0). */
   find_conflicts: { args: void; result: ConflictPair[] };
+  /** Moves memories/documents between folders (projects) (v1.18.0). */
+  move_to_project: { args: MoveToProjectRequest; result: MoveReport };
   list_installed_themes: { args: void; result: InstalledTheme[] };
   get_theme_manifest: { args: ThemeIdArgs; result: ThemeManifest };
   ingest_paths: { args: IngestRequest; result: IngestReport };

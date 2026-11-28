@@ -18,6 +18,8 @@ pub const TOOL_LIST_PROJECT_RULES: &str = "list_project_rules";
 pub const TOOL_ARCHIVE_MEMORY: &str = "archive_memory";
 /// v1.12.0: an AI designs a whole theme for the user (data only, validated by Cobalt).
 pub const TOOL_CREATE_THEME: &str = "create_theme";
+/// Folders (= projects) for the user's files and memories (v1.18.0).
+pub const TOOL_ORGANIZE: &str = "organize";
 
 /// Project that receives memories saved without a known project (v1.16.0). It is never part of
 /// another project's searches, so an AI without context cannot contaminate the user's projects.
@@ -35,14 +37,15 @@ pub const CORE_TOOLS: [&str; 6] = [
 
 /// Tools advertised only when the user enables them (`McpSettings.optional_tools`), so their
 /// schemas do not cost tokens in every session (contract v1.17.0).
-pub const OPTIONAL_TOOLS: [&str; 3] = [
+pub const OPTIONAL_TOOLS: [&str; 4] = [
     TOOL_SEARCH_REUSABLE_ASSETS,
     TOOL_ARCHIVE_MEMORY,
     TOOL_CREATE_THEME,
+    TOOL_ORGANIZE,
 ];
 
-/// The 9 tools, in the order they are advertised by `tools/list`.
-pub const ALL_TOOLS: [&str; 9] = [
+/// The 10 tools, in the order they are advertised by `tools/list`.
+pub const ALL_TOOLS: [&str; 10] = [
     TOOL_SEARCH_MEMORY,
     TOOL_SEARCH_REUSABLE_ASSETS,
     TOOL_SAVE_MEMORY,
@@ -52,7 +55,61 @@ pub const ALL_TOOLS: [&str; 9] = [
     TOOL_LIST_PROJECT_RULES,
     TOOL_ARCHIVE_MEMORY,
     TOOL_CREATE_THEME,
+    TOOL_ORGANIZE,
 ];
+
+/// `organize` action (v1.18.0). A "folder" is a project; `global` is the shared space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OrganizeAction {
+    /// Folders with their item counts.
+    ListFolders,
+    /// Creates `folder` (no-op if it exists).
+    CreateFolder,
+    /// Moves `memory_ids` to `folder`; a memory extracted from a file moves the whole file.
+    Move,
+    /// Imports absolute `paths` (files/folders) into `folder`. Hidden paths and key/secret
+    /// files are refused.
+    Import,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OrganizeInput {
+    pub action: OrganizeAction,
+    /// Folder name, or `global`. Required except for `list_folders`; `move`/`import` need an
+    /// existing folder (never created implicitly).
+    #[serde(default)]
+    pub folder: Option<String>,
+    #[serde(default)]
+    pub memory_ids: Vec<Id>,
+    #[serde(default)]
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FolderSummary {
+    pub id: Id,
+    pub name: String,
+    /// `None` for folders created without a code directory.
+    pub root_path: Option<String>,
+    /// Active memories in the folder.
+    pub memory_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OrganizeOutput {
+    pub action: OrganizeAction,
+    /// Target folder (`None` = global or `list_folders`).
+    pub folder: Option<FolderSummary>,
+    /// `list_folders` only.
+    #[serde(default)]
+    pub folders: Vec<FolderSummary>,
+    pub created: bool,
+    #[serde(default)]
+    pub moved: Option<crate::model::MoveReport>,
+    #[serde(default)]
+    pub imported: Option<crate::transfer::IngestReport>,
+}
 
 /// `create_theme` input: a full `.cobalt-theme` manifest (THEME_SPEC §3 + §3.1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

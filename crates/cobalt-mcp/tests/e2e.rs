@@ -249,7 +249,7 @@ async fn mcp_end_to_end_over_socket_and_http() {
         .await
         .unwrap();
     let tools = c.request("tools/list", json!({})).await;
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 9);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 10);
 
     // create_theme: unavailable without the desktop app's theme service, then works through it.
     let mut theme: Value =
@@ -509,7 +509,7 @@ async fn mcp_end_to_end_over_socket_and_http() {
             .as_array()
             .unwrap()
             .len(),
-        9
+        10
     );
     let (status, _, _) = http(
         server.addr,
@@ -550,7 +550,7 @@ async fn mcp_end_to_end_over_socket_and_http() {
         http(server.addr, "GET", "/api/v1/tools?format=openai", &auth, "").await;
     assert_eq!(status, 200, "{body}");
     let tools: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools["tools"].as_array().unwrap().len(), 9);
+    assert_eq!(tools["tools"].as_array().unwrap().len(), 10);
     assert_eq!(tools["tools"][0]["type"], "function");
     assert!(tools["tools"][0]["function"]["parameters"]["properties"].is_object());
 

@@ -83,6 +83,8 @@ pub struct Daemon {
     seen_projects: crate::capture::SeenProjects,
     /// Saves AI-made themes (`create_theme`); set by the desktop app.
     themes: std::sync::OnceLock<Arc<dyn cobalt_core::traits::ThemeService>>,
+    /// Imports files for `organize` action `import`; set by the desktop app.
+    importer: std::sync::OnceLock<Arc<dyn cobalt_core::traits::FileImporter>>,
 }
 
 impl Daemon {
@@ -114,6 +116,7 @@ impl Daemon {
             sessions: Mutex::new(crate::capture::SessionTracker::default()),
             seen_projects: crate::capture::SeenProjects::default(),
             themes: std::sync::OnceLock::new(),
+            importer: std::sync::OnceLock::new(),
         })
     }
 
@@ -180,6 +183,15 @@ impl Daemon {
 
     pub(crate) fn theme_service(&self) -> Option<&Arc<dyn cobalt_core::traits::ThemeService>> {
         self.themes.get()
+    }
+
+    /// Installs the app's file importer (once); without it `organize` cannot import files.
+    pub fn set_file_importer(&self, importer: Arc<dyn cobalt_core::traits::FileImporter>) {
+        let _ = self.importer.set(importer);
+    }
+
+    pub(crate) fn file_importer(&self) -> Option<&Arc<dyn cobalt_core::traits::FileImporter>> {
+        self.importer.get()
     }
 
     // ------------------------------------------------------------------ write queue

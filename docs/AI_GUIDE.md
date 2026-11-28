@@ -109,7 +109,7 @@ after a 401). Interactive docs: `http://127.0.0.1:7437/api/v1/docs`; schema:
 | `POST /memories` | Save a memory (`NewMemory`, same safety pipeline as MCP) |
 | `GET /memories/{id}` | One memory |
 | `GET /telemetry/summary` | Token-savings summary |
-| `GET /tools` | The 9 tools with JSON Schemas; `?format=openai` = function-calling array for OpenAI / Ollama / llama.cpp / LM Studio |
+| `GET /tools` | The enabled tools with JSON Schemas; `?format=openai` = function-calling array for OpenAI / Ollama / llama.cpp / LM Studio |
 | `POST /tools/{name}` | Run any tool (same arguments, rules and results as MCP) → `{ "text", "structured" }` |
 | `POST /hooks/{source}` | Send a hook event (§5.1) |
 | `GET /guide` | This guide as Markdown (no auth) |
@@ -167,10 +167,10 @@ If the model cannot call tools, the **program that hosts it** does the calls:
 
 ---
 
-## 3. The nine MCP tools
+## 3. The ten MCP tools
 
-Six core tools are always available; `search_reusable_assets`, `archive_memory` and `create_theme`
-are optional and appear only if the user enables them in Cobalt > Conectores (otherwise calling
+Six core tools are always available; `search_reusable_assets`, `archive_memory`, `create_theme`
+and `organize` are optional and appear only if the user enables them in Cobalt > Conectores (otherwise calling
 them returns `permission_denied` — ask the user to enable it).
 
 Full JSON schemas and docstrings: `docs/MCP_SPEC.md` §2. Every result has a token-lean text block
@@ -188,6 +188,7 @@ path, or `"global"`; omit it to auto-detect.
 | `resume_handoff` | The user says "continue / pick up where we left off" | `project?` |
 | `archive_memory` | A memory is wrong (not just outdated) | `memory_id`, `reason`, `confirm` |
 | `create_theme` | The user asks you to design a look for Cobalt | `manifest` (full theme, §7), `apply` (only if they asked to switch now) |
+| `organize` | The user asks to create folders, move memories/files between folders, or import files | `action` (`list_folders`\|`create_folder`\|`move`\|`import`), `folder`, `memory_ids?`, `paths?` (absolute) |
 
 Behavior you must know:
 - **Memories with category `ocr`** were read from images or scanned PDFs by local OCR. OCR makes

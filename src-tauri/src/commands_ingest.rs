@@ -102,6 +102,40 @@ pub async fn ingest_paths(
     Ok(report)
 }
 
+/// Imports files for the MCP `organize` tool (v1.18.0): same pipeline and progress events as
+/// a drag & drop, attributed to the AI that asked.
+pub struct AppFileImporter {
+    pub app: AppHandle,
+}
+
+#[async_trait::async_trait]
+impl cobalt_core::traits::FileImporter for AppFileImporter {
+    async fn import_files(
+        &self,
+        paths: Vec<String>,
+        project_id: Option<cobalt_core::Id>,
+        source_client: &str,
+    ) -> cobalt_core::Result<IngestReport> {
+        let state = self.app.state::<AppState>();
+        let ingest = state.ingest()?;
+        let request = IngestRequest {
+            paths,
+            project_id,
+            watch: false,
+            mark_reusable: false,
+            ocr: true,
+        };
+        let report = {
+            let _slot = state.daemon.write_slot().await;
+            ingest
+                .ingest_paths(request, progress_sink(&self.app))
+                .await?
+        };
+        bulk_changed(&state, source_client);
+        Ok(report)
+    }
+}
+
 #[tauri::command]
 pub async fn import_past_life(
     app: AppHandle,

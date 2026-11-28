@@ -4,6 +4,7 @@ import {
   Archive,
   CheckCircle2,
   Cpu,
+  FolderTree,
   Library,
   Loader2,
   Lock,
@@ -29,6 +30,7 @@ const OPTIONAL_TOOL_ICONS: Record<OptionalMcpTool, typeof Library> = {
   search_reusable_assets: Library,
   archive_memory: Archive,
   create_theme: Palette,
+  organize: FolderTree,
 };
 
 interface AiToolsSectionProps {
