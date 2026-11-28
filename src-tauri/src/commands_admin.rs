@@ -46,7 +46,48 @@ pub async fn list_projects(
 
 #[tauri::command]
 pub async fn create_project(state: State<'_, AppState>, args: NewProject) -> CmdResult<Project> {
+    if let Some(existing) = state.store().find_project_by_name(args.name.trim()).await? {
+        return Err(CobaltError::Conflict(format!(
+            "a folder or project named \"{}\" already exists",
+            existing.name
+        )));
+    }
     state.store().create_project(args).await
+}
+
+/// Deletes a folder/project (v1.19.0). Deleting its contents takes a snapshot first, so it can
+/// be undone from Viaje en el tiempo.
+#[tauri::command]
+pub async fn delete_project(
+    state: State<'_, AppState>,
+    args: cobalt_core::model::DeleteProjectRequest,
+) -> CmdResult<cobalt_core::model::DeleteProjectReport> {
+    let project = state
+        .store()
+        .get_project(args.id)
+        .await?
+        .ok_or_else(|| CobaltError::NotFound(format!("project {}", args.id)))?;
+    let _slot = state.daemon.write_slot().await;
+    let snapshot = if args.contents == cobalt_core::model::DeleteProjectContents::Delete {
+        Some(
+            state
+                .store()
+                .create_snapshot(&format!("Antes de eliminar «{}»", project.name))
+                .await?,
+        )
+    } else {
+        None
+    };
+    let mut report = state.store().delete_project(args).await?;
+    report.snapshot_id = snapshot.map(|s| s.id);
+    state
+        .daemon
+        .emit_memory_changed(cobalt_core::model::MemoryChanged {
+            kind: cobalt_core::enums::MemoryChangeKind::Deleted,
+            memory_ids: Vec::new(),
+            source_client: Some("cobalt-ui".into()),
+        });
+    Ok(report)
 }
 
 #[tauri::command]

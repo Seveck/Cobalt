@@ -103,6 +103,37 @@ pub struct MoveReport {
     pub merged: u64,
 }
 
+/// What happens to a deleted folder's contents (v1.19.0).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteProjectContents {
+    /// Memories and documents move to `move_to` (`None` = global) before the folder is removed.
+    Move,
+    /// Memories, documents, handoffs and proposals of the folder are deleted with it.
+    Delete,
+}
+
+/// IPC `delete_project` (v1.19.0).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeleteProjectRequest {
+    pub id: Id,
+    pub contents: DeleteProjectContents,
+    /// Target for [`DeleteProjectContents::Move`]; `None` = global. Must differ from `id`.
+    #[serde(default)]
+    pub move_to: Option<Id>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DeleteProjectReport {
+    /// Moved memories/documents (`Move`), see [`MoveReport`].
+    pub moved: MoveReport,
+    /// Deleted memories (all statuses, every branch) (`Delete`).
+    pub memories_deleted: u64,
+    pub documents_deleted: u64,
+    /// Automatic snapshot taken before a `Delete` (restorable from Viaje en el tiempo).
+    pub snapshot_id: Option<Id>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProjectPatch {
     pub name: Option<String>,

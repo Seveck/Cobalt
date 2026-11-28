@@ -13,7 +13,7 @@
  *  - i64/u64 counters are JS numbers (safe below 2^53).
  */
 
-export const CONTRACT_VERSION = "1.18.0";
+export const CONTRACT_VERSION = "1.19.0";
 export const SCHEMA_VERSION = 1;
 
 export type Uuid = string;
@@ -1335,6 +1335,24 @@ export interface MoveReport {
   merged: number;
 }
 
+/** What happens to a deleted folder's contents (v1.19.0). */
+export type DeleteProjectContents = "move" | "delete";
+
+export interface DeleteProjectRequest {
+  id: Uuid;
+  contents: DeleteProjectContents;
+  /** Target for "move"; null = global (General). Must differ from `id`. */
+  move_to?: Uuid | null;
+}
+
+export interface DeleteProjectReport {
+  moved: MoveReport;
+  memories_deleted: number;
+  documents_deleted: number;
+  /** Automatic snapshot taken before "delete" (restorable from Viaje en el tiempo). */
+  snapshot_id: Uuid | null;
+}
+
 export interface ListProposalsArgs {
   status?: ProposalStatus | null;
 }
@@ -1517,6 +1535,9 @@ export interface IpcCommandMap {
   find_conflicts: { args: void; result: ConflictPair[] };
   /** Moves memories/documents between folders (projects) (v1.18.0). */
   move_to_project: { args: MoveToProjectRequest; result: MoveReport };
+  /** Deletes a folder/project, moving or deleting its contents (v1.19.0). Errors `conflict`
+   * from `create_project` mean the name is taken. */
+  delete_project: { args: DeleteProjectRequest; result: DeleteProjectReport };
   list_installed_themes: { args: void; result: InstalledTheme[] };
   get_theme_manifest: { args: ThemeIdArgs; result: ThemeManifest };
   ingest_paths: { args: IngestRequest; result: IngestReport };

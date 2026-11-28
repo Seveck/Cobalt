@@ -108,6 +108,20 @@ pub trait ProjectRepository: Send + Sync {
             "moving memories between projects".into(),
         ))
     }
+    /// Removes a project (v1.19.0). `Move`: its memories and documents move first (same rules as
+    /// [`Self::move_to_project`]); `Delete`: its memories (every status and branch, with their
+    /// vectors, FTS rows and edges), source documents, handoffs and proposals are deleted. One
+    /// transaction. `snapshot_id` is filled by the caller. `NotFound` for unknown ids,
+    /// `InvalidInput` when `move_to == Some(id)`.
+    async fn delete_project(
+        &self,
+        req: crate::model::DeleteProjectRequest,
+    ) -> Result<crate::model::DeleteProjectReport> {
+        let _ = req;
+        Err(crate::error::CobaltError::Unsupported(
+            "deleting projects".into(),
+        ))
+    }
 }
 
 #[async_trait]

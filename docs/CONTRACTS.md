@@ -1,4 +1,10 @@
-# Cobalt — Frozen Contracts (v1.18.0)
+# Cobalt — Frozen Contracts (v1.19.0)
+
+> v1.19.0 (additive): `ProjectRepository::delete_project(DeleteProjectRequest) ->
+> DeleteProjectReport` and IPC `delete_project` (contents `move` to another folder/global, or
+> `delete` after an automatic snapshot). `create_project` returns `conflict` with a readable
+> message when the name is taken. The UI never shows raw error messages: it maps
+> `ErrorPayload.kind` (+ command) to a plain sentence and keeps the raw text as "detalles".
 
 > v1.18.0 (additive): folders — a "carpeta" is a project (`root_path` may be `null`).
 > `ProjectRepository::move_to_project(MoveToProjectRequest) -> MoveReport` (memories and whole

@@ -272,6 +272,7 @@ pub fn run() {
             commands_memory::get_deletion_impact,
             commands_admin::list_projects,
             commands_admin::create_project,
+            commands_admin::delete_project,
             commands_admin::update_project,
             commands_admin::list_library,
             commands_admin::relink_source_document,
