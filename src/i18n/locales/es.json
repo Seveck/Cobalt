@@ -678,6 +678,39 @@
         "read": "Puede consultar tu memoria, pero no guardar ni cambiar nada.",
         "none": "Sin acceso: no puede leer ni guardar en tu memoria."
       }
+    },
+    "aiTools": {
+      "title": "Herramientas para tus IAs",
+      "subtitle": "Menos herramientas = menos tokens en cada sesión; tus IAs verán los cambios al reconectar (/mcp).",
+      "activeSummary": "{{active}} / {{total}} activas",
+      "coreTitle": "Herramientas esenciales",
+      "alwaysOnBadge": "Siempre activas",
+      "core": {
+        "search_memory": "Buscar memorias",
+        "save_memory": "Guardar memorias",
+        "update_memory": "Actualizar memorias",
+        "create_handoff": "Crear relevo de sesión",
+        "resume_handoff": "Retomar relevo de sesión",
+        "list_project_rules": "Reglas del proyecto"
+      },
+      "optionalTitle": "Herramientas opcionales",
+      "optionalCount": "{{enabled}} de {{total}} activas",
+      "enabledNotice": "«{{tool}}» activada — tus IAs la verán al reconectar (/mcp).",
+      "disabledNotice": "«{{tool}}» desactivada — tus IAs verán el cambio al reconectar (/mcp).",
+      "optional": {
+        "search_reusable_assets": {
+          "label": "Buscar código reutilizable",
+          "desc": "Permite a tus IAs buscar fragmentos, plantillas y archivos de tu Biblioteca reutilizable."
+        },
+        "archive_memory": {
+          "label": "Archivar memorias",
+          "desc": "Permite proponer archivar memorias obsoletas; la IA siempre te pregunta antes de hacerlo (reversible)."
+        },
+        "create_theme": {
+          "label": "Crear temas",
+          "desc": "Permite pedirle a tu IA que diseñe un tema para Cobalt."
+        }
+      }
     }
   },
   "capture": {
@@ -902,7 +935,9 @@
     "installLocalButton": "Instalar desde archivo",
     "customizeButton": "Personalizar",
     "shareExplain": "Para compartir un tema, expórtalo y envía el archivo; quien lo reciba lo instala aquí.",
-    "askAiHint": "También puedes pedirle a tu IA: «créame un tema …»",
+    "askAiHint": "También puedes pedirle a tu IA que cree un tema",
+    "askAiToolRequiredNote": "activa «Crear temas» en",
+    "askAiToolEnabledNote": "«Crear temas» activo en",
     "myThemesSection": "Mis temas",
     "myThemesDesc": "Temas creados por ti, generados por tus IAs o instalados desde un archivo.",
     "myThemesEmptyTitle": "Todavía no tienes temas propios",

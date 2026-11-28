@@ -1,10 +1,6 @@
-import type { Project, Uuid } from "@/types/contracts";
+import { UNSORTED_PROJECT_NAME, type Project, type Uuid } from "@/types/contracts";
 
-/**
- * Exact project name used by Cobalt (`crates/cobalt-core/src/mcp.rs::UNSORTED_PROJECT_NAME`,
- * contract v1.16.0) for memories saved by AIs without a known project.
- */
-export const UNSORTED_PROJECT_NAME = "Sin clasificar";
+export { UNSORTED_PROJECT_NAME };
 
 /** Neutral grey color used everywhere for the "Sin clasificar" isolation bucket. */
 export const UNSORTED_PROJECT_COLOR = "#71717A";

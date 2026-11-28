@@ -678,6 +678,39 @@
         "read": "Can search your memory, but cannot save or modify anything.",
         "none": "No access: cannot read from or save to your memory."
       }
+    },
+    "aiTools": {
+      "title": "Tools for your AIs",
+      "subtitle": "Fewer tools = fewer tokens per session; your AIs will see changes after reconnecting (/mcp).",
+      "activeSummary": "{{active}} / {{total}} active",
+      "coreTitle": "Core tools",
+      "alwaysOnBadge": "Always on",
+      "core": {
+        "search_memory": "Search memories",
+        "save_memory": "Save memories",
+        "update_memory": "Update memories",
+        "create_handoff": "Create session handoff",
+        "resume_handoff": "Resume session handoff",
+        "list_project_rules": "Project rules"
+      },
+      "optionalTitle": "Optional tools",
+      "optionalCount": "{{enabled}} of {{total}} enabled",
+      "enabledNotice": "\"{{tool}}\" enabled — your AIs will see it after reconnecting (/mcp).",
+      "disabledNotice": "\"{{tool}}\" disabled — your AIs will see the change after reconnecting (/mcp).",
+      "optional": {
+        "search_reusable_assets": {
+          "label": "Search reusable code",
+          "desc": "Lets your AIs search snippets, templates, and files from your Reusable Library."
+        },
+        "archive_memory": {
+          "label": "Archive memories",
+          "desc": "Lets AIs suggest archiving outdated memories; the AI always asks you first (reversible)."
+        },
+        "create_theme": {
+          "label": "Create themes",
+          "desc": "Lets you ask your AI to design a theme for Cobalt."
+        }
+      }
     }
   },
   "capture": {
@@ -902,7 +935,9 @@
     "installLocalButton": "Install from file",
     "customizeButton": "Customize",
     "shareExplain": "To share a theme, export it and send the file; anyone who receives it can install it here.",
-    "askAiHint": "You can also ask your AI: \"create a theme for me…\"",
+    "askAiHint": "You can also ask your AI to create a theme",
+    "askAiToolRequiredNote": "enable \"Create themes\" in",
+    "askAiToolEnabledNote": "\"Create themes\" active in",
     "myThemesSection": "My themes",
     "myThemesDesc": "Themes created by you, made by your AIs, or installed from a file.",
     "myThemesEmptyTitle": "You don't have any custom themes yet",

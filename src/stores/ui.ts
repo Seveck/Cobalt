@@ -14,6 +14,7 @@ export type NavSection =
 
 export type ToolsTab = "projects" | "web_bridge" | "importer" | "capsules" | "backup";
 export type SettingsSectionId = "ocr" | "savings";
+export type ConnectorsSectionId = "ai_tools";
 
 export interface OpenSettingsSectionOptions {
   autoInstall?: boolean;
@@ -54,6 +55,7 @@ export interface UiState {
   unsortedViewOpen: boolean;
   settingsFocusSection: SettingsSectionId | null;
   settingsFocusAutoInstall: boolean;
+  connectorsFocusSection: ConnectorsSectionId | null;
   sidebarCollapsed: boolean;
   layoutsPanelCollapsed: boolean;
   appInfo: AppInfo | null;
@@ -69,6 +71,8 @@ export interface UiState {
     options?: OpenSettingsSectionOptions,
   ) => void;
   clearSettingsFocusSection: () => void;
+  openConnectorsSection: (section: ConnectorsSectionId) => void;
+  clearConnectorsFocusSection: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
   setLayoutsPanelCollapsed: (collapsed: boolean) => void;
@@ -84,6 +88,7 @@ export const useUiStore = create<UiState>((set) => ({
   unsortedViewOpen: false,
   settingsFocusSection: null,
   settingsFocusAutoInstall: false,
+  connectorsFocusSection: null,
   sidebarCollapsed: readInitialCollapsedFlag(
     SIDEBAR_COLLAPSED_STORAGE_KEY,
     NARROW_WINDOW_BREAKPOINT_PX,
@@ -109,6 +114,9 @@ export const useUiStore = create<UiState>((set) => ({
     }),
   clearSettingsFocusSection: () =>
     set({ settingsFocusSection: null, settingsFocusAutoInstall: false }),
+  openConnectorsSection: (connectorsFocusSection) =>
+    set({ activeNav: "connectors", connectorsFocusSection }),
+  clearConnectorsFocusSection: () => set({ connectorsFocusSection: null }),
   setSidebarCollapsed: (collapsed) => {
     writeCollapsedFlag(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed);
     set({ sidebarCollapsed: collapsed });

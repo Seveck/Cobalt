@@ -156,7 +156,7 @@ export function AutoCaptureSection({
         <div className="max-w-3xl">
           <h2 className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-bone">
             <Sparkles size={13} className="text-cobalt-ink" aria-hidden />
-            02 — {t("capture.title")}
+            03 — {t("capture.title")}
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-bone-muted">{t("capture.subtitle")}</p>
         </div>

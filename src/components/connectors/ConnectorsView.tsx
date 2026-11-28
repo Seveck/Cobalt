@@ -37,6 +37,7 @@ import {
   type ConnectorStatus,
   type DoctorReport,
 } from "@/types/contracts";
+import { AiToolsSection } from "./AiToolsSection";
 import { AutoCaptureSection } from "./AutoCaptureSection";
 import { ProModePanel } from "./ProModePanel";
 
@@ -713,14 +714,17 @@ export function ConnectorsView() {
           )}
         </section>
 
-        {/* 02 — Automatic capture */}
+        {/* 02 — MCP tools for your AIs */}
+        <AiToolsSection onNotice={flashNotice} onError={setError} />
+
+        {/* 03 — Automatic capture */}
         <AutoCaptureSection
           refreshSignal={captureRefreshSignal}
           onNotice={flashNotice}
           onError={setError}
         />
 
-        {/* 03 — Manual setup (NEVER "Copy Config") */}
+        {/* 04 — Manual setup (NEVER "Copy Config") */}
         <section
           ref={manualSectionRef}
           className={`scroll-mt-6 rounded-[2px] border p-5 transition-all duration-300 ${
@@ -733,7 +737,7 @@ export function ConnectorsView() {
             <div>
               <h2 className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-bone">
                 <Terminal size={13} className="text-cobalt-ink" aria-hidden />
-                03 — {t("connectors.manualSetupTitle")}
+                04 — {t("connectors.manualSetupTitle")}
               </h2>
               <p className="mt-1 text-xs text-bone-muted">{t("connectors.manualSetupDesc")}</p>
             </div>
@@ -838,13 +842,13 @@ export function ConnectorsView() {
           )}
         </section>
 
-        {/* 04 — MCP Doctor */}
+        {/* 05 — MCP Doctor */}
         <section className="rounded-[2px] border border-rule bg-surface p-5">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-4">
             <div>
               <h2 className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-bone">
                 <Stethoscope size={13} className="text-cobalt-ink" aria-hidden />
-                04 — {t("doctor.title")}
+                05 — {t("doctor.title")}
               </h2>
               <p className="mt-1 text-xs text-bone-muted">{t("doctor.subtitle")}</p>
             </div>

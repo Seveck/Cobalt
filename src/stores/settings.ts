@@ -58,6 +58,9 @@ function normalizeLoadedSettings(loaded: AppSettings): AppSettings {
         ...defaults.mcp.client_permissions,
         ...(loaded.mcp?.client_permissions ?? {}),
       },
+      optional_tools: Array.isArray(loaded.mcp?.optional_tools)
+        ? loaded.mcp.optional_tools
+        : defaults.mcp.optional_tools,
     },
     capture: { ...defaults.capture, ...(loaded.capture ?? {}) },
     savings: {
