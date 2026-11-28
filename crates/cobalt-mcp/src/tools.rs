@@ -489,6 +489,7 @@ impl Daemon {
                 include_archived: args.include_archived.unwrap_or(false),
                 filter: SearchFilter::default(),
                 rrf_override: None,
+                expand_graph: true,
                 record_hits: true,
             })
             .await?;

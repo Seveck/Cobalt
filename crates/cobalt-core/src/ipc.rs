@@ -95,6 +95,8 @@ pub mod commands {
     pub const LIST_PROPOSALS: &str = "list_proposals";
     pub const ACCEPT_PROPOSAL: &str = "accept_proposal";
     pub const REJECT_PROPOSAL: &str = "reject_proposal";
+    // Contradictions (v1.15.0)
+    pub const FIND_CONFLICTS: &str = "find_conflicts";
     pub const LIST_INSTALLED_THEMES: &str = "list_installed_themes";
     pub const GET_THEME_MANIFEST: &str = "get_theme_manifest";
     pub const INGEST_PATHS: &str = "ingest_paths";

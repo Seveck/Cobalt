@@ -249,7 +249,11 @@ string_enum! {
 
 string_enum! {
     /// What an automatically captured proposal is (contract v1.14.0).
-    pub enum ProposalKind { Decision => "decision", Fix => "fix", Preference => "preference" }
+    pub enum ProposalKind {
+        Decision => "decision", Fix => "fix", Preference => "preference",
+        /// An AI tried to save text that looks like hidden instructions (v1.15.0).
+        Suspicious => "suspicious",
+    }
 }
 
 string_enum! {

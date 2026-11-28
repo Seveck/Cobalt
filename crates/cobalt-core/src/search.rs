@@ -59,6 +59,9 @@ pub struct SearchRequest {
     /// `false` for the RAG debugger / simulator.
     #[serde(default)]
     pub record_hits: bool,
+    /// Also return 1-hop graph neighbors of the direct hits when relevant (v1.15.0).
+    #[serde(default)]
+    pub expand_graph: bool,
 }
 
 /// One fused result with full scoring breakdown (also used by the RAG debugger).
@@ -77,6 +80,9 @@ pub struct SearchHit {
     pub bm25: Option<f64>,
     /// RRF contribution before confidence / pin adjustments.
     pub rrf_score: f64,
+    /// Added by graph expansion as a 1-hop neighbor of this direct hit (v1.15.0).
+    #[serde(default)]
+    pub related_to: Option<Id>,
 }
 
 /// Honest token accounting (deduplicated by unique `source_doc_id`).

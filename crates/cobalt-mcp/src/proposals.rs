@@ -239,6 +239,7 @@ impl Daemon {
                 include_archived: false,
                 filter: cobalt_core::search::SearchFilter::default(),
                 rrf_override: None,
+                expand_graph: false,
                 record_hits: false,
             })
             .await
