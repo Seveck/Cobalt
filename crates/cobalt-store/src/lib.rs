@@ -2,6 +2,7 @@
 
 pub use cobalt_embeddings::DOCUMENT_EMBED_BATCH;
 
+mod conflicts;
 mod db;
 #[cfg(any(feature = "qdrant", feature = "chroma", feature = "lancedb"))]
 mod external;

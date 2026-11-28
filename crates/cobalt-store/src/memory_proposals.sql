@@ -3,7 +3,7 @@ CREATE TABLE memory_proposals (
   id           TEXT PRIMARY KEY NOT NULL,
   project_id   TEXT NULL REFERENCES projects(id) ON DELETE CASCADE,
   client_name  TEXT NOT NULL,
-  kind         TEXT NOT NULL CHECK (kind IN ('decision','fix','preference')),
+  kind         TEXT NOT NULL CHECK (kind IN ('decision','fix','preference','suspicious')),
   content      TEXT NOT NULL,          -- scrubbed, ≤ 320 chars
   content_key  TEXT NOT NULL,          -- normalized (lowercase, collapsed spaces) for de-dup
   evidence     TEXT NULL,

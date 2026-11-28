@@ -170,6 +170,12 @@ pub trait GovernanceService: Send + Sync {
     async fn merge_duplicates(&self, keep_id: Id, merge_ids: &[Id]) -> Result<Memory>;
     async fn archive_memories(&self, ids: &[Id]) -> Result<u64>;
     async fn restore_memories(&self, ids: &[Id]) -> Result<u64>;
+    /// Pairs of active memories in the same scope that look contradictory, strongest first
+    /// (v1.15.0).
+    async fn find_conflicts(&self, limit: u32) -> Result<Vec<crate::model::ConflictPair>> {
+        let _ = limit;
+        Err(crate::error::CobaltError::Unsupported("conflict detection".into()))
+    }
 }
 
 #[async_trait]

@@ -255,6 +255,24 @@ pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {
     if version < 4 {
         tx.execute_batch(include_str!("memory_proposals.sql"))
             .map_err(sql_error)?;
+    } else if version == 4 {
+        tx.execute_batch(
+            "ALTER TABLE memory_proposals RENAME TO memory_proposals_v4;
+             DROP INDEX idx_memory_proposals_status;
+             DROP INDEX idx_memory_proposals_global_key;",
+        )
+        .map_err(sql_error)?;
+        tx.execute_batch(include_str!("memory_proposals.sql"))
+            .map_err(sql_error)?;
+        tx.execute_batch(
+            "INSERT INTO memory_proposals
+                (id, project_id, client_name, kind, content, content_key, evidence,
+                 status, memory_id, created_at, reviewed_at)
+             SELECT id, project_id, client_name, kind, content, content_key, evidence,
+                    status, memory_id, created_at, reviewed_at FROM memory_proposals_v4;
+             DROP TABLE memory_proposals_v4;",
+        )
+        .map_err(sql_error)?;
     }
     if version < SCHEMA_VERSION {
         tx.pragma_update(None, "user_version", SCHEMA_VERSION)

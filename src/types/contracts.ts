@@ -267,6 +267,8 @@ export interface SaveOutcome {
   matched_similarity: number | null;
   redacted_secrets: number;
   truncated: boolean;
+  /** Existing memories this one may contradict (v1.15.0). */
+  possible_conflicts?: ConflictHint[];
 }
 
 export interface MemoryEdge {
@@ -406,6 +408,8 @@ export interface SearchRequest {
   filter: SearchFilter;
   rrf_override: RrfWeights | null;
   record_hits: boolean;
+  /** Also return 1-hop graph neighbors of direct hits (v1.15.0). */
+  expand_graph?: boolean;
 }
 
 export interface SearchHit {
@@ -416,6 +420,8 @@ export interface SearchHit {
   fts_rank: number | null;
   bm25: number | null;
   rrf_score: number;
+  /** Graph neighbor of this direct hit (v1.15.0). */
+  related_to?: Uuid | null;
 }
 
 export interface TokenSavings {
@@ -1282,6 +1288,23 @@ export interface MemoryProposal {
   memory_id: Uuid | null;
 }
 
+/** v1.15.0: an existing memory a new one may contradict. */
+export interface ConflictHint {
+  memory_id: Uuid;
+  similarity: number;
+  /** `negation` | `different_value` | `opposite_choice`. */
+  reason: string;
+  preview: string;
+}
+
+/** v1.15.0: two active memories that look contradictory. */
+export interface ConflictPair {
+  a: Memory;
+  b: Memory;
+  similarity: number;
+  reason: string;
+}
+
 export interface ListProposalsArgs {
   status?: ProposalStatus | null;
 }
@@ -1460,6 +1483,8 @@ export interface IpcCommandMap {
   /** Saves it as a memory (optionally edited) through the normal write path. */
   accept_proposal: { args: AcceptProposalArgs; result: MemoryProposal };
   reject_proposal: { args: IdArgs; result: MemoryProposal };
+  /** Pairs of memories that look contradictory (v1.15.0). */
+  find_conflicts: { args: void; result: ConflictPair[] };
   list_installed_themes: { args: void; result: InstalledTheme[] };
   get_theme_manifest: { args: ThemeIdArgs; result: ThemeManifest };
   ingest_paths: { args: IngestRequest; result: IngestReport };

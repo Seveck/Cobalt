@@ -280,6 +280,29 @@ pub struct SaveOutcome {
     pub redacted_secrets: u32,
     /// `true` when the Token Firewall trimmed the content.
     pub truncated: bool,
+    /// Existing memories this one may contradict (v1.15.0); empty when none.
+    #[serde(default)]
+    pub possible_conflicts: Vec<ConflictHint>,
+}
+
+/// An existing memory that a new one may contradict (v1.15.0).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConflictHint {
+    pub memory_id: Id,
+    pub similarity: f64,
+    /// `negation` | `different_value` | `opposite_choice` (machine-readable).
+    pub reason: String,
+    /// First ~160 chars of the existing memory.
+    pub preview: String,
+}
+
+/// Two active memories that look contradictory (Limpiar Cerebro → Contradicciones, v1.15.0).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConflictPair {
+    pub a: Memory,
+    pub b: Memory,
+    pub similarity: f64,
+    pub reason: String,
 }
 
 // ---------------------------------------------------------------------------------------
