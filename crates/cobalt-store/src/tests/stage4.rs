@@ -63,6 +63,187 @@ fn embedding(axis: usize, cosine: f32) -> Vec<f32> {
     vector
 }
 
+#[tokio::test]
+async fn mixed_scope_prefers_comparable_project_hits_including_exact_identifiers() {
+    let dir = tempfile::tempdir().unwrap();
+    let docs = [
+        "Settings for route-cache",
+        "The route-cache holds routing requests while the gateway is down",
+    ];
+    let store = lexical_fixture(&dir, &docs).await;
+    let project = store
+        .create_project(NewProject {
+            name: "Routing".into(),
+            root_path: None,
+            color_hex: None,
+        })
+        .await
+        .unwrap();
+    let global = store.save_memory(new_memory(docs[0])).await.unwrap().memory;
+    let local = store
+        .save_memory(NewMemory {
+            project_id: Some(project.id),
+            ..new_memory(docs[1])
+        })
+        .await
+        .unwrap()
+        .memory;
+
+    for query in ["route cache", "route-cache"] {
+        let global_only = store.search(lexical_request(query)).await.unwrap().hits;
+        let mixed = store
+            .search(SearchRequest {
+                scope: ProjectScope::ProjectAndGlobal(project.id),
+                ..lexical_request(query)
+            })
+            .await
+            .unwrap()
+            .hits;
+        assert_eq!(mixed.len(), 2);
+        assert_eq!(mixed[0].memory.id, local.id);
+        assert_eq!(mixed[1].memory.id, global.id);
+        assert_eq!(mixed[1].fts_rank, Some(1));
+        assert_eq!(mixed[1].rrf_score, global_only[0].rrf_score);
+        assert!(mixed[1].score < global_only[0].score);
+        assert!(mixed.iter().all(|hit| hit.outranked_by.is_none()));
+
+        let sharper_rank_decay = store
+            .search(SearchRequest {
+                scope: ProjectScope::ProjectAndGlobal(project.id),
+                rrf_override: Some(RrfWeights {
+                    k: 0.0,
+                    vector_weight: 0.0,
+                    ..Default::default()
+                }),
+                ..lexical_request(query)
+            })
+            .await
+            .unwrap()
+            .hits;
+        assert_eq!(sharper_rank_decay[0].memory.id, global.id);
+    }
+}
+
+#[tokio::test]
+async fn newer_conflicts_lead_their_group_and_unrelated_hits_keep_their_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let docs = [
+        ("Set retry delay to 2 seconds", 1.0),
+        ("Set retry delay to 3 seconds", 1.0),
+        ("Set retry delay to 4 seconds", 0.0),
+        ("Retry delay documentation", 1.0),
+        ("Retry delay metrics", 0.5),
+    ];
+    let store = lexical_fixture(&dir, &docs.map(|(text, _)| text)).await;
+    let mut ids = Vec::new();
+    for (content, confidence) in docs {
+        ids.push(
+            store
+                .save_memory(NewMemory {
+                    confidence: Some(confidence),
+                    ..new_memory(content)
+                })
+                .await
+                .unwrap()
+                .memory
+                .id,
+        );
+    }
+    let older = [ids[0], ids[1]];
+    store
+        .db
+        .write(move |conn| {
+            conn.execute(
+                "UPDATE memories SET updated_at = '2000-01-01T00:00:00Z' WHERE id IN (?1, ?2)",
+                older.map(|id| id.to_string()),
+            )
+            .unwrap();
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    let hits = store
+        .search(lexical_request("retry delay"))
+        .await
+        .unwrap()
+        .hits;
+    let conflicts: Vec<_> = hits
+        .iter()
+        .skip_while(|hit| hit.memory.id != ids[2])
+        .take(3)
+        .collect();
+    assert_eq!(conflicts.len(), 3);
+    assert_eq!(conflicts[0].outranked_by, None);
+    for hit in &conflicts[1..] {
+        assert!(older.contains(&hit.memory.id));
+        assert_eq!(hit.outranked_by, Some(ids[2]));
+        assert!(hit.score > conflicts[0].score);
+    }
+    let unrelated: Vec<_> = hits
+        .iter()
+        .filter(|hit| ids[3..].contains(&hit.memory.id))
+        .collect();
+    assert_eq!(unrelated.len(), 2);
+    assert!(unrelated[0].score > unrelated[1].score);
+    assert!(unrelated.iter().all(|hit| hit.outranked_by.is_none()));
+
+    let hits = store
+        .search(lexical_request("documentation metrics"))
+        .await
+        .unwrap()
+        .hits;
+    assert_eq!(hits.len(), 2);
+    assert!(hits[0].score > hits[1].score);
+    assert!(hits.iter().all(|hit| hit.outranked_by.is_none()));
+}
+
+#[tokio::test]
+async fn nuclear_laws_keep_their_rank_score_and_rule_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let docs = ["Never use retries", "Use retries"];
+    let store = lexical_fixture(&dir, &docs).await;
+    let project = store
+        .create_project(NewProject {
+            name: "Retries".into(),
+            root_path: None,
+            color_hex: None,
+        })
+        .await
+        .unwrap();
+    let law = store
+        .save_memory(NewMemory {
+            is_core_pin: true,
+            ..new_memory(docs[0])
+        })
+        .await
+        .unwrap()
+        .memory;
+    let local = store
+        .save_memory(NewMemory {
+            project_id: Some(project.id),
+            ..new_memory(docs[1])
+        })
+        .await
+        .unwrap()
+        .memory;
+
+    let request = lexical_request("never use retries");
+    let global = store.search(request.clone()).await.unwrap();
+    let mixed = store
+        .search(SearchRequest {
+            scope: ProjectScope::ProjectAndGlobal(project.id),
+            ..request
+        })
+        .await
+        .unwrap();
+    assert_eq!(mixed.core_rules, vec![law]);
+    assert_eq!(mixed.hits.len(), 2);
+    assert_eq!(mixed.hits[0], global.hits[0]);
+    assert_eq!(mixed.hits[1].memory.id, local.id);
+    assert_eq!(mixed.hits[1].outranked_by, None);
+}
+
 async fn recorded_store(
     dir: &tempfile::TempDir,
     vectors: impl IntoIterator<Item = (&str, Vec<f32>)>,
@@ -88,6 +269,119 @@ async fn recorded_store(
         )
         .await
         .unwrap()
+}
+
+async fn lexical_fixture(dir: &tempfile::TempDir, docs: &[&str]) -> SqliteStore {
+    recorded_store(
+        dir,
+        docs.iter()
+            .enumerate()
+            .map(|(index, text)| (*text, embedding(index + 1, 0.0))),
+        false,
+    )
+    .await
+}
+
+fn lexical_request(query: &str) -> SearchRequest {
+    SearchRequest {
+        rrf_override: Some(RrfWeights {
+            vector_weight: 0.0,
+            ..Default::default()
+        }),
+        ..search_request(query)
+    }
+}
+
+#[tokio::test]
+async fn expanded_project_neighbor_beats_a_newer_conflicting_global_hit() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = recorded_store(
+        &dir,
+        [
+            ("caching", embedding(1, 1.0)),
+            ("Use Redis for caching", embedding(1, 1.0)),
+            ("Use SQLite for caching", embedding(2, 0.60)),
+            ("Caching documentation", embedding(3, 0.59)),
+        ],
+        false,
+    )
+    .await;
+    let project = store
+        .create_project(NewProject {
+            name: "Caching".into(),
+            root_path: None,
+            color_hex: None,
+        })
+        .await
+        .unwrap();
+    let local = store
+        .save_memory(NewMemory {
+            project_id: Some(project.id),
+            ..new_memory("Use SQLite for caching")
+        })
+        .await
+        .unwrap()
+        .memory;
+    let global = store
+        .save_memory(new_memory("Use Redis for caching"))
+        .await
+        .unwrap()
+        .memory;
+    let unrelated = store
+        .save_memory(new_memory("Caching documentation"))
+        .await
+        .unwrap()
+        .memory;
+    store
+        .db
+        .write(move |conn| {
+            conn.execute(
+                "UPDATE memories SET updated_at = '2000-01-01T00:00:00Z' WHERE id = ?1",
+                [local.id.to_string()],
+            )
+            .unwrap();
+            for (id, weight) in [(local.id, 0.80), (unrelated.id, 0.90)] {
+                conn.execute(
+                    "INSERT INTO memory_edges VALUES (?1, ?2, 'semantic', ?3)",
+                    params![global.id.to_string(), id.to_string(), weight],
+                )
+                .unwrap();
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    let request = SearchRequest {
+        scope: ProjectScope::ProjectAndGlobal(project.id),
+        top_k: Some(2),
+        rrf_override: Some(RrfWeights {
+            fts_weight: 0.0,
+            ..Default::default()
+        }),
+        ..search_request("caching")
+    };
+    let direct = store.search(request.clone()).await.unwrap().hits;
+    assert_eq!(direct.len(), 1);
+    assert_eq!(direct[0].memory.id, global.id);
+    assert_eq!(direct[0].outranked_by, None);
+
+    let hits = store
+        .search(SearchRequest {
+            expand_graph: true,
+            ..request
+        })
+        .await
+        .unwrap()
+        .hits;
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0].memory.id, local.id);
+    assert_eq!(hits[0].related_to, Some(global.id));
+    assert_eq!(hits[0].outranked_by, None);
+    assert_eq!(hits[1].memory.id, global.id);
+    assert_eq!(hits[1].outranked_by, Some(local.id));
+    assert!(hits[1].score > hits[0].score);
+    assert!(hits[1].memory.updated_at > hits[0].memory.updated_at);
 }
 
 #[tokio::test]

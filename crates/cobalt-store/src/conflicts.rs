@@ -1,8 +1,10 @@
+use std::cmp::Reverse;
 use std::collections::HashSet;
 
 use cobalt_core::error::Result;
 use cobalt_core::ids::Id;
 use cobalt_core::model::ConflictPair;
+use cobalt_core::search::SearchHit;
 use rusqlite::{Connection, params};
 
 use crate::Retrieval;
@@ -119,29 +121,33 @@ fn opposed_verbs(a: &str, b: &str) -> bool {
 }
 
 pub(crate) fn reason(a: &str, b: &str) -> Option<&'static str> {
-    let a = tokens(a);
-    let b = tokens(b);
+    reason_tokens(&tokens(a), &tokens(b))
+}
+
+fn reason_tokens(a: &[String], b: &[String]) -> Option<&'static str> {
     let a_negative = a.iter().any(|word| negated(word));
     let b_negative = b.iter().any(|word| negated(word));
     if a_negative != b_negative {
         // Compare the assertion once polarity markers and supporting auxiliaries are removed.
-        let assertion = |words: Vec<String>| {
-            words.into_iter().filter(|word| {
-                !negated(word)
-                    && !matches!(
-                        word.as_str(),
-                        "do" | "does" | "did" | "sí" | "always" | "siempre"
-                    )
-            })
+        let assertion = |word: &&String| {
+            !negated(word)
+                && !matches!(
+                    word.as_str(),
+                    "do" | "does" | "did" | "sí" | "always" | "siempre"
+                )
         };
-        return assertion(a).eq(assertion(b)).then_some("negation");
+        return a
+            .iter()
+            .filter(assertion)
+            .eq(b.iter().filter(assertion))
+            .then_some("negation");
     }
     if a_negative || a == b {
         return None;
     }
     if a.len() == b.len()
         && a.iter()
-            .zip(&b)
+            .zip(b)
             .all(|(a, b)| a == b || (numeric_value(a) && numeric_value(b)))
         && a.iter()
             .any(|word| !numeric_value(word) && word.chars().any(char::is_alphabetic))
@@ -151,7 +157,7 @@ pub(crate) fn reason(a: &str, b: &str) -> Option<&'static str> {
     // The subject and choice/assignment verb must agree, as must any trailing condition.
     let common_prefix = a
         .iter()
-        .zip(&b)
+        .zip(b)
         .take_while(|(left, right)| left == right)
         .count();
     if let Some((left, right)) = a.get(common_prefix).zip(b.get(common_prefix))
@@ -180,6 +186,74 @@ pub(crate) fn reason(a: &str, b: &str) -> Option<&'static str> {
         }
     }
     None
+}
+
+pub(crate) fn order_search_hits(mut hits: Vec<SearchHit>) -> Vec<SearchHit> {
+    if hits.len() < 2 {
+        return hits;
+    }
+    let tokens: Vec<_> = hits
+        .iter()
+        .map(|hit| (!hit.memory.is_core_pin).then(|| tokens(&hit.memory.content)))
+        .collect();
+    let authority = |index: usize| {
+        let memory = &hits[index].memory;
+        (
+            memory.project_id.is_some(),
+            memory.updated_at,
+            Reverse(index),
+        )
+    };
+    let mut winners = vec![None; hits.len()];
+    for (i, a) in tokens.iter().enumerate() {
+        for (j, b) in tokens.iter().enumerate().skip(i + 1) {
+            let Some((a, b)) = a.as_deref().zip(b.as_deref()) else {
+                continue;
+            };
+            if reason_tokens(a, b).is_none() {
+                continue;
+            }
+            let (winner, loser) = if authority(i) > authority(j) {
+                (i, j)
+            } else {
+                (j, i)
+            };
+            // A hit can name only one winner. Keep its strongest direct contradiction.
+            if winners[loser].is_none_or(|current| authority(winner) > authority(current)) {
+                winners[loser] = Some(winner);
+            }
+        }
+    }
+    if winners.iter().all(Option::is_none) {
+        return hits;
+    }
+    let mut followers = vec![Vec::new(); hits.len()];
+    for (loser, winner) in winners.iter().enumerate() {
+        if let Some(winner) = *winner {
+            hits[loser].outranked_by = Some(hits[winner].memory.id);
+            followers[winner].push(loser);
+        }
+    }
+    // Emit each group at its first relevance position, winner first and followers adjacent.
+    let mut pending: Vec<_> = hits.into_iter().map(Some).collect();
+    let mut ordered = Vec::with_capacity(pending.len());
+    let mut stack = Vec::new();
+    for mut index in 0..pending.len() {
+        if pending[index].is_none() {
+            continue;
+        }
+        while let Some(winner) = winners[index] {
+            index = winner;
+        }
+        stack.push(index);
+        while let Some(index) = stack.pop() {
+            if let Some(hit) = pending[index].take() {
+                ordered.push(hit);
+                stack.extend(followers[index].iter().rev().copied());
+            }
+        }
+    }
+    ordered
 }
 
 pub(crate) fn scan(

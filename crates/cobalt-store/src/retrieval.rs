@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -16,7 +17,6 @@ use cobalt_core::traits::{ConfigRepository, SearchService, TokenCounter};
 use cobalt_embeddings::TiktokenCounter;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 
-use crate::db::sql_error;
 use crate::governance::cosine;
 use crate::memory::memory;
 use crate::repositories::{
@@ -24,6 +24,7 @@ use crate::repositories::{
 };
 use crate::vector::Scope;
 use crate::{Retrieval, SimilarityKind, SqliteStore, calibrated_similarity};
+use crate::{conflicts, db::sql_error};
 
 pub(crate) fn core_rules(
     conn: &Connection,
@@ -238,6 +239,35 @@ struct Candidate {
     fts: Option<(u32, f64)>,
 }
 
+// In a mixed project search, global hits need about 18% more relevance to lead.
+// Apply this once per hit, after relevance filtering, and exempt Nuclear Laws.
+const GLOBAL_SCOPE_WEIGHT: f64 = 0.85;
+
+fn scope_weight(mixed_scope: bool, memory: &Memory) -> f64 {
+    if mixed_scope && memory.project_id.is_none() && !memory.is_core_pin {
+        GLOBAL_SCOPE_WEIGHT
+    } else {
+        1.0
+    }
+}
+
+struct RankedHit {
+    hit: SearchHit,
+    exact_rank: f64,
+    scope_weight: f64,
+}
+
+fn rank_hits(a: &RankedHit, b: &RankedHit) -> Ordering {
+    b.hit
+        .memory
+        .is_core_pin
+        .cmp(&a.hit.memory.is_core_pin)
+        .then_with(|| a.exact_rank.total_cmp(&b.exact_rank))
+        .then_with(|| b.hit.score.total_cmp(&a.hit.score))
+        .then_with(|| b.scope_weight.total_cmp(&a.scope_weight))
+        .then_with(|| a.hit.memory.id.cmp(&b.hit.memory.id))
+}
+
 fn checked_weights(weights: &RrfWeights) -> Result<()> {
     if ![weights.k, weights.vector_weight, weights.fts_weight]
         .into_iter()
@@ -258,11 +288,12 @@ fn collect_hits(
     branch_id: Id,
     filter: &VectorFilter,
     top_k: u32,
-) -> Result<Vec<SearchHit>> {
+) -> Result<Vec<RankedHit>> {
     if top_k == 0 || req.query.trim().is_empty() {
         return Ok(Vec::new());
     }
     let weights = req.rrf_override.as_ref().unwrap_or(&settings.rrf);
+    let mixed_scope = matches!(req.scope, ProjectScope::ProjectAndGlobal(_));
     let lexical_limit = top_k.saturating_mul(4).max(32);
     // The wider ANN shortlist leaves room for prose after filtering structured chunks.
     let vector_limit = lexical_limit.max(64);
@@ -371,45 +402,41 @@ fn collect_hits(
         } else {
             0.0
         };
-        // Compare exact matches by their lexical rank before considering semantic evidence.
-        let exact_rank = fts_rank.filter(|_| exact);
-        hits.push((
+        let scope_weight = scope_weight(mixed_scope, &memory);
+        // Preserve the exact-match tier and penalize its reciprocal lexical rank too.
+        let exact_rank = fts_rank.filter(|_| exact).map_or(f64::INFINITY, |rank| {
+            let rank = f64::from(rank);
+            rank + (weights.k + rank) * ((1.0 - scope_weight) / scope_weight)
+        });
+        hits.push(RankedHit {
             exact_rank,
-            SearchHit {
+            scope_weight,
+            hit: SearchHit {
                 memory,
-                score: rrf_score * confidence + boost,
+                score: (rrf_score * confidence + boost) * scope_weight,
                 rrf_score,
                 vector_rank,
                 fts_rank,
                 similarity_score: candidate.vector.map_or(0.0, |entry| entry.similarity),
                 bm25: candidate.fts.map(|(_, score)| score),
                 related_to: None,
+                outranked_by: None,
             },
-        ));
+        });
     }
-    hits.sort_by(|(exact_a, a), (exact_b, b)| {
-        b.memory
-            .is_core_pin
-            .cmp(&a.memory.is_core_pin)
-            .then_with(|| {
-                exact_a
-                    .unwrap_or(u32::MAX)
-                    .cmp(&exact_b.unwrap_or(u32::MAX))
-            })
-            .then_with(|| b.score.total_cmp(&a.score))
-            .then_with(|| a.memory.id.cmp(&b.memory.id))
-    });
+    hits.sort_by(rank_hits);
     hits.truncate(top_k as usize);
-    Ok(hits.into_iter().map(|(_, hit)| hit).collect())
+    Ok(hits)
 }
 
 fn expand_hits(
     conn: &Connection,
-    hits: &mut Vec<SearchHit>,
+    hits: &mut Vec<RankedHit>,
     top_k: usize,
     scope: Scope,
     (retrieval, query): (&Retrieval, &[f32]),
     min_similarity: f64,
+    mixed_scope: bool,
 ) -> Result<()> {
     if hits.is_empty() || hits.len() >= top_k {
         return Ok(());
@@ -429,18 +456,28 @@ fn expand_hits(
                  SELECT m.superseded_by, v.weight, 1 FROM versions v JOIN memories m ON m.id = v.id
                  WHERE m.status = 'superseded' AND m.superseded_by IS NOT NULL
              )
-             SELECT m.*, max(weight) AS edge_weight FROM versions JOIN memories m ON m.id = versions.id
+             SELECT m.*, max(weight) * CASE WHEN m.project_id IS NULL THEN ?2 ELSE 1.0 END AS edge_weight
+             FROM versions JOIN memories m ON m.id = versions.id
              WHERE {} AND m.is_core_pin = 0 AND weight > 0
-             GROUP BY m.id ORDER BY max(successor) DESC, edge_weight DESC, m.id",
+             GROUP BY m.id
+             ORDER BY max(successor) DESC, edge_weight DESC,
+                      (?2 < 1.0 AND m.project_id IS NULL), m.id",
             scope.clause
         ))
         .map_err(sql_error)?;
-    let mut seen: HashSet<_> = hits.iter().map(|hit| hit.memory.id).collect();
+    let mut seen: HashSet<_> = hits.iter().map(|ranked| ranked.hit.memory.id).collect();
     let direct_count = hits.len();
+    let global_weight = if mixed_scope {
+        GLOBAL_SCOPE_WEIGHT
+    } else {
+        1.0
+    };
     for index in 0..direct_count {
-        let parent = hits[index].memory.id;
-        let parent_score = hits[index].score;
-        let args = [Value::Text(parent.to_string())]
+        let ranked = &hits[index];
+        let parent = ranked.hit.memory.id;
+        // The neighbor's scope determines its penalty regardless of the parent's scope.
+        let parent_score = ranked.hit.score / ranked.scope_weight;
+        let args = [Value::Text(parent.to_string()), Value::Real(global_weight)]
             .into_iter()
             .chain(scope.params.iter().cloned());
         let mut rows = neighbors
@@ -474,15 +511,20 @@ fn expand_hits(
                     continue;
                 }
                 seen.insert(memory.id);
-                hits.push(SearchHit {
-                    memory,
-                    score: parent_score * weight,
-                    similarity_score: similarity,
-                    vector_rank: None,
-                    fts_rank: None,
-                    bm25: None,
-                    rrf_score: 0.0,
-                    related_to: Some(parent),
+                hits.push(RankedHit {
+                    exact_rank: f64::INFINITY,
+                    scope_weight: scope_weight(mixed_scope, &memory),
+                    hit: SearchHit {
+                        memory,
+                        score: parent_score * weight,
+                        similarity_score: similarity,
+                        vector_rank: None,
+                        fts_rank: None,
+                        bm25: None,
+                        rrf_score: 0.0,
+                        related_to: Some(parent),
+                        outranked_by: None,
+                    },
                 });
                 remaining -= 1;
                 if remaining == 0 {
@@ -493,6 +535,15 @@ fn expand_hits(
         if hits.len() == top_k {
             break;
         }
+    }
+    if mixed_scope
+        && hits.len() > direct_count
+        && hits.iter().any(|ranked| ranked.scope_weight < 1.0)
+        && hits
+            .iter()
+            .any(|ranked| ranked.hit.memory.project_id.is_some() && !ranked.hit.memory.is_core_pin)
+    {
+        hits.sort_by(rank_hits);
     }
     Ok(())
 }
@@ -591,8 +642,12 @@ impl SearchService for SqliteStore {
                         Scope::new(branch_id, &active_filter, &req.filter),
                         vector,
                         settings.min_similarity,
+                        matches!(req.scope, ProjectScope::ProjectAndGlobal(_)),
                     )?;
                 }
+                let hits = conflicts::order_search_hits(
+                    hits.into_iter().map(|ranked| ranked.hit).collect(),
+                );
                 let savings = savings(
                     &tx,
                     core_rules.iter().chain(hits.iter().map(|hit| &hit.memory)),

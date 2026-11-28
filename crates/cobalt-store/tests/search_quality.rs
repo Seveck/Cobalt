@@ -5,8 +5,8 @@
 //! The TSV has [off_topic], [identifier], and [natural] sections. Each row is a query,
 //! followed for labeled hits by a tab and comma-separated acceptable memory UUIDs.
 //! Keep brain-derived labels outside the repository.
-//! Run `synthetic_search_quality` in the same way with just the installed model
-//! to compare expansion on the checked-in bilingual corpus.
+//! Run the `synthetic` tests in the same way with just the installed model to
+//! compare expansion in global and mixed scopes on the checked-in bilingual corpus.
 
 use std::collections::HashSet;
 use std::fs;
@@ -17,7 +17,7 @@ use std::time::Instant;
 use cobalt_core::engine::MODEL_MULTILINGUAL_E5_SMALL;
 use cobalt_core::enums::{MemoryCategory, MemoryStatus, TokenEncoding};
 use cobalt_core::ids::{Id, MAIN_BRANCH_ID};
-use cobalt_core::model::NewMemory;
+use cobalt_core::model::{NewMemory, NewProject};
 use cobalt_core::search::{ProjectScope, SearchRequest};
 use cobalt_core::traits::{Embedder, MemoryRepository, ProjectRepository, SearchService};
 use cobalt_embeddings::{FastembedEmbedder, TiktokenCounter};
@@ -193,7 +193,17 @@ async fn evaluate(
 
 #[tokio::test]
 #[ignore = "requires installed multilingual-e5-small"]
-async fn synthetic_search_quality() {
+async fn synthetic_search_quality() -> Result<(), Box<dyn std::error::Error>> {
+    synthetic_quality(false).await
+}
+
+#[tokio::test]
+#[ignore = "requires installed multilingual-e5-small"]
+async fn synthetic_mixed_scope_search_quality() -> Result<(), Box<dyn std::error::Error>> {
+    synthetic_quality(true).await
+}
+
+async fn synthetic_quality(mixed_scope: bool) -> Result<(), Box<dyn std::error::Error>> {
     let corpus = [
         (
             "PAYMENT_QUEUE",
@@ -268,29 +278,43 @@ async fn synthetic_search_quality() {
         "What makes Neptune blue?",
         "¿Cómo preparar gazpacho andaluz?",
     ];
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir()?;
     let path = dir.path().join("cobalt.db");
-    let embedder = Arc::new(FastembedEmbedder::from_catalog(MODEL_MULTILINGUAL_E5_SMALL).unwrap());
-    embedder.embed_query("warm up").await.unwrap();
+    let embedder = Arc::new(FastembedEmbedder::from_catalog(
+        MODEL_MULTILINGUAL_E5_SMALL,
+    )?);
+    embedder.embed_query("warm up").await?;
     let store = SqliteStore::open_at(path.clone())
-        .await
-        .unwrap()
+        .await?
         .with_usearch(
             embedder,
             Arc::new(TiktokenCounter::new(TokenEncoding::Cl100kBase)),
         )
-        .await
-        .unwrap();
-    let connection = rusqlite::Connection::open(path).unwrap();
+        .await?;
+    let connection = rusqlite::Connection::open(path)?;
+    let project = if mixed_scope {
+        Some(
+            store
+                .create_project(NewProject {
+                    name: "Search quality".into(),
+                    root_path: None,
+                    color_hex: None,
+                })
+                .await?
+                .id,
+        )
+    } else {
+        None
+    };
     let mut cases: Vec<_> = off_topic
         .into_iter()
         .map(|query| (0, query, Vec::new()))
         .collect();
-    for (identifier, query, summary, related) in corpus {
+    for (index, (identifier, query, summary, related)) in corpus.into_iter().enumerate() {
         let note = |content: &str| NewMemory {
             content: content.into(),
             category: MemoryCategory::Note,
-            project_id: None,
+            project_id: if index % 2 == 0 { project } else { None },
             branch_id: None,
             source_doc_id: None,
             source_type: None,
@@ -300,17 +324,17 @@ async fn synthetic_search_quality() {
             reusable_snippet: None,
             source_client: None,
         };
-        let direct = store.save_memory(note(summary)).await.unwrap().memory.id;
-        let neighbor = store.save_memory(note(related)).await.unwrap().memory.id;
-        connection
-            .execute(
-                "INSERT INTO memory_edges (source_id, target_id, edge_type, weight)
+        let direct = store.save_memory(note(summary)).await?.memory.id;
+        let neighbor = store.save_memory(note(related)).await?.memory.id;
+        connection.execute(
+            "INSERT INTO memory_edges (source_id, target_id, edge_type, weight)
              VALUES (?1, ?2, 'same_project', 0.8)",
-                [direct.to_string(), neighbor.to_string()],
-            )
-            .unwrap();
+            [direct.to_string(), neighbor.to_string()],
+        )?;
         cases.push((1, identifier, vec![direct]));
         cases.push((2, query, vec![direct]));
     }
-    compare_expansion(&store, ProjectScope::Global, &cases).await;
+    let scope = project.map_or(ProjectScope::Global, ProjectScope::ProjectAndGlobal);
+    compare_expansion(&store, scope, &cases).await;
+    Ok(())
 }
