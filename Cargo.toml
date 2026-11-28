@@ -50,6 +50,14 @@ unwrap_used = "warn"
 # Keeps debug builds light on 8 GB machines.
 debug = "line-tables-only"
 
+# Similarity scans (Limpiar cerebro, contradictions) and vector math are ~15x slower unoptimized;
+# optimize them even in `tauri dev` so the dev app feels like the real one.
+[profile.dev.package.cobalt-store]
+opt-level = 3
+
+[profile.dev.package.cobalt-embeddings]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
